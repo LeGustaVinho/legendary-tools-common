@@ -1,0 +1,20 @@
+{
+  "name": "com.legustavinho.legendary-tools-common",
+  "displayName": "Legendary Tools - Common",
+  "version": "1.0",
+  "unity": "2018.4",
+  "description": "",
+  "keywords": [
+  ],
+  "category": "Extensions",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LeGustaVinho/legendary-tools-common.git"
+  },
+  "dependencies": {
+  },
+  "author": {
+    "name": "LeGustaVinho",
+    "email": "not available"
+  }
+}
