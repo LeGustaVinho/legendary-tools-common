@@ -1,6 +1,8 @@
 {
     "name": "LegendaryTools.Common.Editor",
-    "references": [],
+    "references": [
+        "GUID:2247f345c1389cb428906dc038800b93"
+    ],
     "includePlatforms": [
         "Editor"
     ],
