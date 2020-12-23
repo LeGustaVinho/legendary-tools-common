@@ -24,7 +24,7 @@ public class SingletonScriptableObjectAttribute : Attribute
         }
     }
     
-    internal string AssetPathWithAssetsPrefix
+    public string AssetPathWithAssetsPrefix
     {
         get
         {
@@ -34,7 +34,7 @@ public class SingletonScriptableObjectAttribute : Attribute
         }
     }
     
-    internal string AssetPathWithoutAssetsPrefix
+    public string AssetPathWithoutAssetsPrefix
     {
         get
         {
