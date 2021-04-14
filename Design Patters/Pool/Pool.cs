@@ -109,7 +109,7 @@ namespace LegendaryTools
         {
             if (instance == null)
             {
-                Debug.LogError("[Pool:Instantiate()] -> Instance cant be null.");
+                Debug.LogError("[Pool:Destroy()] -> Instance cant be null.");
                 return;
             }
 
@@ -157,8 +157,9 @@ namespace LegendaryTools
 
             if (typeof(T).IsSameOrSubclass(typeof(Component)))
             {
-                PoolGameObject pool = CreateOrGetPool((instance as Component).gameObject);
-                pool.AddInstance(instance);
+                GameObject instanceGameObject = (instance as Component).gameObject;
+                PoolGameObject pool = CreateOrGetPool(instanceGameObject);
+                pool.AddInstance(instanceGameObject);
             }
             else if (typeof(T).IsSameOrSubclass(typeof(GameObject)))
             {
@@ -215,7 +216,7 @@ namespace LegendaryTools
             {
                 objectId = poolReferenceComp.PrefabID;
             }
-            
+
             if (GameObjectPools.TryGetValue(objectId, out PoolGameObject gameObjPool))
             {
                 return gameObjPool;

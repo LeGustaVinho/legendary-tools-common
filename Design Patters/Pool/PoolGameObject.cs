@@ -17,8 +17,14 @@ namespace LegendaryTools
         {
             GameObject obj = GameObject.Instantiate(Original);
             obj.name = Original.name + " # " + (ActiveInstances.Count + InactiveInstances.Count);
-            GameObjectPoolReference reference = obj.AddComponent<GameObjectPoolReference>();
-            reference.PrefabID = Original.GetHashCode();
+
+            GameObjectPoolReference reference = obj.GetComponent<GameObjectPoolReference>();
+            if (reference == null)
+            {
+                reference = obj.AddComponent<GameObjectPoolReference>();
+                reference.PrefabID = Original.GetHashCode();
+            }
+
             NotifyOnConstruct(obj);
             return obj;
         }
