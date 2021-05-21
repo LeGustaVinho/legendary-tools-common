@@ -19,7 +19,7 @@ namespace LegendaryTools
         
         private static readonly List<PoolObject> AllPools = new List<PoolObject>();
 
-        protected PoolObject()
+        public PoolObject()
         {
             AllPools.Add(this);
         }
@@ -142,6 +142,7 @@ namespace LegendaryTools
         {
             InactiveInstances.Clear();
             ActiveInstances.Clear();
+            Instance = null;
         }
 
         public void FillInstances(List<T> instances)

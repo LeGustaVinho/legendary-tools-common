@@ -1,5 +1,7 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace LegendaryTools
 {
@@ -7,26 +9,30 @@ namespace LegendaryTools
     {
         private readonly GameObject Original;
 
-        public PoolGameObject(GameObject original)
+        public PoolGameObject(GameObject original) : base()
         {
-            Instance = this;
             Original = original;
         }
 
         protected override GameObject NewObject()
         {
-            GameObject obj = GameObject.Instantiate(Original);
-            obj.name = Original.name + " # " + (ActiveInstances.Count + InactiveInstances.Count);
-
-            GameObjectPoolReference reference = obj.GetComponent<GameObjectPoolReference>();
-            if (reference == null)
+            if (Original != null)
             {
-                reference = obj.AddComponent<GameObjectPoolReference>();
-                reference.PrefabID = Original.GetHashCode();
-            }
+                GameObject obj = GameObject.Instantiate(Original);
+                obj.name = Original.name + " # " + (ActiveInstances.Count + InactiveInstances.Count);
 
-            NotifyOnConstruct(obj);
-            return obj;
+                GameObjectPoolReference reference = obj.GetComponent<GameObjectPoolReference>();
+                if (reference == null)
+                {
+                    reference = obj.AddComponent<GameObjectPoolReference>();
+                    reference.PrefabID = Original.GetHashCode();
+                }
+
+                NotifyOnConstruct(obj);
+                return obj;
+            }
+            
+            throw new Exception("[PoolGameObject] -> Original prefab cannot be null.");
         }
 
         public override GameObject CreateAs()
@@ -82,11 +88,7 @@ namespace LegendaryTools
             {
                 if (instances[i] != null)
                 {
-#if UNITY_EDITOR
-                    Object.DestroyImmediate(instances[i]);
-#else
                     Object.Destroy(instances[i]);
-#endif
                 }
             }
             

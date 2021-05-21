@@ -116,12 +116,12 @@ namespace LegendaryTools
             if (typeof(T).IsSameOrSubclass(typeof(Component)))
             {
                 GameObject go = (instance as Component)?.gameObject;
-                CreateOrGetPool(go).Recycle(go);
+                GetPool(go)?.Recycle(go);
             }
             else if (typeof(T).IsSameOrSubclass(typeof(GameObject)))
             {
                 GameObject go = instance as GameObject;
-                CreateOrGetPool(go).Recycle(go);
+                GetPool(go)?.Recycle(go);
             }
         }
 
@@ -183,26 +183,27 @@ namespace LegendaryTools
 
             if (typeof(T).IsSameOrSubclass(typeof(Component)))
             {
-                PoolGameObject pool = CreateOrGetPool((instance as Component).gameObject);
-                pool.Clear();
+                PoolGameObject pool = GetPool((instance as Component).gameObject);
+                pool?.Clear();
             }
             else if (typeof(T).IsSameOrSubclass(typeof(GameObject)))
             {
-                PoolGameObject pool = CreateOrGetPool(instance as GameObject);
-                pool.Clear();
+                PoolGameObject pool = GetPool(instance as GameObject);
+                pool?.Clear();
             }
             else
             {
-                CreateOrGetPool<T>().Clear();
+                PoolObject<T>.Instance?.Clear();
             }
         }
         
         public static void ClearAll()
         {
             PoolObject.ClearAllPools();
+            GameObjectPools.Clear();
         }
-        
-        private static PoolGameObject CreateOrGetPool(GameObject gameObject)
+
+        public static PoolGameObject GetPool(GameObject gameObject)
         {
             if (gameObject == null)
             {
@@ -210,6 +211,32 @@ namespace LegendaryTools
                 return null;
             }
 
+            int objectId = GetPrefabId(gameObject);
+
+            if (GameObjectPools.TryGetValue(objectId, out PoolGameObject gameObjPool))
+            {
+                return gameObjPool;
+            }
+
+            return null;
+        }
+        
+        private static PoolGameObject CreateOrGetPool(GameObject gameObject)
+        {
+            PoolGameObject pool = GetPool(gameObject);
+
+            if (pool == null)
+            {
+                int objectId = GetPrefabId(gameObject);
+                GameObjectPools.Add(objectId, new PoolGameObject(gameObject));
+                return GameObjectPools[objectId];
+            }
+
+            return pool;
+        }
+
+        private static int GetPrefabId(GameObject gameObject)
+        {
             int objectId = gameObject.GetHashCode();
             GameObjectPoolReference poolReferenceComp = gameObject.GetComponent<GameObjectPoolReference>();
             if (poolReferenceComp != null)
@@ -217,13 +244,7 @@ namespace LegendaryTools
                 objectId = poolReferenceComp.PrefabID;
             }
 
-            if (GameObjectPools.TryGetValue(objectId, out PoolGameObject gameObjPool))
-            {
-                return gameObjPool;
-            }
-
-            GameObjectPools.Add(objectId, new PoolGameObject(gameObject));
-            return GameObjectPools[objectId];
+            return objectId;
         }
 
         private static PoolObject<T> CreateOrGetPool<T>()
