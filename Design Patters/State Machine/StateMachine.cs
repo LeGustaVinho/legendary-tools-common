@@ -5,13 +5,13 @@ using UnityEngine;
 
 namespace LegendaryTools
 {
-    public struct StateLog
+    public struct StateLog<TState, TTrigger>
     {
-        public readonly State State;
-        public readonly StateConnection Connection;
+        public readonly State<TState, TTrigger> State;
+        public readonly StateConnection<TState, TTrigger> Connection;
         public readonly object Arg;
 
-        public StateLog(State state, StateConnection connection, object arg)
+        public StateLog(State<TState, TTrigger> state, StateConnection<TState, TTrigger> connection, object arg)
         {
             State = state;
             Connection = connection;
@@ -20,25 +20,28 @@ namespace LegendaryTools
     }
 
     [Serializable]
-    public class StateMachine : LinkedGraph<StateMachine, State, StateConnection, StateConnectionContext>
+    public class StateMachine<TState, TTrigger> : LinkedGraph<StateMachine<TState, TTrigger>, 
+        State<TState, TTrigger>, 
+        StateConnection<TState, TTrigger>, 
+        StateConnectionContext<TTrigger>>
     {
-        private static readonly string ANY_STATE_DEFAULT_NAME = "Any State";
-
-        public readonly State AnyState;
-        private readonly List<StateLog> history = new List<StateLog>();
+        public readonly State<TState, TTrigger> AnyState;
+        private readonly List<StateLog<TState, TTrigger>> history = new List<StateLog<TState, TTrigger>>();
 
         private int current = -1;
         public string Name;
 
-        public StateMachine(string name, State state = null) : base(state)
+        public event Action<State<TState, TTrigger>, StateEventType, object> OnStateMachineTransit; 
+
+        public StateMachine(string name, TState anyStateName, State<TState, TTrigger> state = null) : base(state)
         {
             Name = name;
-            AnyState = new State(ANY_STATE_DEFAULT_NAME, this, true);
+            AnyState = new State<TState, TTrigger>(anyStateName, this, true);
         }
 
         public bool IsStarted => current != -1;
 
-        public void Trigger(string triggerName, object arg = null)
+        public void Trigger(TTrigger triggerName, object arg = null)
         {
             if (!IsStarted)
             {
@@ -46,12 +49,12 @@ namespace LegendaryTools
                 return;
             }
 
-            StateConnection trigger = history[current].State.GetOutboundConnection(triggerName);
+            StateConnection<TState, TTrigger> trigger = history[current].State.GetOutboundConnection(triggerName);
 
             Trigger(trigger, arg);
         }
 
-        public void Trigger(StateConnection trigger, object arg = null)
+        public void Trigger(StateConnection<TState, TTrigger> trigger, object arg = null)
         {
             if (!IsStarted)
             {
@@ -65,24 +68,24 @@ namespace LegendaryTools
                 return;
             }
 
-            State targetState = GetDestination(trigger, history[current].State);
+            State<TState, TTrigger> targetState = GetDestination(trigger, history[current].State);
 
             Transit(trigger, targetState, arg);
         }
 
-        public void Transit(StateConnection trigger, State targetState, object arg)
+        public void Transit(StateConnection<TState, TTrigger> trigger, State<TState, TTrigger> targetState, object arg)
         {
-            transit(trigger, targetState, arg, true, true, true);
+            Transit(trigger, targetState, arg, true, true, true);
         }
 
-        public void TransitTo(State targetState, object arg = null)
+        public void TransitTo(State<TState, TTrigger> targetState, object arg = null)
         {
-            transit(null, targetState, arg, true, true, true);
+            Transit(null, targetState, arg, true, true, true);
         }
 
-        public void DestroyState(State state)
+        public void DestroyState(State<TState, TTrigger> state)
         {
-            StateConnection[] allConnections = state.AllConnections;
+            StateConnection<TState, TTrigger>[] allConnections = state.AllConnections;
             for (int i = 0; i < allConnections.Length; i++)
             {
                 allConnections[i].Disconnect();
@@ -116,11 +119,11 @@ namespace LegendaryTools
                 return;
             }
 
-            State[] graphStateHierarchy = history[current].State.NodeHierarchy;
+            State<TState, TTrigger>[] graphStateHierarchy = history[current].State.NodeHierarchy;
             Array.Reverse(graphStateHierarchy);
             for (int i = 0; i < graphStateHierarchy.Length; i++)
             {
-                graphStateHierarchy[i].invokeOnStateEnter(param);
+                graphStateHierarchy[i].InvokeOnStateEnter(param);
             }
 
             history.Clear();
@@ -129,15 +132,15 @@ namespace LegendaryTools
 
         public void MoveBack()
         {
-            tryMoveInHistory(current - 1);
+            TryMoveInHistory(current - 1);
         }
 
         public void MoveForward()
         {
-            tryMoveInHistory(current + 1);
+            TryMoveInHistory(current + 1);
         }
 
-        public override void Add(State newNode)
+        public override void Add(State<TState, TTrigger> newNode)
         {
             if (startOrRootNode != null && startOrRootNode.IsAnyState)
             {
@@ -147,14 +150,14 @@ namespace LegendaryTools
             base.Add(newNode);
         }
 
-        private void tryMoveInHistory(int targetIndex)
+        private void TryMoveInHistory(int targetIndex)
         {
             if (targetIndex < 0 || targetIndex > history.Count - 1)
             {
                 return;
             }
 
-            transit(null, history[targetIndex].State, history[targetIndex].Arg, true, false, true);
+            Transit(null, history[targetIndex].State, history[targetIndex].Arg, true, false, true);
             current = targetIndex;
         }
 
@@ -165,13 +168,16 @@ namespace LegendaryTools
                 return;
             }
 
-            history[current].State.invokeOnStateUpdate(arg);
+            history[current].State.InvokeOnStateUpdate(arg);
+            OnStateMachineTransit?.Invoke(history[current].State, StateEventType.Enter, arg);
         }
 
-        public override StateConnection CreateConnection(State from, State to, StateConnectionContext context,
+        public override StateConnection<TState, TTrigger> CreateConnection(State<TState, TTrigger> from, 
+            State<TState, TTrigger> to, 
+            StateConnectionContext<TTrigger> context,
             NodeConnectionDirection direction = NodeConnectionDirection.Bidirectional, float weight = 0)
         {
-            return new StateConnection(from, to, context, direction, weight);
+            return new StateConnection<TState, TTrigger>(from, to, context, direction, weight);
         }
 
         public override string ToString()
@@ -179,7 +185,9 @@ namespace LegendaryTools
             return base.ToString() + ", Name: " + Name;
         }
 
-        private State GetDestination(string trigger, State currentState, out StateConnection stateConnection)
+        private State<TState, TTrigger> GetDestination(TTrigger trigger, 
+            State<TState, TTrigger> currentState, 
+            out StateConnection<TState, TTrigger> stateConnection)
         {
             stateConnection = currentState.GetOutboundConnection(trigger);
 
@@ -192,7 +200,8 @@ namespace LegendaryTools
             return null;
         }
 
-        private State GetDestination(StateConnection connection, State currentState)
+        private State<TState, TTrigger> GetDestination(StateConnection<TState, TTrigger> connection, 
+            State<TState, TTrigger> currentState)
         {
             switch (connection.Direction)
             {
@@ -206,7 +215,11 @@ namespace LegendaryTools
             }
         }
 
-        private void transit(StateConnection trigger, State targetState, object arg, bool callExit, bool modifyHistory,
+        private void Transit(StateConnection<TState, TTrigger> trigger, 
+            State<TState, TTrigger> targetState, 
+            object arg, 
+            bool callExit, 
+            bool modifyHistory,
             bool callEnter)
         {
             if (trigger != null)
@@ -218,11 +231,11 @@ namespace LegendaryTools
                 }
             }
 
-            State nearestAncestor = current >= 0 && history.Count > 0
+            State<TState, TTrigger> nearestAncestor = current >= 0 && history.Count > 0
                 ? history[current].State.FindNearestAncestor(targetState)
                 : null;
 
-            State[] graphStateHierarchy;
+            State<TState, TTrigger>[] graphStateHierarchy;
             if (callExit)
             {
                 if (current >= 0 && history.Count > 0)
@@ -231,7 +244,8 @@ namespace LegendaryTools
                     Array.Reverse(graphStateHierarchy);
                     for (int i = 0; i < graphStateHierarchy.Length; i++)
                     {
-                        graphStateHierarchy[i].invokeOnStateExit(arg);
+                        graphStateHierarchy[i].InvokeOnStateExit(arg);
+                        OnStateMachineTransit?.Invoke(graphStateHierarchy[i], StateEventType.Exit, arg);
                     }
                 }
             }
@@ -243,7 +257,7 @@ namespace LegendaryTools
                     history.RemoveRange(current + 1, history.Count - (current + 1));
                 }
 
-                history.Add(new StateLog(targetState, trigger, arg));
+                history.Add(new StateLog<TState, TTrigger>(targetState, trigger, arg));
                 current = history.Count - 1;
             }
 
@@ -253,7 +267,8 @@ namespace LegendaryTools
 
                 for (int i = 0; i < graphStateHierarchy.Length; i++)
                 {
-                    graphStateHierarchy[i].invokeOnStateEnter(arg);
+                    graphStateHierarchy[i].InvokeOnStateEnter(arg);
+                    OnStateMachineTransit?.Invoke(graphStateHierarchy[i], StateEventType.Enter, arg);
                 }
             }
         }

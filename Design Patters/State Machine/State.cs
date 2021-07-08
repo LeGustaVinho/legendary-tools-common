@@ -5,22 +5,32 @@ using UnityEngine;
 
 namespace LegendaryTools
 {
-    [Serializable]
-    public class State : LinkedNode<StateMachine, State, StateConnection, StateConnectionContext>
+    public enum StateEventType
     {
-        public readonly string Name;
+        Enter,
+        Update,
+        Exit,
+    }
+    
+    [Serializable]
+    public class State<TState,TTrigger> : LinkedNode<StateMachine<TState, TTrigger>, 
+        State<TState,TTrigger>, 
+        StateConnection<TState,TTrigger>, 
+        StateConnectionContext<TTrigger>>
+    {
+        public readonly TState Name;
 
-        private readonly Dictionary<string, StateConnection> outboundConnectionsLookup =
-            new Dictionary<string, StateConnection>();
+        private readonly Dictionary<TTrigger, StateConnection<TState,TTrigger>> outboundConnectionsLookup =
+            new Dictionary<TTrigger, StateConnection<TState,TTrigger>>();
 
-        public State(string name, StateMachine owner = null) : base(owner)
+        public State(TState name, StateMachine<TState, TTrigger> owner = null) : base(owner)
         {
             Name = name;
-            OnConnectionAdd += onConnectionAdd;
-            OnConnectionRemove += onConnectionRemove;
+            base.OnConnectionAdd += OnConnectionAdd;
+            base.OnConnectionRemove += OnConnectionRemove;
         }
 
-        internal State(string name, StateMachine owner, bool isAnyState) : this(name, owner)
+        internal State(TState name, StateMachine<TState, TTrigger> owner, bool isAnyState) : this(name, owner)
         {
             IsAnyState = isAnyState;
         }
@@ -31,7 +41,8 @@ namespace LegendaryTools
         public event Action<object> OnStateUpdateEvent;
         public event Action<object> OnStateExitEvent;
 
-        public StateConnection ConnectTo(State targetState, string triggerName,
+        public StateConnection<TState,TTrigger> ConnectTo(State<TState,TTrigger> targetState, 
+            TTrigger triggerName,
             NodeConnectionDirection direction = NodeConnectionDirection.Bidirectional)
         {
             if (targetState.HasSubGraph)
@@ -46,8 +57,8 @@ namespace LegendaryTools
                 return null;
             }
 
-            StateMachine[] targetStateMachineHierarchy = targetState.Owner.GraphHierarchy;
-            StateMachine[] selfStateMachineHierarchy = Owner.GraphHierarchy;
+            StateMachine<TState, TTrigger>[] targetStateMachineHierarchy = targetState.Owner.GraphHierarchy;
+            StateMachine<TState, TTrigger>[] selfStateMachineHierarchy = Owner.GraphHierarchy;
             if (targetStateMachineHierarchy != null &&
                 selfStateMachineHierarchy != null &&
                 targetStateMachineHierarchy.Length > 0
@@ -91,34 +102,35 @@ namespace LegendaryTools
                 }
             }
 
-            StateConnectionContext context;
+            StateConnectionContext<TTrigger> context;
             context.Trigger = triggerName;
 
             return base.ConnectTo(targetState, context, direction);
         }
 
-        public StateMachine CreateSubStateMachine()
+        public StateMachine<TState, TTrigger> CreateSubStateMachine()
         {
-            StateMachine newStateMachine = new StateMachine(Name, this);
+            
+            StateMachine<TState, TTrigger> newStateMachine = new StateMachine<TState, TTrigger>(Owner.Name, Owner.AnyState.Name,this);
             AddSubGraph(newStateMachine);
 
             return newStateMachine;
         }
 
-        public StateConnection GetOutboundConnection(string trigger)
+        public StateConnection<TState, TTrigger> GetOutboundConnection(TTrigger trigger)
         {
             return outboundConnectionsLookup.ContainsKey(trigger) ? outboundConnectionsLookup[trigger] : null;
         }
 
-        public State FindNearestAncestor(State relativeTo)
+        public State<TState, TTrigger> FindNearestAncestor(State<TState, TTrigger> relativeTo)
         {
-            State[] relativeHierarchy = relativeTo.NodeHierarchy;
-            State[] currentStateHierarchy = NodeHierarchy;
+            State<TState, TTrigger>[] relativeHierarchy = relativeTo.NodeHierarchy;
+            State<TState, TTrigger>[] currentStateHierarchy = NodeHierarchy;
 
-            State[] shortestHierarchy = relativeHierarchy.Length > currentStateHierarchy.Length
+            State<TState, TTrigger>[] shortestHierarchy = relativeHierarchy.Length > currentStateHierarchy.Length
                 ? currentStateHierarchy
                 : relativeHierarchy;
-            HashSet<State> longestHierarchy = new HashSet<State>(relativeHierarchy.Length > currentStateHierarchy.Length
+            HashSet<State<TState, TTrigger>> longestHierarchy = new HashSet<State<TState, TTrigger>>(relativeHierarchy.Length > currentStateHierarchy.Length
                 ? relativeHierarchy
                 : currentStateHierarchy);
 
@@ -150,22 +162,22 @@ namespace LegendaryTools
         {
         }
 
-        internal void invokeOnStateEnter(object arg)
+        internal void InvokeOnStateEnter(object arg)
         {
             OnStateEnter(arg);
         }
 
-        internal void invokeOnStateUpdate(object arg)
+        internal void InvokeOnStateUpdate(object arg)
         {
             OnStateUpdate(arg);
         }
 
-        internal void invokeOnStateExit(object arg)
+        internal void InvokeOnStateExit(object arg)
         {
             OnStateExit(arg);
         }
 
-        private void onConnectionAdd(StateConnection stateConnection)
+        private void OnConnectionAdd(StateConnection<TState, TTrigger> stateConnection)
         {
             if (stateConnection.From == this)
             {
@@ -173,7 +185,7 @@ namespace LegendaryTools
             }
         }
 
-        private void onConnectionRemove(StateConnection stateConnection)
+        private void OnConnectionRemove(StateConnection<TState, TTrigger> stateConnection)
         {
             if (stateConnection.From == this)
             {
