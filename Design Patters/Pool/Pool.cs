@@ -181,19 +181,30 @@ namespace LegendaryTools
                 return;
             }
 
+            int? objectId = null;
             if (typeof(T).IsSameOrSubclass(typeof(Component)))
             {
                 PoolGameObject pool = GetPool((instance as Component).gameObject);
                 pool?.Clear();
+                objectId = GetPrefabId((instance as Component).gameObject);
             }
             else if (typeof(T).IsSameOrSubclass(typeof(GameObject)))
             {
                 PoolGameObject pool = GetPool(instance as GameObject);
                 pool?.Clear();
+                objectId = GetPrefabId(instance as GameObject);
             }
             else
             {
                 PoolObject<T>.Instance?.Clear();
+            }
+
+            if (objectId != null)
+            {
+                if (GameObjectPools.ContainsKey(objectId.Value))
+                {
+                    GameObjectPools.Remove(objectId.Value);
+                }
             }
         }
         
