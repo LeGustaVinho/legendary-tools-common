@@ -125,7 +125,7 @@ namespace LegendaryTools
             }
         }
 
-        public static T Construct<T>(T instance)
+        public static T Construct<T>()
             where T : class
         {
             return CreateOrGetPool<T>().CreateAs();
