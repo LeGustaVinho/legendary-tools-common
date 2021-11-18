@@ -4,6 +4,11 @@ using System.Collections.Generic;
 
 namespace LegendaryTools
 {
+    public interface IRandomWeight
+    {
+        float Weight { get; }
+    }
+    
     public static class EnumerableExtension
     {
         public static void Shuffle<T>(this IList<T> list, Random rnd)
@@ -89,6 +94,29 @@ namespace LegendaryTools
             }
 
             return default;
+        }
+        
+        public static T GetRandomWeight<T>(this IList<T> list)
+            where T : IRandomWeight
+        {
+            float total = 0;
+            foreach (T item in list) 
+            {
+                total += item.Weight;
+            }
+
+            float randomPoint = UnityEngine.Random.value * total;
+
+            foreach (T item in list)
+            {
+                if (randomPoint < item.Weight) 
+                {
+                    return item;
+                }
+                
+                randomPoint -= item.Weight;
+            }
+            return list[list.Count-1];
         }
 
         public static T FirstOrDefault<T>(this IList<T> list)
