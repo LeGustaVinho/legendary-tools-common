@@ -2,7 +2,7 @@
 
 namespace LegendaryTools
 {
-    public static class GeometryUtil
+    public static class MathUtil
     {
         public static Vector2 GenerateRndPointInsideCircle(float radius)
         {
@@ -16,6 +16,20 @@ namespace LegendaryTools
         {
             float angle = 2 * Mathf.PI * Random.value;
             return new Vector2(Mathf.Cos(angle) * radius, Mathf.Sin(angle) * radius);
+        }
+        
+        public static int Fibonacci(int n)
+        {
+            int a = 0;
+            int b = 1;
+            // In N steps, compute Fibonacci sequence iteratively.
+            for (int i = 0; i < n; i++)
+            {
+                int temp = a;
+                a = b;
+                b = temp + b;
+            }
+            return a;
         }
     }
 }
