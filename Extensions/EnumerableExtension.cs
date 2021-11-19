@@ -149,7 +149,7 @@ namespace LegendaryTools
             return default;
         }
 
-        public static bool Any<T>(this List<T> list, Predicate<T> match)
+        public static bool Any<T>(this IList<T> list, Predicate<T> match)
         {
             for (int i = 0; i < list.Count; i++)
             {
@@ -162,17 +162,17 @@ namespace LegendaryTools
             return false;
         }
 
-        public static bool Any<T>(this T[] array, Predicate<T> match)
+        public static bool All<T>(this IList<T> list, Predicate<T> match)
         {
-            for (int i = 0; i < array.Length; i++)
+            for (int i = 0; i < list.Count; i++)
             {
-                if (match(array[i]))
+                if (!match(list[i]))
                 {
-                    return true;
+                    return false;
                 }
             }
 
-            return false;
+            return true;
         }
 
         public static T First<T>(this IEnumerable<T> items)
