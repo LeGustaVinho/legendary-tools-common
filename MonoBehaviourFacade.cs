@@ -19,24 +19,19 @@ namespace LegendaryTools
             actionQueue.Enqueue(action);
         }
         
-        public Coroutine StartCoroutine(IEnumerator routine)
+        public Coroutine StartRoutine(IEnumerator routine)
         {
             return StartCoroutine(routine);
         }
         
-        public void StopCoroutine(IEnumerator routine)
+        public void StopRoutine(IEnumerator routine)
         {
             StopCoroutine(routine);
         }
         
-        public void StopCoroutine(Coroutine routine)
+        public void StopRoutine(Coroutine routine)
         {
             StopCoroutine(routine);
-        }
-        
-        private void Start()
-        {
-            DontDestroyOnLoad(this);
         }
 
         private void Update()

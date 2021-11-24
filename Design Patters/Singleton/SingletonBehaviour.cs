@@ -36,7 +36,7 @@ namespace LegendaryTools
             {
                 if (singletonBehaviourAttribute.AutoCreateIfNotExists)
                 {
-                    T newInstance = new GameObject(nameof(T)).AddComponent<T>();
+                    T newInstance = new GameObject(typeof(T).Name).AddComponent<T>();
                     
                     SingletonBehaviour<T> singletonInstance = instance as SingletonBehaviour<T>;
                     singletonInstance.IsPersistent = singletonBehaviourAttribute.IsPersistent;
