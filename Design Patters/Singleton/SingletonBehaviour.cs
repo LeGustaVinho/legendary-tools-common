@@ -20,13 +20,34 @@ namespace LegendaryTools
             {
                 if (!instance)
                 {
-                    instance = FindObjectOfType<T>();
+                    instance = FindOrCreateInstance();
                 }
 
                 return instance;
             }
         }
 
+        private static T FindOrCreateInstance()
+        {
+            SingletonBehaviourAttribute singletonBehaviourAttribute =
+                typeof(T).GetAttribute<SingletonBehaviourAttribute>();
+            
+            if (singletonBehaviourAttribute != null)
+            {
+                if (singletonBehaviourAttribute.AutoCreateIfNotExists)
+                {
+                    T newInstance = new GameObject(nameof(T)).AddComponent<T>();
+                    
+                    SingletonBehaviour<T> singletonInstance = instance as SingletonBehaviour<T>;
+                    singletonInstance.IsPersistent = singletonBehaviourAttribute.IsPersistent;
+                    singletonInstance.ForceSingleInstance = singletonBehaviourAttribute.ForceSingleInstance;
+                    return newInstance;
+                }
+            }
+
+            return FindObjectOfType<T>();
+        }
+        
         protected virtual void Awake()
         {
             GetInstance();

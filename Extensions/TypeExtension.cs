@@ -203,6 +203,11 @@ namespace LegendaryTools
         {
             return type.GetCustomAttributes(attributeType, inherit).Length > 0;
         }
+        
+        public static T GetAttribute<T>(this Type type, bool inherit = true) where T : Attribute
+        {
+            return (T)Attribute.GetCustomAttribute(type, typeof(T), inherit);
+        }
 
         public static bool CanBeSerializedByUnity(this Type type)
         {
