@@ -5,8 +5,8 @@ namespace LegendaryTools
 {
     public interface IKeyValuePair<TKey, TValue>
     {
-        public TKey Key { get; set; }
-        public TValue Value { get; set; }
+        TKey Key { get; set; }
+        TValue Value { get; set; }
     }
     
     [Serializable]
