@@ -5,6 +5,12 @@ namespace LegendaryTools
     {
         static T _instance;
 
-        public static T Instance => _instance ??= new T();
+        public static T Instance
+        {
+            get
+            {
+                return _instance = _instance != null ? _instance : new T();
+            }
+        }
     }
 }
