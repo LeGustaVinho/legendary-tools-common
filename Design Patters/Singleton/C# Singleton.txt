@@ -1,9 +1,0 @@
-﻿
-public class Example
-{
-
-    private static readonly Example _instance = new Example();
-    public static Example Instance { get { return _instance; } }
-
-    private Example() { }
-}
