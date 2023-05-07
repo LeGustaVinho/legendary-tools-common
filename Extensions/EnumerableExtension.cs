@@ -183,5 +183,46 @@ namespace LegendaryTools
                 return iter.Current;
             }
         }
+
+        public static void AddRange<T>(this HashSet<T> hashSet, IEnumerable<T> items)
+        {
+            foreach (T item in items)
+            {
+                if (!hashSet.Contains(item))
+                {
+                    hashSet.Add(item);
+                }
+            }
+        }
+        
+        public static void RemoveRange<T>(this HashSet<T> hashSet, IEnumerable<T> items)
+        {
+            foreach (T item in items)
+            {
+                if (hashSet.Contains(item))
+                {
+                    hashSet.Remove(item);
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Check is lhs contains any element of rhs
+        /// </summary>
+        /// <param name="hashSet1"></param>
+        /// <param name="hashSet2"></param>
+        /// <typeparam name="T"></typeparam>
+        public static bool ContainsAny<T>(this HashSet<T> lhs,  HashSet<T> rhs)
+        {
+            foreach (T item in rhs)
+            {
+                if (lhs.Contains(item))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 }
