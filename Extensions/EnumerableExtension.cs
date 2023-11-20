@@ -174,6 +174,23 @@ namespace LegendaryTools
 
             return true;
         }
+        
+        public static List<T> Clone<T>(this List<T> list)
+        {
+            if (!typeof(T).IsSerializable)
+            {
+                throw new ArgumentException("The type must be serializable.", "list");
+            }
+            
+            List<T> result = new List<T>();
+
+            foreach (T item in list)
+            {
+                result.Add(item.Clone());
+            }
+            
+            return result;
+        }
 
         public static T First<T>(this IEnumerable<T> items)
         {
