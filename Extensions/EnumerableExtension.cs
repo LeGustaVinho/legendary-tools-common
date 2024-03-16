@@ -116,6 +116,7 @@ namespace LegendaryTools
                 
                 randomPoint -= item.Weight;
             }
+            
             return list[list.Count-1];
         }
 

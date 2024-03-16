@@ -17,3 +17,4 @@ Legendary Tools Repos:
 - [Dynamic Scroll View](https://github.com/LeGustaVinho/dynamic-scroll-view "Dynamic Scroll View"): Create recyclable Scrollview, allowing hundreds of items to scroll without loss of performance
 - [Circular Scroll View](https://github.com/LeGustaVinho/circular-scroll-view "Circular Scroll View"): Make a circular scrollview (AKA carousel) easily and quickly
 - [ScriptableObject Factory](https://github.com/LeGustaVinho/scriptable-object-factory "ScriptableObject Factory"): Create any ScriptableObject from a visual menu in the editor
+- [Actor System](https://github.com/LeGustaVinho/actor "Actor System"): Decouble game logic from MonoBehaviour

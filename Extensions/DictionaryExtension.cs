@@ -65,5 +65,28 @@ namespace LegendaryTools
             }
             return result;
         }
+        
+        public static T GetRandomWeight<T>(this IDictionary<T, float> dictionary)
+        {
+            float total = 0;
+            foreach (KeyValuePair<T, float> pair in dictionary) 
+            {
+                total += pair.Value;
+            }
+
+            float randomPoint = UnityEngine.Random.value * total;
+
+            foreach (KeyValuePair<T, float> pair in dictionary) 
+            {
+                if (randomPoint < pair.Value) 
+                {
+                    return pair.Key;
+                }
+                
+                randomPoint -= pair.Value;
+            }
+            
+            return default(T);
+        }
     }
 }

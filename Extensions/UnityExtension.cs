@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.UI;
 
 namespace LegendaryTools
@@ -82,27 +81,6 @@ namespace LegendaryTools
             return bounds.Contains(target.min) && bounds.Contains(target.max);
         }
 
-        public static T[] FindObjectsOfType<T>(this Object unityObj, bool includeInactive = false,
-            params Transform[] nonActiveParents) where T : Object
-        {
-            if (includeInactive)
-            {
-                List<T> allComponents = new List<T>();
-                List<Transform> allGameObjects = new List<Transform>(Object.FindObjectsOfType<Transform>());
-                allGameObjects.AddRange(nonActiveParents);
-                allGameObjects.RemoveAll(item => item.parent != null);
-
-                for (int i = 0; i < allGameObjects.Count; i++)
-                {
-                    allComponents.AddRange(allGameObjects[i].GetComponentsInChildren<T>(includeInactive));
-                }
-
-                return allComponents.ToArray();
-            }
-
-            return Object.FindObjectsOfType<T>();
-        }
-
         public static bool IsSimilar(this Vector2 lhs, Vector2 rhs, float threshold)
         {
             return lhs.x.IsSimilar(rhs.x, threshold) && lhs.y.IsSimilar(rhs.y, threshold);
@@ -136,6 +114,46 @@ namespace LegendaryTools
             }
 
             return animation.Play(name);
+        }
+        
+        public static Vector3 SnapToGridKeep(this Vector3 position, float gridSnappingDistance, bool dontSnapX = false, 
+            bool dontSnapY = false, bool dontSnapZ = false)
+        {
+            float x = Mathf.Round(position.x / gridSnappingDistance) * gridSnappingDistance;
+            float y = Mathf.Round(position.y / gridSnappingDistance) * gridSnappingDistance;
+            float z = Mathf.Round(position.z / gridSnappingDistance) * gridSnappingDistance;
+
+            return new Vector3(dontSnapX ? position.x : x, dontSnapY ? position.y : y, dontSnapZ ? position.z : z);
+        }
+        
+        public static void DebugDrawCube(this Vector3 origin, Vector3 size, Color color, float duration)
+        {
+            Vector3 halfSize = size * 0.5f;
+            
+            Vector3[] vertices = new Vector3[8];
+            vertices[0] = origin + new Vector3(-halfSize.x, -halfSize.y, -halfSize.z);
+            vertices[1] = origin + new Vector3(halfSize.x, -halfSize.y, -halfSize.z);
+            vertices[2] = origin + new Vector3(halfSize.x, -halfSize.y, halfSize.z);
+            vertices[3] = origin + new Vector3(-halfSize.x, -halfSize.y, halfSize.z);
+            vertices[4] = origin + new Vector3(-halfSize.x, halfSize.y, -halfSize.z);
+            vertices[5] = origin + new Vector3(halfSize.x, halfSize.y, -halfSize.z);
+            vertices[6] = origin + new Vector3(halfSize.x, halfSize.y, halfSize.z);
+            vertices[7] = origin + new Vector3(-halfSize.x, halfSize.y, halfSize.z);
+            
+            Debug.DrawLine(vertices[0], vertices[1], color, duration);
+            Debug.DrawLine(vertices[1], vertices[2], color, duration);
+            Debug.DrawLine(vertices[2], vertices[3], color, duration);
+            Debug.DrawLine(vertices[3], vertices[0], color, duration);
+
+            Debug.DrawLine(vertices[4], vertices[5], color, duration);
+            Debug.DrawLine(vertices[5], vertices[6], color, duration);
+            Debug.DrawLine(vertices[6], vertices[7], color, duration);
+            Debug.DrawLine(vertices[7], vertices[4], color, duration);
+
+            Debug.DrawLine(vertices[0], vertices[4], color, duration);
+            Debug.DrawLine(vertices[1], vertices[5], color, duration);
+            Debug.DrawLine(vertices[2], vertices[6], color, duration);
+            Debug.DrawLine(vertices[3], vertices[7], color, duration);
         }
     }
 }
