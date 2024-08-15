@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -8,6 +9,14 @@ namespace LegendaryTools
 {
     public static class TypeExtension
     {
+        public static Type[] GetAllTypes(Func<Type, bool> filter)
+        {
+            return AppDomain.CurrentDomain.GetAssemblies()
+                .SelectMany(assembly => assembly.GetTypes())
+                .Where(filter)
+                .ToArray();
+        }
+        
         public static bool IsSameOrSubclass(this Type potentialDescendant, Type potentialBase)
         {
             return potentialDescendant.IsSubclassOf(potentialBase)

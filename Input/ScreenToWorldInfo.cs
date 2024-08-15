@@ -47,7 +47,7 @@ namespace LegendaryTools
                     case EventTriggerType.PointerMove:
 #if UNITY_ANDROID || UNITY_IPHONE
                         foreach (Touch touch in UnityEngine.Input.touches)
-                            LauchRay(touch.position);
+                            LaunchRay(touch.position);
 #endif
 
 #if UNITY_EDITOR || UNITY_STANDALONE || UNITY_WEBPLAYER
@@ -60,7 +60,7 @@ namespace LegendaryTools
                         foreach (Touch touch in UnityEngine.Input.touches)
                         {
                             if(touch.phase == TouchPhase.Began)
-                                LauchRay(touch.position);
+                                LaunchRay(touch.position);
                         }
 #endif
 
@@ -76,7 +76,7 @@ namespace LegendaryTools
                         foreach (Touch touch in UnityEngine.Input.touches)
                         {
                             if (touch.phase == TouchPhase.Ended)
-                                LauchRay(touch.position);
+                                LaunchRay(touch.position);
                         }
 #endif
 
