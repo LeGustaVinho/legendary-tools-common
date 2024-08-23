@@ -1,8 +1,8 @@
-﻿namespace LegendaryTools
+﻿using System;
+using UnityEngine;
+
+namespace LegendaryTools
 {
-    using System;
-    using UnityEngine;
-    
     public class TypeFilterAttribute : PropertyAttribute
     {
         public Type BaseType { get; private set; }

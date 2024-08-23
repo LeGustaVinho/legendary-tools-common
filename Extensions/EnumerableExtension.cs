@@ -187,7 +187,7 @@ namespace LegendaryTools
 
             foreach (T item in list)
             {
-                result.Add(item.Clone());
+                result.Add(item.DeepClone());
             }
             
             return result;

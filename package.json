@@ -1,7 +1,7 @@
 {
   "name": "com.legustavinho.legendary-tools-common",
   "displayName": "Legendary Tools - Common",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "unity": "2018.4",
   "type": "library",
   "keywords": [],
