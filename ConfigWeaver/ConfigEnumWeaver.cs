@@ -53,6 +53,19 @@ namespace LegendaryTools
 #endif
         }
         
+#if UNITY_EDITOR
+        [Button]
+        public void CreateConfig(string configName)
+        {
+            C newConfig = CreateInstance<C>();
+            newConfig.name = configName;
+            string configPath = AssetDatabase.GetAssetPath(this);
+            string configFolder = Path.GetDirectoryName(configPath);
+            AssetDatabase.CreateAsset(newConfig, Path.Combine(configFolder, configName + ".asset"));
+            AssetDatabase.SaveAssets();
+            Update();
+        }
+#endif
         public void RunWeaver()
         {
             if (configMapping != null)
