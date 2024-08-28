@@ -18,7 +18,7 @@ namespace LegendaryTools
         public string WeaveNamespaceName;
         public string WeaveEnumName;
 
-        [ShowInInspector] [ReadOnly] 
+        [ShowInInspector][ReadOnly] 
         public WeaveExecType WeaveExecType => WeaveExecType.AfterCompile;
         
         [OdinSerialize][HideInInspector]

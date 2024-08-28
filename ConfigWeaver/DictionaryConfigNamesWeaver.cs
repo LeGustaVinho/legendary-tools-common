@@ -23,6 +23,8 @@ namespace LegendaryTools
         [ShowInInspector]
         public Dictionary<string, C> Configs = new Dictionary<string, C>();
         
+        public Dictionary<C, string> InvertedConfigs = new Dictionary<C, string>();
+        
         [Button]
         public virtual void Update()
         {
@@ -35,6 +37,7 @@ namespace LegendaryTools
             {
                 names.Add(config.name);
                 Configs.Add(config.name, config);
+                InvertedConfigs.AddOrUpdate(config, config.name);
             }
 
             List<MonoScript> enumCodeFile = EditorExtensions.FindAssetsByName<MonoScript>(WeaveClassName);

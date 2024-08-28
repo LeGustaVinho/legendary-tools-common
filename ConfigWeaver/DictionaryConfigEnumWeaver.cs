@@ -14,6 +14,8 @@ namespace LegendaryTools
     {
         [ShowInInspector]
         public Dictionary<E, C> Configs = new Dictionary<E, C>();
+        
+        public Dictionary<C, E> InvertedConfigs = new Dictionary<C, E>();
 
         protected override void Populate(Dictionary<string, C> configMapping)
         {
@@ -22,6 +24,7 @@ namespace LegendaryTools
             {
                 E enumType = pair.Key.GetEnumValue<E>();
                 Configs.Add(enumType, pair.Value);
+                InvertedConfigs.AddOrUpdate(pair.Value, enumType);
             }
         }
     }
