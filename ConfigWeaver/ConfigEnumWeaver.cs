@@ -65,6 +65,12 @@ namespace LegendaryTools
             AssetDatabase.SaveAssets();
             Update();
         }
+
+        [ContextMenu("Force Set Dirty")]
+        public void ForceSetDirty()
+        {
+            UnityEditor.EditorUtility.SetDirty(this);
+        }
 #endif
         public void RunWeaver()
         {

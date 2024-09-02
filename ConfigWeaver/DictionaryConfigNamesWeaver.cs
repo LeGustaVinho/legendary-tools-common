@@ -51,6 +51,7 @@ namespace LegendaryTools
             string configFolder = Path.GetDirectoryName(configPath);
             
             WeaverUtils.ClassConstantNameListing(names.ToArray(), WeaveNamespaceName, WeaveClassName, configFolder);
+            EditorUtility.SetDirty(this);
 #endif
         }
         
@@ -66,8 +67,14 @@ namespace LegendaryTools
             AssetDatabase.SaveAssets();
             Update();
         }
+        
+        [ContextMenu("Force Set Dirty")]
+        public void ForceSetDirty()
+        {
+            UnityEditor.EditorUtility.SetDirty(this);
+        }
 #endif
-
+        
         public void RunWeaver()
         {
             Update();

@@ -26,6 +26,9 @@ namespace LegendaryTools
                 Configs.Add(enumType, pair.Value);
                 InvertedConfigs.AddOrUpdate(pair.Value, enumType);
             }
+#if UNITY_EDITOR
+            UnityEditor.EditorUtility.SetDirty(this);
+#endif
         }
     }
 #endif

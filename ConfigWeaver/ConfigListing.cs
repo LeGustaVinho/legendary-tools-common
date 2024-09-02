@@ -19,6 +19,7 @@ namespace LegendaryTools
         {
 #if UNITY_EDITOR
             Configs = EditorExtensions.FindAssetsByType<T>();
+            UnityEditor.EditorUtility.SetDirty(this);
 #endif
         }
         
@@ -35,6 +36,12 @@ namespace LegendaryTools
             RunWeaver();
         }
 #endif
-
+#if UNITY_EDITOR
+        [ContextMenu("Force Set Dirty")]
+        public void ForceSetDirty()
+        {
+            UnityEditor.EditorUtility.SetDirty(this);
+        }
+#endif
     }
 }
