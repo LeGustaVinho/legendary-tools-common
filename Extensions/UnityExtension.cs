@@ -1,4 +1,7 @@
-﻿using UnityEngine;
+﻿#if UNITY_EDITOR
+using UnityEditor.SceneManagement;
+#endif
+using UnityEngine;
 using UnityEngine.UI;
 
 namespace LegendaryTools
@@ -154,6 +157,51 @@ namespace LegendaryTools
             Debug.DrawLine(vertices[1], vertices[5], color, duration);
             Debug.DrawLine(vertices[2], vertices[6], color, duration);
             Debug.DrawLine(vertices[3], vertices[7], color, duration);
+        }
+        
+        public static void GizmosDrawCircleXZ(Vector3 center, float radius, int segments)
+        {
+            Vector3 prevPos = center + new Vector3(radius, 0, 0);
+            for (int i = 1; i <= segments; i++)
+            {
+                float angle = i * Mathf.PI * 2f / segments;
+                Vector3 newPos = center + new Vector3(Mathf.Cos(angle) * radius, 0, Mathf.Sin(angle) * radius);
+                Gizmos.DrawLine(prevPos, newPos);
+                prevPos = newPos;
+            }
+        }
+        
+
+        public static bool IsInPrefabMode()
+        {
+#if UNITY_EDITOR
+            PrefabStage prefabStage = PrefabStageUtility.GetCurrentPrefabStage();
+            return prefabStage != null;
+#else
+            return false;
+#endif
+        }
+
+
+        public static bool IsPrefab(this Object gameObject)
+        {
+#if UNITY_EDITOR
+            return UnityEditor.PrefabUtility.IsPartOfPrefabAsset(gameObject) || UnityEditor.PrefabUtility.IsPartOfPrefabInstance(gameObject);
+#else
+            return false;
+#endif
+        }
+
+        public static void SetDirty(this Object unityObject)
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorUtility.SetDirty(unityObject);
+#endif
+        }
+
+        public static bool IsInScene(this GameObject gameObject)
+        {
+            return gameObject.scene.IsValid();
         }
     }
 }

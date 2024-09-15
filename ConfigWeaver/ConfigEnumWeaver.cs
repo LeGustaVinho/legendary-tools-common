@@ -79,6 +79,10 @@ namespace LegendaryTools
                 Populate(configMapping);
                 configMapping = null;
             }
+            else
+            {
+                Update();
+            }
         }
 
         protected abstract void Populate(Dictionary<string, C> configMapping);

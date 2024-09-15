@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Reflection;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,12 +10,44 @@ namespace LegendaryTools
 {
     public static class TypeExtension
     {
-        public static Type[] GetAllTypes(Func<Type, bool> filter)
+        private static Assembly[] allAssembliesCached = null;
+        
+        public static Type[] GetAllTypes(Func<Type, bool> filter, bool forceAssembliesRescan = false)
         {
-            return AppDomain.CurrentDomain.GetAssemblies()
-                .SelectMany(assembly => assembly.GetTypes())
-                .Where(filter)
-                .ToArray();
+            if (forceAssembliesRescan || allAssembliesCached == null)
+            {
+                allAssembliesCached = AppDomain.CurrentDomain.GetAssemblies();
+            }
+            
+            return allAssembliesCached.SelectMany(assembly => assembly.GetTypes()).Where(filter).ToArray();
+        }
+
+        public static Type FindType(string typeName, bool forceAssembliesRescan = false)
+        {
+            Type type = Type.GetType(typeName);
+
+            if (type == null) 
+            {
+                if (forceAssembliesRescan || allAssembliesCached == null)
+                {
+                    allAssembliesCached = AppDomain.CurrentDomain.GetAssemblies();
+                }
+                foreach (Assembly assembly in allAssembliesCached)
+                {
+                    type = assembly.GetType(typeName);
+                    if (type != null)
+                    {
+                        break;
+                    }
+                }
+            }
+                        
+            if (type == null)
+            {
+                throw new TypeLoadException($"[TypeExtension:FindType] '{typeName}' was not found.");
+            }
+
+            return type;
         }
         
         public static bool IsSameOrSubclass(this Type potentialDescendant, Type potentialBase)

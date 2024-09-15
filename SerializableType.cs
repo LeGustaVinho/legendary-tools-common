@@ -10,7 +10,7 @@ namespace LegendaryTools
 
         public Type Type
         {
-            get => Type.GetType(typeName);
+            get => TypeExtension.FindType(typeName);
             set => typeName = value.AssemblyQualifiedName;
         }
 
