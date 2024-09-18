@@ -34,7 +34,7 @@ namespace LegendaryTools
             
             foreach (C config in allConfigs)
             {
-                string enumName = config.name.Replace(" ", "");
+                string enumName = config.name.FilterEnumName();
                 configEnumNames.Add(enumName);
                 configMapping.Add(enumName, config);
             }

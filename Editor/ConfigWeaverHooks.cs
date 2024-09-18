@@ -47,6 +47,19 @@ namespace LegendaryTools.Editor
                         weaveExec.RunWeaver();
                 }
             }
+
+            List<(IWeaveExec, GameObject)> allGameObjects = new List<(IWeaveExec, GameObject)>();
+            allGameObjects.AddRange(EditorExtensions.FindPrefabsOfType<IWeaveExec>());
+            allGameObjects.AddRange(EditorExtensions.FindSceneObjectsOfType<IWeaveExec>());
+            
+            foreach ((IWeaveExec, GameObject) gameObject in allGameObjects)
+            {
+                if (gameObject.Item1 is IWeaveExec weaveExec)
+                {
+                    if(weaveExec.WeaveExecType == weaveExecType)
+                        weaveExec.RunWeaver();
+                }
+            }
         }
     }
 }

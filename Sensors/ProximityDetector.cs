@@ -4,7 +4,8 @@ using UnityEngine;
 
 namespace LegendaryTools
 {
-    public interface IProximityDetector<T> where T : MonoBehaviour, ProximityDetector<T>.IProximityDetectable
+    public interface IProximityDetector<T> 
+        where T : MonoBehaviour, ProximityDetector<T>.IProximityDetectable
     {
         event Action<T> OnEntered;
         event Action<T> OnExited;
@@ -49,6 +50,7 @@ namespace LegendaryTools
         
         public void ReportAsDestroyed(T actor, bool shouldCallTriggerExit = false)
         {
+            if (actor == null) return;
             if (overlappingActors.Contains(actor))
             {
                 overlappingActors.Remove(actor);
@@ -62,9 +64,11 @@ namespace LegendaryTools
         
         protected virtual void OnTriggerEnter(Collider other)
         {
+            if (other == null) return;
             T actor = other.GetComponent<T>();
             if (actor)
             {
+                if (actor == null) return;
                 overlappingActors.Add(actor);
                 OnEnterDetected(actor);
                 OnEntered?.Invoke(actor);
@@ -78,9 +82,11 @@ namespace LegendaryTools
 
         protected virtual void OnTriggerExit(Collider other)
         {
+            if (other == null) return;
             T actor = other.GetComponent<T>();
             if (actor)
             {
+                if (actor == null) return;
                 overlappingActors.Remove(actor);
                 OnExitDetected(actor);
                 OnExited?.Invoke(actor);
