@@ -4,6 +4,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Inventory
 {
+#if ODIN_INSPECTOR
     [Serializable]
     public class ScriptableObjectCargo<E, C> : Cargo<ScriptableObjectInventory<E, C>, E>, ICargo<ScriptableObjectInventory<E, C>, C>
         where C : ScriptableObject
@@ -85,4 +86,5 @@ namespace LegendaryTools.Inventory
             return configCargoContainerCollection;
         }
     }
+#endif
 }

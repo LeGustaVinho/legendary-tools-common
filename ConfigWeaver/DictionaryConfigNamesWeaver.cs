@@ -11,7 +11,7 @@ using UnityEngine;
 namespace LegendaryTools
 {
 #if ODIN_INSPECTOR
-    public class DictionaryConfigNamesWeaver<C> : SerializedScriptableObject, IWeaveExec
+    public abstract class DictionaryConfigNamesWeaver<C> : SerializedScriptableObject, IWeaveExec
         where C : ScriptableObject
     {
         public string WeaveNamespaceName;

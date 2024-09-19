@@ -7,7 +7,7 @@ namespace LegendaryTools
         where T : IEquatable<T>, IComparable<T>, IComparable, IConvertible
     {
 #if !ODIN_INSPECTOR
-        [SerializeField]
+        [UnityEngine.SerializeField]
 #endif
         protected T value;
 #if ODIN_INSPECTOR

@@ -9,7 +9,7 @@ using UnityEngine;
 namespace LegendaryTools
 {
     public class IdentifiedBehaviour<TEnum> : 
-#if ODIN_INSPECTOR && IDENTIFIED_BEHAVIOUR_SERIALIZED_MONOBEHAVIOUR
+#if ODIN_INSPECTOR
         Sirenix.OdinInspector.SerializedMonoBehaviour,
 #else
         MonoBehaviour,

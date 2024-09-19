@@ -1,18 +1,17 @@
-﻿using System.Collections.Generic;
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace LegendaryTools
 {
     public class UniqueBehaviour : 
-#if ODIN_INSPECTOR && UNIQUE_BEHAVIOUR_SERIALIZED_MONOBEHAVIOUR
-        Sirenix.OdinInspector.SerializedMonoBehaviour
+#if ODIN_INSPECTOR
+        Sirenix.OdinInspector.SerializedMonoBehaviour, IUnique
 #else
-        MonoBehaviour
+        MonoBehaviour, IUnique
 #endif
     {
         [SerializeField] private string guid;
+        public string Name => gameObject.name;
         public string Guid => guid;
-        private static readonly Dictionary<string, UniqueBehaviour> GameObjectsByGuid = new Dictionary<string, UniqueBehaviour>();
         
         [ContextMenu("Assign New Guid")]
 #if ODIN_INSPECTOR 
@@ -24,21 +23,23 @@ namespace LegendaryTools
             do
             {
                 newGuid = System.Guid.NewGuid().ToString();
-            } while (GameObjectsByGuid.ContainsKey(newGuid));
+            } while (UniqueObjectListing.UniqueObjects.ContainsKey(newGuid));
             
             guid = newGuid;
-            GameObjectsByGuid.Add(guid, this);
+            UniqueObjectListing.UniqueObjects.Add(guid, this);
             this.SetDirty();
         }
 
         public static bool TryGetValue(string guid, out UniqueBehaviour uniqueBehaviour)
         {
-            return GameObjectsByGuid.TryGetValue(guid, out uniqueBehaviour);
+            bool result = UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueObject);
+            uniqueBehaviour = uniqueObject as UniqueBehaviour;
+            return result;
         }
         
         public static bool Contains(string guid)
         {
-            return GameObjectsByGuid.ContainsKey(guid);
+            return UniqueObjectListing.UniqueObjects.ContainsKey(guid);
         }
         
         protected virtual void Awake()
@@ -48,13 +49,13 @@ namespace LegendaryTools
                 AssignNewGuid();
             }
 
-            if (GameObjectsByGuid.TryGetValue(guid, out UniqueBehaviour uniqueBehaviour))
+            if (UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueBehaviour))
             {
-                if (uniqueBehaviour != this)
+                if ((UniqueBehaviour)uniqueBehaviour != this)
                     OnGuidCollisionDetected(uniqueBehaviour);
             }
             else
-                GameObjectsByGuid.Add(guid, this);
+                UniqueObjectListing.UniqueObjects.Add(guid, this);
         }
         
 #if UNITY_EDITOR
@@ -74,7 +75,7 @@ namespace LegendaryTools
             }
             else
             {
-                if (GameObjectsByGuid.TryGetValue(guid, out UniqueBehaviour uniqueBehaviour))
+                if (UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueBehaviour))
                 {
                     //Unity does an assemblyReload leaving the Dictionary entries null
                     if (uniqueBehaviour == null)
@@ -83,25 +84,25 @@ namespace LegendaryTools
                             FindObjectsSortMode.None);
                         foreach (UniqueBehaviour behaviour in allUniqueBehaviours)
                         {
-                            GameObjectsByGuid.AddOrUpdate(guid, behaviour);
+                            UniqueObjectListing.UniqueObjects.AddOrUpdate(guid, behaviour);
                             if (guid == behaviour.Guid) uniqueBehaviour = behaviour;
                         }
                     }
                     
-                    if (uniqueBehaviour != this)
+                    if ((UniqueBehaviour)uniqueBehaviour != this)
                     {
                         if (allowAssignGuid)
                             OnGuidCollisionDetected(uniqueBehaviour);
                     }
                 }
                 else
-                    GameObjectsByGuid.Add(guid, this);
+                    UniqueObjectListing.UniqueObjects.Add(guid, this);
             }
         }
 
-        private void OnGuidCollisionDetected(UniqueBehaviour uniqueBehaviour)
+        private void OnGuidCollisionDetected(IUnique uniqueBehaviour)
         {
-            Debug.Log($"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with {gameObject.name} and {uniqueBehaviour.name}, assigning new Guid.");
+            Debug.Log($"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with {gameObject.name} and {uniqueBehaviour.Name}, assigning new Guid.");
             AssignNewGuid();
         }
 #endif

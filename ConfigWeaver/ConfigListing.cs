@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools
 {
-    public class ConfigListing<T> : ScriptableObject, IWeaveExec
+    public abstract class ConfigListing<T> : ScriptableObject, IWeaveExec
         where T : ScriptableObject
     {
         public WeaveExecType weaveExecType;

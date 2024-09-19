@@ -4,6 +4,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Inventory
 {
+#if ODIN_INSPECTOR
     [Serializable]
     public class ScriptableObjectInventory<E, C> : Inventory<E>, IInventory<C>
         where C : ScriptableObject
@@ -119,4 +120,5 @@ namespace LegendaryTools.Inventory
             base.TransferAllTo(inventory as Inventory<E>);
         }
     }
+#endif
 }
