@@ -10,7 +10,7 @@ namespace LegendaryTools
 #endif
     {
         [SerializeField] private string guid;
-        public string Name => gameObject.name;
+        public virtual string Name => gameObject.name;
         public string Guid => guid;
         
         [ContextMenu("Assign New Guid")]
@@ -19,14 +19,7 @@ namespace LegendaryTools
 #endif
         public void AssignNewGuid()
         {
-            string newGuid;
-            do
-            {
-                newGuid = System.Guid.NewGuid().ToString();
-            } while (UniqueObjectListing.UniqueObjects.ContainsKey(newGuid));
-            
-            guid = newGuid;
-            UniqueObjectListing.UniqueObjects.Add(guid, this);
+            guid = UniqueObjectListing.AllocateNewGuidFor(this);
             this.SetDirty();
         }
 
