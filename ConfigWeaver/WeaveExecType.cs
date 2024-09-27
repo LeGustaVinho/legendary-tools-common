@@ -1,5 +1,8 @@
-﻿namespace LegendaryTools
+﻿using System;
+
+namespace LegendaryTools
 {
+    [Flags]
     public enum WeaveExecType
     {
         EnteredEditMode,

@@ -217,14 +217,14 @@ public static class MeshUtil
                (lineEnd.z - lineStart.z) * (point.x - lineStart.x);
     }
     
-    private static void SortVerticesClockwise(Vector3[] vertices)
+    public static void SortVerticesClockwise(Vector3[] vertices)
     {
         // Sort vertices clockwise
         Vector3 centroid = GetCentroid(vertices);
         Array.Sort(vertices,(a, b) => GetAngle(centroid, a).CompareTo(GetAngle(centroid, b)));
     }
 
-    private static Vector3 GetCentroid(Vector3[]vertices)
+    public static Vector3 GetCentroid(Vector3[]vertices)
     {
         Vector3 sum = Vector3.zero;
         foreach (var vertex in vertices)
@@ -233,8 +233,31 @@ public static class MeshUtil
         }
         return sum / vertices.Length;
     }
+    
+    public static void OrderPointsClockwise(Vector2[] points)
+    {
+        Vector2 centroid = GetCentroid(points);
+        Array.Sort(points,(a, b) =>
+        {
+            float angleA = Mathf.Atan2(a.y - centroid.y, a.x - centroid.x);
+            float angleB = Mathf.Atan2(b.y - centroid.y, b.x - centroid.x);
+            return angleA.CompareTo(angleB);
+        });
+    }
 
-    private static float GetAngle(Vector3 from, Vector3 to)
+    public static Vector2 GetCentroid(Vector2[] points)
+    {
+        // Calcular o centroide
+        Vector2 centroid = Vector2.zero;
+        foreach (Vector2 point in points)
+        {
+            centroid += point;
+        }
+        centroid /= points.Length;
+        return centroid;
+    }
+    
+    public static float GetAngle(Vector3 from, Vector3 to)
     {
         Vector3 direction = to - from;
         float angle = Vector3.Angle(Vector3.right, direction);
@@ -245,5 +268,55 @@ public static class MeshUtil
         }
 
         return angle;
+    }
+    
+    public static Vector3[] SimplifyShape(Vector3[] points, float tolerance)
+    {
+        if (points.Length < 3) return Array.Empty<Vector3>(); // Não é possível simplificar com menos de 3 pontos
+        List<Vector3> simplifiedPoints = new List<Vector3>();
+        RDP(points, 0, points.Length - 1, tolerance, ref simplifiedPoints);
+        return simplifiedPoints.ToArray();
+    }
+
+    // Implementação do algoritmo Ramer-Douglas-Peucker (RDP)
+    private static void RDP(Vector3[] points, int start, int end, float tolerance, ref List<Vector3> simplifiedPoints)
+    {
+        if (start == end)
+            return;
+
+        float maxDistance = 0;
+        int index = start;
+
+        // Encontrar o ponto mais distante da linha entre start e end
+        for (int i = start + 1; i < end; i++)
+        {
+            float distance = PointLineDistance(points[start], points[end], points[i]);
+            if (distance > maxDistance)
+            {
+                maxDistance = distance;
+                index = i;
+            }
+        }
+
+        // Se a distância máxima é maior que a tolerância, simplificar mais
+        if (maxDistance > tolerance)
+        {
+            // Recursivamente simplificar para as duas metades
+            RDP(points, start, index, tolerance, ref simplifiedPoints);
+            simplifiedPoints.Add(points[index]);
+            RDP(points, index, end, tolerance, ref simplifiedPoints);
+        }
+    }
+
+    // Função para calcular a distância de um ponto a uma linha (p1 a p2)
+    private static float PointLineDistance(Vector3 p1, Vector3 p2, Vector3 point)
+    {
+        // Projeção vetorial do ponto na linha p1-p2
+        Vector3 line = p2 - p1;
+        Vector3 projection = Vector3.Project(point - p1, line);
+        Vector3 projectedPoint = p1 + projection;
+
+        // Distância do ponto à linha
+        return Vector3.Distance(point, projectedPoint);
     }
 }

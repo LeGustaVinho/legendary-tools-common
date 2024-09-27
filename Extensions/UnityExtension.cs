@@ -170,7 +170,16 @@ namespace LegendaryTools
                 prevPos = newPos;
             }
         }
-        
+
+        public static void GizmosDrawShape(Vector3[] points)
+        {
+            if (points == null || points.Length < 3) return;
+            for (int i = 0; i < points.Length - 1; i++)
+            {
+                Gizmos.DrawLine(points[i], points[i+1]);
+            }
+            Gizmos.DrawLine(points[points.Length-1], points[0]);
+        }
 
         public static bool IsInPrefabMode()
         {
@@ -181,7 +190,6 @@ namespace LegendaryTools
             return false;
 #endif
         }
-
 
         public static bool IsPrefab(this Object gameObject)
         {

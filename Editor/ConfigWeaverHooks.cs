@@ -11,7 +11,7 @@ namespace LegendaryTools.Editor
         {
             EditorApplication.playModeStateChanged += LogPlayModeState;
         }
-        
+
         private static void LogPlayModeState(PlayModeStateChange newState)
         {
             switch (newState)
@@ -54,11 +54,9 @@ namespace LegendaryTools.Editor
             
             foreach ((IWeaveExec, GameObject) gameObject in allGameObjects)
             {
-                if (gameObject.Item1 is IWeaveExec weaveExec)
-                {
-                    if(weaveExec.WeaveExecType == weaveExecType)
-                        weaveExec.RunWeaver();
-                }
+                IWeaveExec weaveExec = gameObject.Item1;
+                if(FlagUtil.Has(weaveExec.WeaveExecType, weaveExecType))
+                    weaveExec.RunWeaver();
             }
         }
     }

@@ -1,7 +1,29 @@
-﻿namespace LegendaryTools
+﻿using System;
+
+namespace LegendaryTools
 {
     public static class FlagUtil
     {
+        public static bool Has<T>(T enumValue, T flag) where T : struct, Enum, IConvertible
+        {
+            return Has(Convert.ToInt64(enumValue), Convert.ToInt64(flag));
+        }
+        
+        public static T Add<T>(T enumValue, T flag) where T : struct, Enum, IConvertible
+        {
+            return (T)Enum.ToObject(typeof(T), Add(Convert.ToInt64(enumValue), Convert.ToInt64(flag)));
+        }
+        
+        public static T Remove<T>(T enumValue, T flag) where T : struct, Enum, IConvertible
+        {
+            return (T)Enum.ToObject(typeof(T), Remove(Convert.ToInt64(enumValue), Convert.ToInt64(flag)));
+        }
+        
+        public static bool Is<T>(T enumValue, T flag) where T : struct, Enum, IConvertible
+        {
+            return enumValue.Equals(flag);
+        }
+        
         //===== 32 bits
 
         public static bool Has(int lhFlag, int rhFlag)
@@ -13,7 +35,6 @@
         {
             return lhFlag == rhFlag;
         }
-
 
         public static int Add(int lhFlag, int rhFlag)
         {

@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using System;
+using UnityEngine;
 
 namespace LegendaryTools
 {
@@ -10,7 +11,7 @@ namespace LegendaryTools
 #endif
     {
         [SerializeField] private string guid;
-        public virtual string Name => gameObject.name;
+        public virtual string Name => gameObject != null ? gameObject.name : string.Empty;
         public string Guid => guid;
         
         [ContextMenu("Assign New Guid")]
@@ -81,7 +82,7 @@ namespace LegendaryTools
                             if (guid == behaviour.Guid) uniqueBehaviour = behaviour;
                         }
                     }
-                    
+                
                     if ((UniqueBehaviour)uniqueBehaviour != this)
                     {
                         if (allowAssignGuid)

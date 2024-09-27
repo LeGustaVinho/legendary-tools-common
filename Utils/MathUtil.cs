@@ -100,5 +100,44 @@ namespace LegendaryTools
             }
             return a;
         }
+        
+        /// <summary>
+        /// Retorna o índice de um número na sequência de Fibonacci.
+        /// Se o número não estiver na sequência, retorna -1.
+        /// </summary>
+        /// <param name="number">O número inteiro a ser procurado na sequência de Fibonacci.</param>
+        /// <returns>Índice do número na sequência de Fibonacci ou -1 se não estiver presente.</returns>
+        public static int GetFibonacciIndex(int number)
+        {
+            if (number < 0)
+                return -1; // Números negativos não estão na sequência de Fibonacci
+
+            // Casos base
+            if (number == 0)
+                return 0;
+            if (number == 1)
+                return 1; // O primeiro 1 está no índice 1
+
+            int a = 0;
+            int b = 1;
+            int index = 1;
+
+            while (b < number)
+            {
+                int temp = a + b;
+                a = b;
+                b = temp;
+                index++;
+
+                // Prevenção contra overflow
+                if (b < 0)
+                    break;
+            }
+
+            if (b == number)
+                return index;
+            else
+                return -1;
+        }
     }
 }

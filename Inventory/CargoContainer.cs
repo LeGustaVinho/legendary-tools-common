@@ -2,14 +2,19 @@
 
 namespace LegendaryTools.Inventory
 {
-    [Serializable]
-    public class CargoContainer<TInv, T>
-        where TInv : IInventory<T>
+    public interface ICargoContainer<T>
     {
-        public float Limit;
-        public TInv Inventory;
+        public float Limit { get; set; }
+        public IInventory<T> Inventory { get; set; }
+    }
+
+    [Serializable]
+    public class CargoContainer<T> : ICargoContainer<T>
+    {
+        public float Limit { get; set; }
+        public IInventory<T> Inventory { get; set; }
         
-        public CargoContainer(float limit, TInv inventory)
+        public CargoContainer(float limit, IInventory<T> inventory)
         {
             Limit = limit;
             Inventory = inventory;

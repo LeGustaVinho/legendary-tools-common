@@ -24,5 +24,30 @@ namespace LegendaryTools
         
             return (T)Enum.ToObject(enumType, intValue);
         }
+        
+        public static bool IsValid<T>(this T enumValue) where T : struct, Enum, IConvertible
+        {
+            return Enum.IsDefined(typeof(T), enumValue);
+        }
+        
+        public static bool HasFlags<T>(this T enumValue, T flag) where T : struct, Enum, IConvertible
+        {
+            return FlagUtil.Has(enumValue, flag);
+        }
+        
+        public static T AddFlags<T>(this T enumValue, T flag) where T : struct, Enum, IConvertible
+        {
+            return FlagUtil.Add(enumValue, flag);
+        }
+        
+        public static T RemoveFlags<T>(this T enumValue, T flag) where T : struct, Enum, IConvertible
+        {
+            return FlagUtil.Remove(enumValue, flag);
+        }
+        
+        public static bool IsFlag<T>(this T enumValue, T flag) where T : struct, Enum, IConvertible
+        {
+            return FlagUtil.Is(enumValue, flag);
+        }
     }
 }

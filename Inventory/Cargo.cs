@@ -3,30 +3,29 @@ using System.Collections.Generic;
 
 namespace LegendaryTools.Inventory
 {
-    public interface ICargo<TInv, T>
-        where TInv : IInventory<T>
+    public interface ICargo<T>
     {
         float MaxLimit { get; }
         float AvailableLimit { get; }
         float CurrentLimit { get; }
-        List<CargoContainer<TInv, T>> Containers { get; }
-        bool Add(float weight, TInv inventory);
-        bool Add(List<CargoContainer<TInv, T>> containersToAdd);
-        List<CargoContainer<TInv, T>> Remove(float maxLimitToExtract);
-        void TransferWhenPossibleTo(Cargo<TInv, T> targetCargo);
-        void TransferAllTo(TInv inventory);
-        List<CargoContainer<TInv, T>> RemoveAll();
+        List<ICargoContainer<T>> Containers { get; }
+        bool Add(float weight, IInventory<T> inventory);
+        bool Add(List<ICargoContainer<T>> containersToAdd);
+        List<ICargoContainer<T>> Remove(float maxLimitToExtract);
+        void TransferWhenPossibleTo(ICargo<T> targetCargo);
+        void TransferAllTo(IInventory<T> inventory);
+        List<ICargoContainer<T>> RemoveAll();
 
         event Action<float, float> OnCargoLimitChange;
     }
 
     [Serializable]
-    public class Cargo<TInv, T> : ICargo<TInv, T> where TInv : IInventory<T>
+    public class Cargo<T> : ICargo<T>
     {
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
 #endif
-        public virtual float MaxLimit { get; protected set; }
+        public virtual float MaxLimit { get; set; }
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
 #endif
@@ -39,17 +38,17 @@ namespace LegendaryTools.Inventory
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
 #endif
-        private List<CargoContainer<TInv, T>> containers = new List<CargoContainer<TInv, T>>();
+        private List<ICargoContainer<T>> containers = new List<ICargoContainer<T>>();
 
-        public List<CargoContainer<TInv, T>> Containers
+        public List<ICargoContainer<T>> Containers
         {
             get
             {
-                List<CargoContainer<TInv, T>> clone = new List<CargoContainer<TInv, T>>();
+                List<ICargoContainer<T>> clone = new List<ICargoContainer<T>>();
 
                 if (containers != null)
                 {
-                    foreach (CargoContainer<TInv, T> cargoContainer in containers)
+                    foreach (ICargoContainer<T> cargoContainer in containers)
                     {
                         clone.Add(cargoContainer);
                     }
@@ -61,26 +60,26 @@ namespace LegendaryTools.Inventory
         
         public event Action<float, float> OnCargoLimitChange;
 
-        public virtual bool Add(float weight, TInv inventory)
+        public virtual bool Add(float limit, IInventory<T> inventory)
         {
             if (inventory == null)
             {
                 return false;
             }
             
-            if (weight + CurrentLimit <= MaxLimit)
+            if (limit + CurrentLimit <= MaxLimit)
             {
                 float oldLimit = CurrentLimit;
-                containers.Add(new CargoContainer<TInv, T>(weight, inventory));
+                containers.Add(ConstructCargoContainer(limit, inventory));
                 containers.Sort((x,y) => x.Limit.CompareTo(y.Limit)); //Sort ASC by Limit
-                OnCargoLimitChange?.Invoke(oldLimit, oldLimit + weight);
+                OnCargoLimitChange?.Invoke(oldLimit, oldLimit + limit);
                 return true;
             }
 
             return false;
         }
         
-        public virtual bool Add(List<CargoContainer<TInv, T>> containersToAdd)
+        public virtual bool Add(List<ICargoContainer<T>> containersToAdd)
         {
             if (containers == null)
             {
@@ -92,7 +91,7 @@ namespace LegendaryTools.Inventory
             if (totalLimit <= AvailableLimit)
             {
                 float oldLimit = CurrentLimit;
-                foreach (CargoContainer<TInv, T> cargoContainer in containersToAdd)
+                foreach (ICargoContainer<T> cargoContainer in containersToAdd)
                 {
                     containers.Add(cargoContainer);
                 }
@@ -105,21 +104,21 @@ namespace LegendaryTools.Inventory
             return false;
         }
 
-        public virtual List<CargoContainer<TInv, T>> Remove(float maxLimitToExtract)
+        public virtual List<ICargoContainer<T>> Remove(float maxLimitToExtract)
         {
             if (maxLimitToExtract > MaxLimit)
             {
                 return RemoveAll();
             }
             
-            List<CargoContainer<TInv, T>> cargoContainersToExtracted = new List<CargoContainer<TInv, T>>();
+            List<ICargoContainer<T>> cargoContainersToExtracted = new List<ICargoContainer<T>>();
             float limitExtracted = 0;
 
             float oldLimit = CurrentLimit;
             int loopProtection = containers.Count;
             while (limitExtracted <= maxLimitToExtract && containers.Count > 0 && loopProtection > 0)
             {
-                CargoContainer<TInv, T> container = containers[0];
+                ICargoContainer<T> container = containers[0];
                 if (container.Limit + limitExtracted <= maxLimitToExtract)
                 {
                     containers.Remove(container);
@@ -134,35 +133,42 @@ namespace LegendaryTools.Inventory
             return cargoContainersToExtracted;
         }
 
-        public void TransferWhenPossibleTo(Cargo<TInv, T> targetCargo)
+        public void TransferWhenPossibleTo(ICargo<T> targetCargo)
         {
-            List<CargoContainer<TInv, T>> cargoContainersToTransfer = Remove(targetCargo.AvailableLimit);
+            List<ICargoContainer<T>> cargoContainersToTransfer = Remove(targetCargo.AvailableLimit);
             targetCargo.Add(cargoContainersToTransfer);
         }
         
-        public void TransferAllTo(TInv inventory)
+        public void TransferAllTo(IInventory<T> inventory)
         {
-            List<CargoContainer<TInv, T>> cargoContainersToTransfer = RemoveAll();
+            if (inventory == null) throw new ArgumentNullException(nameof(inventory));
+            
+            List<ICargoContainer<T>> cargoContainersToTransfer = RemoveAll();
 
-            foreach (CargoContainer<TInv, T> cargoContainer in cargoContainersToTransfer)
+            foreach (ICargoContainer<T> cargoContainer in cargoContainersToTransfer)
             {
                 cargoContainer.Inventory.TransferAllTo(inventory);
             }
         }
 
-        public virtual List<CargoContainer<TInv, T>> RemoveAll()
+        public virtual List<ICargoContainer<T>> RemoveAll()
         {
             float oldLimit = CurrentLimit;
-            List<CargoContainer<TInv, T>> clone = Containers;
+            List<ICargoContainer<T>> clone = Containers;
             OnCargoLimitChange?.Invoke(oldLimit, 0);
             containers.Clear();
             return clone;
         }
 
-        public static float GetListLimit(List<CargoContainer<TInv, T>> containers)
+        public virtual ICargoContainer<T> ConstructCargoContainer(float limit, IInventory<T> inventory)
+        {
+            return new CargoContainer<T>(limit, inventory);
+        }
+
+        public static float GetListLimit(List<ICargoContainer<T>> containers)
         {
             float totalLimit = 0;
-            foreach (CargoContainer<TInv, T> cargoContainer in containers)
+            foreach (ICargoContainer<T> cargoContainer in containers)
             {
                 totalLimit += cargoContainer.Limit;
             }
