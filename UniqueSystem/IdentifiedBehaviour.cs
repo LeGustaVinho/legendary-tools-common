@@ -75,7 +75,8 @@ namespace LegendaryTools
             foreach ((IdentifiedBehaviour<TEnum>, GameObject) curGameObject in allGameObjects)
             {
                 string enumName = curGameObject.Item2.name.FilterEnumName();
-                configEnumNames.Add(enumName);
+                if(!configEnumNames.Contains(enumName))
+                    configEnumNames.Add(enumName);
             }
 
             Type enumType = typeof(TEnum);
