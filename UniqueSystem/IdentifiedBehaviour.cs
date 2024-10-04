@@ -87,7 +87,7 @@ namespace LegendaryTools
                 configPath = AssetDatabase.GetAssetPath(enumCodeFile[0]);
             }
             string configFolder = Path.GetDirectoryName(configPath);
-            WeaverUtils.Enum(configEnumNames.ToArray(), enumType.Namespace, enumType.Name, configFolder);
+            WeaverUtils.Enum(configEnumNames.ToArray(), enumType.Namespace, enumType.Name, configFolder, true);
         }
 #endif
 

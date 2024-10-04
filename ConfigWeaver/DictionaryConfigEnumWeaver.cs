@@ -69,7 +69,7 @@ namespace LegendaryTools
             
             string configFolder = Path.GetDirectoryName(configPath);
             
-            WeaverUtils.Enum(configEnumNames.ToArray(), enumType.Namespace, enumType.Name, configFolder);
+            WeaverUtils.Enum(configEnumNames.ToArray(), enumType.Namespace, enumType.Name, configFolder, true);
 #endif
         }
 
