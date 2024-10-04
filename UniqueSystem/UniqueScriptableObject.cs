@@ -10,6 +10,9 @@ namespace LegendaryTools
 #endif
         ,IUnique
     {
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.HorizontalGroup("Guid")]
+#endif
         [SerializeField] private string guid;
         public virtual string Name
         {
@@ -31,6 +34,7 @@ namespace LegendaryTools
 
         [ContextMenu("Assign New Guid")]
 #if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.HorizontalGroup("Guid", width: 150)]
         [Sirenix.OdinInspector.Button]
 #endif
         public void AssignNewGuid()

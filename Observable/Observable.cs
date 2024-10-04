@@ -6,10 +6,10 @@ namespace LegendaryTools
     public class Observable<T> : IEquatable<Observable<T>>, IComparable<Observable<T>>, IComparable, IConvertible
         where T : IEquatable<T>, IComparable<T>, IComparable, IConvertible
     {
-#if !ODIN_INSPECTOR
-        [UnityEngine.SerializeField]
+#if ODIN_INSPECTOR
+        [UnityEngine.HideInInspector]
 #endif
-        protected T value;
+        [UnityEngine.SerializeField] protected T value;
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
 #endif

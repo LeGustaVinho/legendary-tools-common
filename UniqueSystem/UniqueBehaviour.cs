@@ -10,12 +10,16 @@ namespace LegendaryTools
         MonoBehaviour, IUnique
 #endif
     {
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.HorizontalGroup("Guid")]
+#endif
         [SerializeField] private string guid;
         public virtual string Name => gameObject != null ? gameObject.name : string.Empty;
         public string Guid => guid;
         
         [ContextMenu("Assign New Guid")]
 #if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.HorizontalGroup("Guid", width: 150)]
         [Sirenix.OdinInspector.Button]
 #endif
         public void AssignNewGuid()
@@ -96,8 +100,15 @@ namespace LegendaryTools
 
         private void OnGuidCollisionDetected(IUnique uniqueBehaviour)
         {
-            Debug.Log($"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with {gameObject.name} and {uniqueBehaviour.Name}, assigning new Guid.");
-            AssignNewGuid();
+            try
+            {
+                Debug.Log($"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with {gameObject.name} and {uniqueBehaviour.Name}, assigning new Guid.");
+                AssignNewGuid();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
         }
 #endif
     }

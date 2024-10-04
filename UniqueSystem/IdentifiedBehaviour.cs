@@ -19,10 +19,10 @@ namespace LegendaryTools
     {
         public WeaveExecType WeaveExecType => WeaveExecType.AfterCompile;
 
-#if !ODIN_INSPECTOR
-        [SerializeField]
+#if ODIN_INSPECTOR
+        [HideInInspector]
 #endif
-        private TEnum type;
+        [SerializeField] private TEnum type;
         
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowIf("IsValidType")]
