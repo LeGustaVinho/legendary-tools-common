@@ -24,28 +24,29 @@ namespace LegendaryTools
 
         public static Type FindType(string typeName, bool forceAssembliesRescan = false)
         {
+            if (string.IsNullOrEmpty(typeName)) return default;
             Type type = Type.GetType(typeName);
 
             if (type == null) 
             {
                 if (forceAssembliesRescan || allAssembliesCached == null)
-                {
                     allAssembliesCached = AppDomain.CurrentDomain.GetAssemblies();
-                }
+
                 foreach (Assembly assembly in allAssembliesCached)
                 {
                     type = assembly.GetType(typeName);
-                    if (type != null)
-                    {
-                        break;
-                    }
+                    if (type != null) break;
+                    
+                    type = assembly.GetTypes()
+                        .FirstOrDefault(t => 
+                            t.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase) ||
+                            t.Name.StartsWith($"{typeName}`"));
+
+                    if (type != null) break;
                 }
             }
-                        
-            if (type == null)
-            {
-                throw new TypeLoadException($"[TypeExtension:FindType] '{typeName}' was not found.");
-            }
+
+            if (type == null) throw new TypeLoadException($"[TypeExtension:FindType] '{typeName}' não foi encontrado.");
 
             return type;
         }
