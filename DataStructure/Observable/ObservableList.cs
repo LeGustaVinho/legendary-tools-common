@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace LegendaryTools
 {
@@ -26,7 +27,7 @@ namespace LegendaryTools
         public event Action<ObservableList<T>, T> OnRemove;
         public event Action<ObservableList<T>> OnClear;
         
-        private List<T> collection = new List<T>();
+        [SerializeField] private List<T> collection = new List<T>();
         
         public int IndexOf(T item)
         {

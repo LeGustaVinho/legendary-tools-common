@@ -2,13 +2,7 @@
 
 namespace LegendaryTools
 {
-    public abstract class UniqueScriptableObject : 
-#if ODIN_INSPECTOR
-        Sirenix.OdinInspector.SerializedScriptableObject
-#else
-        ScriptableObject
-#endif
-        ,IUnique
+    public abstract class UniqueScriptableObject : UnityObject, IUnique
     {
 #if ODIN_INSPECTOR 
         [Sirenix.OdinInspector.HorizontalGroup("Guid")]

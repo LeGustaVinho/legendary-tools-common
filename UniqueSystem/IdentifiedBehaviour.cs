@@ -8,13 +8,7 @@ using UnityEngine;
 
 namespace LegendaryTools
 {
-    public class IdentifiedBehaviour<TEnum> : 
-#if ODIN_INSPECTOR
-        Sirenix.OdinInspector.SerializedMonoBehaviour,
-#else
-        MonoBehaviour,
-#endif
-        IWeaveExec
+    public class IdentifiedBehaviour<TEnum> : UnityBehaviour, IWeaveExec
         where TEnum : struct, Enum, IConvertible
     {
         public WeaveExecType WeaveExecType => WeaveExecType.AfterCompile;

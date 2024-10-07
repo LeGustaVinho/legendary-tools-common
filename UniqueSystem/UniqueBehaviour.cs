@@ -3,12 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools
 {
-    public class UniqueBehaviour : 
-#if ODIN_INSPECTOR
-        Sirenix.OdinInspector.SerializedMonoBehaviour, IUnique
-#else
-        MonoBehaviour, IUnique
-#endif
+    public class UniqueBehaviour : UnityBehaviour, IUnique
     {
 #if ODIN_INSPECTOR 
         [Sirenix.OdinInspector.HorizontalGroup("Guid")]
