@@ -12,7 +12,7 @@ namespace LegendaryTools
         {
             get
             {
-                Touch();
+                Validate();
                 return name;
             }
         }
@@ -21,7 +21,7 @@ namespace LegendaryTools
         {
             get
             {
-                Touch();
+                Validate();
                 return guid;
             }
         }
@@ -52,8 +52,15 @@ namespace LegendaryTools
         {
             return UniqueObjectListing.UniqueObjects.ContainsKey(guid);
         }
+        
+        //Called by Unity
+        public void Awake()
+        {
+            Validate();
+        }
 
-        public virtual void Touch()
+        //Called by Unity
+        public void OnEnable()
         {
             Validate();
         }
@@ -79,27 +86,9 @@ namespace LegendaryTools
 #if UNITY_EDITOR
         protected virtual void OnValidate()
         {
-            bool allowAssignGuid = !UnityExtension.IsInPrefabMode();
-            
-            if (string.IsNullOrEmpty(guid))
-            {
-                if(allowAssignGuid)
-                    AssignNewGuid();
-            }
-            else
-            {
-                if (UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueBehaviour))
-                {
-                    if ((UniqueScriptableObject)uniqueBehaviour != this)
-                    {
-                        if (allowAssignGuid)
-                            OnGuidCollisionDetected(uniqueBehaviour);
-                    }
-                }
-                else
-                    UniqueObjectListing.UniqueObjects.Add(guid, this);
-            }
+            Validate();
         }
+        
         private void OnGuidCollisionDetected(IUnique uniqueScriptableObject)
         {
             Debug.Log($"[UniqueScriptableObject:OnValidate] Guid {guid} collision detected with {name} and {uniqueScriptableObject.Name}, assigning new Guid.");

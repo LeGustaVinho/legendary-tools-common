@@ -22,6 +22,14 @@ namespace LegendaryTools
 #endif
         public void AssignNewGuid()
         {
+            if (gameObject.IsPrefab())
+            {
+                if (!gameObject.IsInScene())
+                {
+                    Debug.LogWarning($"[UniqueBehaviour:AssignNewGuid] Only scene objects can have Guids.");
+                    return;
+                }
+            }
             guid = UniqueObjectListing.AllocateNewGuidFor(this);
             this.SetDirty();
         }
@@ -69,17 +77,19 @@ namespace LegendaryTools
 #if UNITY_EDITOR
         protected virtual void OnValidate()
         {
-            bool allowAssignGuid = !UnityExtension.IsInPrefabMode();
-            
-            if (gameObject.IsPrefab() || this.IsPrefab())
+            if (UnityExtension.IsInPrefabMode() || (gameObject.IsPrefab() && !gameObject.IsInScene()))
             {
-                allowAssignGuid = false;
+                if (!string.IsNullOrEmpty(guid))
+                {
+                    guid = string.Empty;
+                    this.SetDirty();
+                }
+                return;
             }
             
             if (string.IsNullOrEmpty(guid))
             {
-                if(allowAssignGuid)
-                    AssignNewGuid();
+                AssignNewGuid();
             }
             else
             {
@@ -99,8 +109,7 @@ namespace LegendaryTools
                 
                     if ((UniqueBehaviour)uniqueBehaviour != this)
                     {
-                        if (allowAssignGuid)
-                            OnGuidCollisionDetected(uniqueBehaviour);
+                        OnGuidCollisionDetected(uniqueBehaviour);
                     }
                 }
                 else
@@ -111,7 +120,7 @@ namespace LegendaryTools
         private void OnGuidCollisionDetected(IUnique uniqueBehaviour)
         {
             AssignNewGuid();
-            Debug.LogWarning($"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with {gameObject.name} and another object, assigning new Guid.");
+            Debug.LogWarning($"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with {gameObject.name} and {uniqueBehaviour.GameObject.name}, assigning new Guid.");
         }
 #endif
     }
