@@ -88,12 +88,11 @@ namespace LegendaryTools
         {
             Validate();
         }
-        
+#endif
         private void OnGuidCollisionDetected(IUnique uniqueScriptableObject)
         {
             Debug.Log($"[UniqueScriptableObject:OnValidate] Guid {guid} collision detected with {name} and {uniqueScriptableObject.Name}, assigning new Guid.");
             AssignNewGuid();
         }
-#endif
     }
 }

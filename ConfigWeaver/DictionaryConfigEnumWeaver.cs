@@ -72,7 +72,7 @@ namespace LegendaryTools
             WeaverUtils.Enum(configEnumNames.ToArray(), enumType.Namespace, enumType.Name, configFolder, true);
 #endif
         }
-
+#if UNITY_EDITOR
         [Button]
         public void CreateConfig(string configName)
         {
@@ -90,9 +90,10 @@ namespace LegendaryTools
         {
             UnityEditor.EditorUtility.SetDirty(this);
         }
-
+#endif
         public void RunWeaver()
         {
+#if UNITY_EDITOR
             if (configMapping != null)
             {
                 Populate(configMapping);
@@ -102,9 +103,8 @@ namespace LegendaryTools
             {
                 Update();
             }
+#endif
         }
-
-
     }
 #endif
 }

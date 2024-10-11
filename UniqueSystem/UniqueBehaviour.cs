@@ -116,12 +116,11 @@ namespace LegendaryTools
                     UniqueObjectListing.UniqueObjects.Add(guid, this);
             }
         }
-
+#endif
         private void OnGuidCollisionDetected(IUnique uniqueBehaviour)
         {
             AssignNewGuid();
             Debug.LogWarning($"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with {gameObject.name} and {uniqueBehaviour.GameObject.name}, assigning new Guid.");
         }
-#endif
     }
 }

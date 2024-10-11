@@ -12,6 +12,7 @@ namespace LegendaryTools
 {
     public static class WeaverUtils
     {
+#pragma warning disable 0414
         private static string WEAVER_CLASS_FILE_TEMPLATE = @"namespace {NAMESPACE}
 {
     /// <summary>
@@ -37,7 +38,8 @@ namespace LegendaryTools
         private static string WEAVER_ENUM_MEMBER_WIH_VALUE_FORMAT = @"        {0} = {1},";
         private static string WEAVE_STATIC_READONLY_STRING_MEMBER_FORMAT = "        public static readonly string {0} = \"{1}\";";
         private static string CSHARP_CLASS_EXT = ".cs";
-    
+#pragma warning restore 0414
+        
 #if UNITY_EDITOR
         public static void ClassConstantNameListing(string[] names, string namespaceName, string className, string folderPath = "")
         {
