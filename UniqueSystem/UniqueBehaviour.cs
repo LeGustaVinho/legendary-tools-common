@@ -11,7 +11,10 @@ namespace LegendaryTools
         [SerializeField] private string guid;
         public virtual string Name => gameObject != null ? gameObject.name : string.Empty;
         public string Guid => guid;
-        
+        public GameObject GameObject => gameObject;
+        public ScriptableObject ScriptableObject => null;
+        public UniqueType Type => UniqueType.GameObject;
+
         [ContextMenu("Assign New Guid")]
 #if ODIN_INSPECTOR 
         [Sirenix.OdinInspector.HorizontalGroup("Guid", width: 150)]
@@ -44,8 +47,20 @@ namespace LegendaryTools
 
             if (UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueBehaviour))
             {
-                if ((UniqueBehaviour)uniqueBehaviour != this)
-                    OnGuidCollisionDetected(uniqueBehaviour);
+                try
+                {
+                    if (uniqueBehaviour == null || uniqueBehaviour.GameObject != null)
+                        UniqueObjectListing.UniqueObjects.AddOrUpdate(Guid, this);
+                    else
+                    {
+                        if ((UniqueBehaviour)uniqueBehaviour != this)
+                            OnGuidCollisionDetected(uniqueBehaviour);
+                    }
+                }
+                catch (Exception)
+                {
+                    UniqueObjectListing.UniqueObjects.AddOrUpdate(Guid, this);
+                }
             }
             else
                 UniqueObjectListing.UniqueObjects.Add(guid, this);
@@ -95,15 +110,8 @@ namespace LegendaryTools
 
         private void OnGuidCollisionDetected(IUnique uniqueBehaviour)
         {
-            try
-            {
-                Debug.Log($"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with {gameObject.name} and {uniqueBehaviour.Name}, assigning new Guid.");
-                AssignNewGuid();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-            }
+            AssignNewGuid();
+            Debug.LogWarning($"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with {gameObject.name} and another object, assigning new Guid.");
         }
 #endif
     }

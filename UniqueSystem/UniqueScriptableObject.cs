@@ -26,6 +26,10 @@ namespace LegendaryTools
             }
         }
 
+        public GameObject GameObject => null;
+        public ScriptableObject ScriptableObject => this;
+        public UniqueType Type => UniqueType.ScriptableObject;
+
         [ContextMenu("Assign New Guid")]
 #if ODIN_INSPECTOR 
         [Sirenix.OdinInspector.HorizontalGroup("Guid", width: 150)]
