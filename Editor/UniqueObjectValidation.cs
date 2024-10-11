@@ -11,6 +11,12 @@ namespace LegendaryTools.Editor
         {
             EditorApplication.hierarchyChanged += CheckUniqueObjects;
             EditorApplication.projectChanged += CheckUniqueObjects;
+            EditorApplication.playModeStateChanged += LogPlayModeState;
+        }
+        
+        private static void LogPlayModeState(PlayModeStateChange newState)
+        {
+            CheckUniqueObjects();
         }
         
         [UnityEditor.Callbacks.DidReloadScripts]
@@ -21,30 +27,19 @@ namespace LegendaryTools.Editor
 
         private static void CheckUniqueObjects()
         {
+            UniqueObjectListing.UniqueObjects.Clear();
             List<UniqueScriptableObject> allUniqueScriptableObjects = EditorExtensions.FindAssetsByType<UniqueScriptableObject>();
             UniqueBehaviour[] allUniqueBehaviours =
                 Object.FindObjectsByType<UniqueBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
 
             foreach (UniqueBehaviour obj in allUniqueBehaviours)
             {
-                if (obj.gameObject.IsPrefab())
-                {
-                    if(!obj.gameObject.IsInScene())
-                        continue;
-                }
-
-                if (string.IsNullOrEmpty(obj.Guid) || !UniqueObjectListing.UniqueObjects.ContainsKey(obj.Guid))
-                {
-                    obj.AssignNewGuid();
-                }
+                obj.Validate();
             }
             
             foreach (UniqueScriptableObject obj in allUniqueScriptableObjects)
             {
-                if (string.IsNullOrEmpty(obj.Guid) || !UniqueObjectListing.UniqueObjects.ContainsKey(obj.Guid))
-                {
-                    obj.AssignNewGuid();
-                }
+                obj.Validate();
             }
         }
     }

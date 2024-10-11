@@ -56,6 +56,7 @@ namespace LegendaryTools
         //Called by Unity
         public void Awake()
         {
+            UniqueObjectListing.PrepareForValidate();
             Validate();
         }
 
@@ -65,7 +66,7 @@ namespace LegendaryTools
             Validate();
         }
         
-        protected virtual void Validate()
+        public virtual void Validate()
         {
             if (string.IsNullOrEmpty(guid))
             {

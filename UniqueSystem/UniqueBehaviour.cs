@@ -1,4 +1,5 @@
 ﻿using System;
+using NUnit.Framework.Constraints;
 using UnityEngine;
 
 namespace LegendaryTools
@@ -22,15 +23,13 @@ namespace LegendaryTools
 #endif
         public void AssignNewGuid()
         {
-            if (gameObject.IsPrefab())
+            if (gameObject.IsPrefab() && !gameObject.IsInScene())
             {
-                if (!gameObject.IsInScene())
-                {
-                    Debug.LogWarning($"[UniqueBehaviour:AssignNewGuid] Only scene objects can have Guids.");
-                    return;
-                }
+                Debug.LogWarning($"[UniqueBehaviour:AssignNewGuid] Only scene objects can have Guids.");
+                return;
             }
             guid = UniqueObjectListing.AllocateNewGuidFor(this);
+            Debug.Log($"Assigning new Guid to {gameObject.name} = {guid}");
             this.SetDirty();
         }
 
@@ -48,35 +47,13 @@ namespace LegendaryTools
         
         protected virtual void Awake()
         {
-            if (string.IsNullOrEmpty(guid) && !gameObject.IsPrefab())
-            {
-                AssignNewGuid();
-            }
-
-            if (UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueBehaviour))
-            {
-                try
-                {
-                    if (uniqueBehaviour == null || uniqueBehaviour.GameObject != null)
-                        UniqueObjectListing.UniqueObjects.AddOrUpdate(Guid, this);
-                    else
-                    {
-                        if ((UniqueBehaviour)uniqueBehaviour != this)
-                            OnGuidCollisionDetected(uniqueBehaviour);
-                    }
-                }
-                catch (Exception)
-                {
-                    UniqueObjectListing.UniqueObjects.AddOrUpdate(Guid, this);
-                }
-            }
-            else
-                UniqueObjectListing.UniqueObjects.Add(guid, this);
+            UniqueObjectListing.PrepareForValidate();
+            Validate();
         }
-        
-#if UNITY_EDITOR
-        protected virtual void OnValidate()
+
+        public virtual void Validate()
         {
+#if UNITY_EDITOR
             if (UnityExtension.IsInPrefabMode() || (gameObject.IsPrefab() && !gameObject.IsInScene()))
             {
                 if (!string.IsNullOrEmpty(guid))
@@ -86,37 +63,35 @@ namespace LegendaryTools
                 }
                 return;
             }
-            
+#endif
             if (string.IsNullOrEmpty(guid))
-            {
                 AssignNewGuid();
-            }
             else
             {
-                if (UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueBehaviour))
+                if (UniqueObjectListing.UniqueObjects.TryGetValue(Guid, out IUnique uniqueBehaviour))
                 {
-                    //Unity does an assemblyReload leaving the Dictionary entries null
-                    if (uniqueBehaviour == null)
+                    try
                     {
-                        UniqueBehaviour[] allUniqueBehaviours = FindObjectsByType<UniqueBehaviour>(FindObjectsInactive.Include,
-                            FindObjectsSortMode.None);
-                        foreach (UniqueBehaviour behaviour in allUniqueBehaviours)
+                        if (uniqueBehaviour == null || uniqueBehaviour.GameObject == null) //Attempt to provoke object destroyed exception
+                            UniqueObjectListing.UniqueObjects.AddOrUpdate(Guid, this);
+                        else
                         {
-                            UniqueObjectListing.UniqueObjects.AddOrUpdate(guid, behaviour);
-                            if (guid == behaviour.Guid) uniqueBehaviour = behaviour;
+                            if ((UniqueBehaviour)uniqueBehaviour != this)
+                                OnGuidCollisionDetected(uniqueBehaviour);
                         }
                     }
-                
-                    if ((UniqueBehaviour)uniqueBehaviour != this)
+                    catch (Exception ex)
                     {
-                        OnGuidCollisionDetected(uniqueBehaviour);
+                        //object destroyed exception: uniqueBehaviour.GameObject will be destroyed after AssemblyReload,EnterPlayMode and ExitingPlayMode
+                        Debug.LogException(ex);
+                        UniqueObjectListing.UniqueObjects.AddOrUpdate(Guid, this);
                     }
                 }
                 else
                     UniqueObjectListing.UniqueObjects.Add(guid, this);
             }
         }
-#endif
+
         private void OnGuidCollisionDetected(IUnique uniqueBehaviour)
         {
             AssignNewGuid();

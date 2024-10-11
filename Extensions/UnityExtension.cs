@@ -209,12 +209,7 @@ namespace LegendaryTools
 
         public static bool IsInScene(this GameObject gameObject)
         {
-            bool result = gameObject.scene.IsValid(); //Sometimes returns false when gameObject is in the scene.
-            if (result) return result;
-            GameObject found = GameObject.Find(gameObject.name);
-            result = found != null && found.GetInstanceID() == gameObject.GetInstanceID();
-
-            return result;
+            return gameObject.scene.IsValid();
         }
     }
 }
