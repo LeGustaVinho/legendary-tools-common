@@ -54,7 +54,7 @@ namespace LegendaryTools
         public virtual void Validate()
         {
 #if UNITY_EDITOR
-            if (UnityExtension.IsInPrefabMode() || (gameObject.IsPrefab() && !gameObject.IsInScene()))
+            if (gameObject.IsPrefab() && !gameObject.IsInScene())
             {
                 if (!string.IsNullOrEmpty(guid))
                 {
