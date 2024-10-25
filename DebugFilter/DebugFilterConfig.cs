@@ -45,6 +45,12 @@ namespace LegendaryTools
     public class DebugFilterConfig : UnityObject
     {
         public DebugLogLevel DefaultLogLevel = DebugLogLevel.All;
+        public bool PrintClassMethodInfo = true;
+        public string ClassMethodInfoFormat = "<b>[{0}:{1}]</b> {2}";
+        public string ClassInfoFormat = "<b>[{0}]</b> {1}";
+#if ODIN_INSPECTOR
+        [Sirenix.OdinInspector.TableList]
+#endif
         public List<TypeLogLevel> TypeLogLevels = new List<TypeLogLevel>();
     }
 }
