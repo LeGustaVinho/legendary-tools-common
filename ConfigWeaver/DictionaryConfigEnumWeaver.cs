@@ -20,7 +20,9 @@ namespace LegendaryTools
         [ShowInInspector] public Dictionary<E, C> Configs => configs;
         public Dictionary<C, E> InvertedConfigs => invertedConfigs;
         
+        [OdinSerialize][HideInInspector]
         private Dictionary<E, C> configs = new Dictionary<E, C>();
+        [OdinSerialize][HideInInspector]
         private Dictionary<C, E> invertedConfigs = new Dictionary<C, E>();
 
         [OdinSerialize][HideInInspector]
@@ -59,17 +61,30 @@ namespace LegendaryTools
             }
 
             Type enumType = typeof(E);
-            List<MonoScript> enumCodeFile = EditorExtensions.FindAssetsByName<MonoScript>(enumType.Name);
-            string configPath = AssetDatabase.GetAssetPath(this);
-            
-            if (enumCodeFile.Count > 0)
+
+            bool allFound = true;
+            foreach (KeyValuePair<string, C> pair in configMapping)
             {
-                configPath = AssetDatabase.GetAssetPath(enumCodeFile[0]);
+                if (Enum.TryParse<E>(pair.Key, out E parsedEnum))
+                {
+                    if (!configs.TryAdd(parsedEnum, pair.Value))
+                        allFound = false;
+                    if (!invertedConfigs.TryAdd(pair.Value, parsedEnum))
+                        allFound = false;
+                }
             }
-            
-            string configFolder = Path.GetDirectoryName(configPath);
-            
-            WeaverUtils.Enum(configEnumNames.ToArray(), enumType.Namespace, enumType.Name, configFolder, true);
+
+            if (!allFound)
+            {
+                List<MonoScript> enumCodeFile = EditorExtensions.FindAssetsByName<MonoScript>(enumType.Name);
+                string configPath = AssetDatabase.GetAssetPath(this);
+
+                if (enumCodeFile.Count > 0)
+                    configPath = AssetDatabase.GetAssetPath(enumCodeFile[0]);
+
+                string configFolder = Path.GetDirectoryName(configPath);
+                WeaverUtils.Enum(configEnumNames.ToArray(), enumType.Namespace, enumType.Name, configFolder, true);
+            }
 #endif
         }
 #if UNITY_EDITOR
