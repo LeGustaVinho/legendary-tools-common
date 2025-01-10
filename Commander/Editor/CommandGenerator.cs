@@ -5,13 +5,14 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
 namespace CommandPattern
 {
     /// <summary>
-    /// Editor script to generate command classes based on methods of a selected class.
+    /// Editor script to generate command classes based on the methods of a selected class.
     /// </summary>
     public class CommandGenerator : EditorWindow
     {
@@ -73,7 +74,7 @@ namespace CommandPattern
                 }
                 else
                 {
-                    // Adjust selectedClassIndex if it exceeds the available classes after filtering
+                    // Adjust selectedClassIndex if it exceeds the number of available classes after filtering
                     if (selectedClassIndex >= classNames.Length)
                         selectedClassIndex = 0;
 
@@ -88,7 +89,7 @@ namespace CommandPattern
 
             EditorGUILayout.Space();
 
-            // Generate Commands Button
+            // Button to Generate Commands
             if (GUILayout.Button("Generate Commands"))
             {
                 if (availableClasses.Count == 0)
@@ -125,7 +126,7 @@ namespace CommandPattern
         }
 
         /// <summary>
-        /// Refreshes the list of available classes by scanning all loaded assemblies.
+        /// Updates the list of available classes by scanning all loaded assemblies.
         /// </summary>
         private void RefreshAvailableClasses()
         {
@@ -136,13 +137,13 @@ namespace CommandPattern
 
             foreach (var assembly in assemblies)
             {
-                // Skip dynamic and system assemblies
+                // Ignore dynamic and system assemblies
                 if (assembly.IsDynamic || assembly.FullName.StartsWith("System") || assembly.FullName.StartsWith("Unity"))
                     continue;
 
                 foreach (var type in assembly.GetTypes())
                 {
-                    // Include only public, non-abstract classes
+                    // Include only public and non-abstract classes
                     if (type.IsClass && type.IsPublic && !type.IsAbstract)
                     {
                         availableClasses.Add(type);
@@ -157,7 +158,7 @@ namespace CommandPattern
         /// <summary>
         /// Generates command classes for the specified class.
         /// </summary>
-        /// <param name="type">The class type to generate commands for.</param>
+        /// <param name="type">The type of the class to generate commands for.</param>
         private void GenerateCommandsForClass(Type type)
         {
             if (!Directory.Exists(outputPath))
@@ -167,7 +168,7 @@ namespace CommandPattern
 
             // Get eligible methods based on filters:
             // - Public methods
-            // - Static or Instance methods
+            // - Static or instance methods
             // - Any return type (including void)
             var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                               .Where(m => m.IsPublic);
@@ -176,8 +177,8 @@ namespace CommandPattern
 
             foreach (var method in methods)
             {
-                // Additional filtering can be applied here if needed
-                // For example, skip property getters/setters, constructors, etc.
+                // Additional filtering can be applied here if necessary
+                // For example, ignore property getters/setters, constructors, etc.
                 if (method.IsSpecialName)
                     continue;
 
@@ -193,7 +194,7 @@ namespace CommandPattern
         /// <summary>
         /// Generates a command class for a specific method of a class.
         /// </summary>
-        /// <param name="type">The class type containing the method.</param>
+        /// <param name="type">The type of the class that contains the method.</param>
         /// <param name="method">The method to create a command for.</param>
         private void GenerateCommandClass(Type type, MethodInfo method)
         {
@@ -203,6 +204,14 @@ namespace CommandPattern
             string receiverType = type.FullName;
             bool hasReturnValue = method.ReturnType != typeof(void);
             bool isStatic = method.IsStatic;
+
+            // Handle generic methods by adding generic arguments to the class name
+            if (method.IsGenericMethod)
+            {
+                var genericArgs = method.GetGenericArguments();
+                string genericArgsNames = string.Join("_", genericArgs.Select(t => t.Name));
+                className += $"_{genericArgsNames}";
+            }
 
             // Collect namespaces from parameters and return type
             HashSet<string> namespaces = new HashSet<string>();
@@ -216,21 +225,50 @@ namespace CommandPattern
                 CollectNamespaces(method.ReturnType, namespaces);
             }
 
-            // Remove the namespace of the class itself to avoid redundant using
+            // Remove the class's own namespace to avoid redundant 'using' statements
             if (!string.IsNullOrEmpty(namespaceName))
             {
                 namespaces.Remove(namespaceName);
             }
 
-            // Add necessary namespaces for Unity and system types
+            // Add necessary namespaces for system and Unity types
             namespaces.Add("System");
             namespaces.Add("UnityEngine");
             namespaces.Add("LegendaryTools.Commander");
 
+            // Handle generic type constraints
+            string genericConstraints = "";
+            if (method.IsGenericMethod)
+            {
+                var genericArgs = method.GetGenericArguments();
+                List<string> constraintsList = new List<string>();
+                foreach (var arg in genericArgs)
+                {
+                    var constraints = new List<string>();
+                    if (arg.GenericParameterAttributes.HasFlag(GenericParameterAttributes.ReferenceTypeConstraint))
+                        constraints.Add("class");
+                    if (arg.GenericParameterAttributes.HasFlag(GenericParameterAttributes.NotNullableValueTypeConstraint))
+                        constraints.Add("struct");
+                    var constraintTypes = arg.GetGenericParameterConstraints();
+                    foreach (var ct in constraintTypes)
+                    {
+                        constraints.Add(ct.Name);
+                    }
+                    if (constraints.Count > 0)
+                    {
+                        constraintsList.Add($"where {arg.Name} : {string.Join(", ", constraints)}");
+                    }
+                }
+                if (constraintsList.Count > 0)
+                {
+                    genericConstraints = " " + string.Join(" ", constraintsList);
+                }
+            }
+
             // Start building the class
             StringBuilder sb = new StringBuilder();
 
-            // Add using declarations
+            // Add 'using' statements
             foreach (var ns in namespaces.OrderBy(n => n))
             {
                 sb.AppendLine($"using {ns};");
@@ -243,23 +281,40 @@ namespace CommandPattern
             sb.AppendLine($"    /// Command to execute the method {method.Name} of class {type.Name}.");
             sb.AppendLine("    /// </summary>");
             sb.AppendLine("    [Serializable]");
-            sb.AppendLine($"    public class {className} : ICommand");
+            sb.AppendLine($"    public class {className}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")} : ICommand{(IsAsyncMethod(method) ? ", IAsyncCommand" : "")}");
+            sb.AppendLine($"    {genericConstraints}");
             sb.AppendLine("    {");
 
             // Serialize parameters
             var parameters = method.GetParameters();
             foreach (var param in parameters)
             {
-                sb.AppendLine($"        public {GetTypeName(param.ParameterType)} {param.Name};");
+                string paramTypeName = GetTypeName(param.ParameterType);
+                string paramName = param.Name;
+                if (param.IsOut)
+                {
+                    sb.AppendLine($"        public out {paramTypeName} {paramName};");
+                }
+                else if (param.ParameterType.IsByRef)
+                {
+                    sb.AppendLine($"        public ref {paramTypeName} {paramName};");
+                }
+                else
+                {
+                    sb.AppendLine($"        public {paramTypeName} {paramName};");
+                }
             }
 
             if (hasReturnValue)
             {
+                string returnTypeName = GetTypeName(method.ReturnType);
                 sb.AppendLine();
-                sb.AppendLine($"        public {GetTypeName(method.ReturnType)} Result;");
+                sb.AppendLine($"        public {returnTypeName} Result;");
             }
 
             sb.AppendLine();
+
+            // Execute(object receiver) method
             sb.AppendLine("        /// <summary>");
             sb.AppendLine("        /// Executes the command on the given receiver.");
             sb.AppendLine("        /// </summary>");
@@ -276,34 +331,42 @@ namespace CommandPattern
                 sb.AppendLine("            }");
             }
 
-            string parameterList = string.Join(", ", parameters.Select(p => p.Name));
+            string parameterList = string.Join(", ", parameters.Select(p =>
+            {
+                if (p.IsOut)
+                    return $"out {p.Name}";
+                else if (p.ParameterType.IsByRef)
+                    return $"ref {p.Name}";
+                else
+                    return p.Name;
+            }));
 
             if (hasReturnValue)
             {
                 if (isStatic)
                 {
-                    sb.AppendLine($"            Result = {type.Name}.{method.Name}({parameterList});");
+                    sb.AppendLine($"            Result = {type.Name}.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});");
                 }
                 else
                 {
-                    sb.AppendLine($"            Result = typedReceiver.{method.Name}({parameterList});");
+                    sb.AppendLine($"            Result = typedReceiver.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});");
                 }
             }
             else
             {
                 if (isStatic)
                 {
-                    sb.AppendLine($"            {type.Name}.{method.Name}({parameterList});");
+                    sb.AppendLine($"            {type.Name}.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});");
                 }
                 else
                 {
-                    sb.AppendLine($"            typedReceiver.{method.Name}({parameterList});");
+                    sb.AppendLine($"            typedReceiver.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});");
                 }
             }
 
             sb.AppendLine("        }");
 
-            // Overloaded Execute method with specific receiver type
+            // Execute(T receiver) method
             sb.AppendLine();
             sb.AppendLine("        /// <summary>");
             sb.AppendLine($"        /// Executes the command on the given receiver without casting.");
@@ -316,17 +379,126 @@ namespace CommandPattern
             if (hasReturnValue)
             {
                 executeCall = isStatic
-                    ? $"Result = {type.Name}.{method.Name}({parameterList});"
-                    : $"Result = receiver.{method.Name}({parameterList});";
+                    ? $"Result = {type.Name}.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});"
+                    : $"Result = receiver.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});";
             }
             else
             {
                 executeCall = isStatic
-                    ? $"{type.Name}.{method.Name}({parameterList});"
-                    : $"receiver.{method.Name}({parameterList});";
+                    ? $"{type.Name}.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});"
+                    : $"receiver.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});";
             }
 
             sb.AppendLine($"            {executeCall}");
+            sb.AppendLine("        }");
+
+            // Asynchronous methods, if applicable
+            if (IsAsyncMethod(method))
+            {
+                sb.AppendLine();
+                sb.AppendLine("        /// <summary>");
+                sb.AppendLine("        /// Asynchronously executes the command on the given receiver.");
+                sb.AppendLine("        /// </summary>");
+                sb.AppendLine("        /// <param name=\"receiver\">The receiver that will execute the command.</param>");
+                sb.AppendLine("        /// <returns>A Task representing the asynchronous operation.</returns>");
+                sb.AppendLine("        public async Task ExecuteAsync(object receiver)");
+                sb.AppendLine("        {");
+                if (!isStatic)
+                {
+                    sb.AppendLine($"            var typedReceiver = receiver as {type.Name};");
+                    sb.AppendLine("            if (typedReceiver == null)");
+                    sb.AppendLine("            {");
+                    sb.AppendLine($"                Debug.LogError(\"Receiver is not of type {type.Name}\");");
+                    sb.AppendLine("                return;");
+                    sb.AppendLine("            }");
+                }
+
+                if (hasReturnValue)
+                {
+                    if (isStatic)
+                    {
+                        sb.AppendLine($"            Result = await {type.Name}.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"            Result = await typedReceiver.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});");
+                    }
+                }
+                else
+                {
+                    if (isStatic)
+                    {
+                        sb.AppendLine($"            await {type.Name}.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"            await typedReceiver.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});");
+                    }
+                }
+
+                sb.AppendLine("        }");
+
+                // ExecuteAsync(T receiver) method
+                sb.AppendLine();
+                sb.AppendLine("        /// <summary>");
+                sb.AppendLine($"        /// Asynchronously executes the command on the given receiver without casting.");
+                sb.AppendLine("        /// </summary>");
+                sb.AppendLine($"        /// <param name=\"receiver\">The receiver of type {type.Name}.</param>");
+                sb.AppendLine($"        /// <returns>A Task representing the asynchronous operation.</returns>");
+                sb.AppendLine($"        public async Task ExecuteAsync({type.Name} receiver)");
+                sb.AppendLine("        {");
+
+                string asyncExecuteCall;
+                if (hasReturnValue)
+                {
+                    asyncExecuteCall = isStatic
+                        ? $"Result = await {type.Name}.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});"
+                        : $"Result = await receiver.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});";
+                }
+                else
+                {
+                    asyncExecuteCall = isStatic
+                        ? $"await {type.Name}.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});"
+                        : $"await receiver.{method.Name}{(method.IsGenericMethod ? "<" + string.Join(", ", method.GetGenericArguments().Select(t => t.Name)) + ">" : "")}({parameterList});";
+                }
+
+                sb.AppendLine($"            {asyncExecuteCall}");
+                sb.AppendLine("        }");
+            }
+
+            // Unexecute(object receiver) method
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Undoes the command on the given receiver.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <param name=\"receiver\">The receiver that will undo the command.</param>");
+            sb.AppendLine("        public void Unexecute(object receiver)");
+            sb.AppendLine("        {");
+            if (!isStatic)
+            {
+                sb.AppendLine($"            var typedReceiver = receiver as {type.Name};");
+                sb.AppendLine("            if (typedReceiver == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                Debug.LogError(\"Receiver is not of type {type.Name}\");");
+                sb.AppendLine("                return;");
+                sb.AppendLine("            }");
+            }
+
+            // Placeholder for undo logic
+            sb.AppendLine("            // TODO: Implement undo logic here");
+            sb.AppendLine("            Debug.Log(\"Undo operation not implemented.\");");
+            sb.AppendLine("        }");
+
+            // Unexecute(T receiver) method
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine($"        /// Undoes the command on the given receiver without casting.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine($"        /// <param name=\"receiver\">The receiver of type {type.Name}.</param>");
+            sb.AppendLine($"        public void Unexecute({type.Name} receiver)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            // TODO: Implement undo logic here");
+            sb.AppendLine("            Debug.Log(\"Undo operation not implemented.\");");
             sb.AppendLine("        }");
 
             sb.AppendLine("    }");
@@ -357,10 +529,10 @@ namespace CommandPattern
 
             if (type.IsGenericType)
             {
-                // For generic types, add the generic type definition's namespace
+                // For generic types, add the namespace of the generic type definition
                 namespaces.Add(type.GetGenericTypeDefinition().Namespace);
 
-                // Recursively collect namespaces from generic type arguments
+                // Recursively collect namespaces from the generic type arguments
                 foreach (var arg in type.GetGenericArguments())
                 {
                     CollectNamespaces(arg, namespaces);
@@ -373,7 +545,7 @@ namespace CommandPattern
             }
             else
             {
-                // For non-generic, non-array types, add the namespace
+                // For non-generic and non-array types, add the namespace directly
                 if (!string.IsNullOrEmpty(type.Namespace))
                 {
                     namespaces.Add(type.Namespace);
@@ -382,9 +554,22 @@ namespace CommandPattern
         }
 
         /// <summary>
-        /// Returns the C# type name, handling generic types and arrays appropriately.
+        /// Determines if a method is asynchronous.
         /// </summary>
-        /// <param name="type">The type to get the name for.</param>
+        /// <param name="method">The method to check.</param>
+        /// <returns>True if the method is asynchronous; otherwise, false.</returns>
+        private bool IsAsyncMethod(MethodInfo method)
+        {
+            // A method is considered asynchronous if it returns Task or Task<T>
+            if (method.ReturnType == typeof(Task) || (method.ReturnType.IsGenericType && method.ReturnType.GetGenericTypeDefinition() == typeof(Task<>)))
+                return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Returns the C# type name, properly handling generic types and arrays.
+        /// </summary>
+        /// <param name="type">The type to get the name of.</param>
         /// <returns>The C# type name as a string.</returns>
         private string GetTypeName(Type type)
         {
@@ -403,7 +588,7 @@ namespace CommandPattern
             }
             else
             {
-                // Use the type's name without namespace if possible
+                // Use the type name without namespace, if possible
                 return type.Name;
             }
         }
