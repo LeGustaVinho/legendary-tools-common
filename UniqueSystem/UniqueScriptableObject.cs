@@ -1,4 +1,8 @@
-﻿using UnityEngine;
+﻿using System;
+using UnityEngine;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace LegendaryTools
 {
@@ -8,6 +12,7 @@ namespace LegendaryTools
         [Sirenix.OdinInspector.HorizontalGroup("Guid")]
 #endif
         [SerializeField] private string guid;
+        
         public virtual string Name
         {
             get
@@ -53,14 +58,14 @@ namespace LegendaryTools
             return UniqueObjectListing.UniqueObjects.ContainsKey(guid);
         }
         
-        //Called by Unity
+        // Called by Unity
         public void Awake()
         {
             UniqueObjectListing.PrepareForValidate();
             Validate();
         }
 
-        //Called by Unity
+        // Called by Unity
         public void OnEnable()
         {
             Validate();
@@ -74,13 +79,15 @@ namespace LegendaryTools
             }
             else
             {
-                if (UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueBehaviour))
+                if (UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueObject))
                 {
-                    if ((UniqueScriptableObject)uniqueBehaviour != this)
-                        OnGuidCollisionDetected(uniqueBehaviour);
+                    if (uniqueObject is UniqueScriptableObject existingSO && existingSO != this)
+                        OnGuidCollisionDetected(uniqueObject);
                 }
                 else
+                {
                     UniqueObjectListing.UniqueObjects.Add(guid, this);
+                }
             }
         }
         
@@ -90,10 +97,26 @@ namespace LegendaryTools
             Validate();
         }
 #endif
+
         private void OnGuidCollisionDetected(IUnique uniqueScriptableObject)
         {
-            Debug.Log($"[UniqueScriptableObject:OnValidate] Guid {guid} collision detected with {name} and {uniqueScriptableObject.Name}, assigning new Guid.");
+            Debug.Log($"[UniqueScriptableObject:OnValidate] Guid {guid} collision detected with " +
+                      $"{name} and {uniqueScriptableObject.Name}, assigning new Guid.");
             AssignNewGuid();
+        }
+
+        /// <summary>
+        /// For ScriptableObjects, Unity may invoke OnDisable when they’re unloaded.
+        /// Remove the entry if it still points to this instance.
+        /// </summary>
+        protected virtual void OnDisable()
+        {
+            if (!string.IsNullOrEmpty(guid) 
+                && UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique registered)
+                && registered == this)
+            {
+                UniqueObjectListing.UniqueObjects.Remove(guid);
+            }
         }
     }
 }

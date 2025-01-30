@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using UnityEngine;
 
 namespace LegendaryTools
 {
@@ -10,23 +9,40 @@ namespace LegendaryTools
 
         public static void PrepareForValidate()
         {
+            // Clear the dictionary once on domain reload or first usage.
             if (ShouldResetTable)
             {
                 UniqueObjects.Clear();
                 ShouldResetTable = false;
             }
         }
-        
+
         public static string AllocateNewGuidFor(IUnique uniqueInstance)
         {
             string newGuid;
             do
             {
                 newGuid = System.Guid.NewGuid().ToString();
-            } while (UniqueObjectListing.UniqueObjects.ContainsKey(newGuid));
+            } 
+            while (UniqueObjects.ContainsKey(newGuid));
             
-            UniqueObjectListing.UniqueObjects.Add(newGuid, uniqueInstance);
+            UniqueObjects.Add(newGuid, uniqueInstance);
             return newGuid;
+        }
+
+        /// <summary>
+        /// Adds or replaces the entry for a given GUID.
+        /// </summary>
+        public static void AddOrUpdate(string guid, IUnique unique)
+        {
+            if (UniqueObjects.ContainsKey(guid))
+            {
+                UniqueObjects[guid] = unique;
+            }
+            else
+            {
+                UniqueObjects.Add(guid, unique);
+            }
         }
     }
 }

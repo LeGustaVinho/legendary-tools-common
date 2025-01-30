@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
-using UnityEngine;
 
 namespace LegendaryTools
 {
@@ -30,8 +31,8 @@ namespace LegendaryTools
 
         public bool IsValidType => Type.ToString() == name.FilterEnumName();
         
-        private static readonly Dictionary<TEnum, IdentifiedBehaviour<TEnum>> GameObjectsByType = 
-            new Dictionary<TEnum, IdentifiedBehaviour<TEnum>>();
+        private static readonly Dictionary<TEnum, IdentifiedBehaviour<TEnum>> GameObjectsByType 
+            = new Dictionary<TEnum, IdentifiedBehaviour<TEnum>>();
 
         public static bool TryGetValue(TEnum enumName, out IdentifiedBehaviour<TEnum> uniqueBehaviour)
         {
@@ -45,7 +46,9 @@ namespace LegendaryTools
         
         protected virtual void Awake()
         {
-            if (!GameObjectsByType.ContainsKey(Type)) GameObjectsByType.Add(Type, this);
+            // Register in dictionary if not present
+            if (!GameObjectsByType.ContainsKey(Type))
+                GameObjectsByType.Add(Type, this);
         }
 
 #if UNITY_EDITOR
@@ -61,14 +64,16 @@ namespace LegendaryTools
                 EditorExtensions.FindPrefabsOfType<IdentifiedBehaviour<TEnum>>();
             List<(IdentifiedBehaviour<TEnum>, GameObject)> sceneObjects =
                 EditorExtensions.FindSceneObjectsOfType<IdentifiedBehaviour<TEnum>>();
-            List<(IdentifiedBehaviour<TEnum>, GameObject)> allGameObjects = new(prefabs.Count + sceneObjects.Count);
+            List<(IdentifiedBehaviour<TEnum>, GameObject)> allGameObjects =
+                new(prefabs.Count + sceneObjects.Count);
+            
             allGameObjects.AddRange(prefabs);
             allGameObjects.AddRange(sceneObjects);
             
             List<string> configEnumNames = new List<string>();
-            foreach ((IdentifiedBehaviour<TEnum>, GameObject) curGameObject in allGameObjects)
+            foreach ((IdentifiedBehaviour<TEnum> identified, GameObject go) in allGameObjects)
             {
-                string enumName = curGameObject.Item2.name.FilterEnumName();
+                string enumName = go.name.FilterEnumName();
                 if(!configEnumNames.Contains(enumName))
                     configEnumNames.Add(enumName);
             }
@@ -85,17 +90,51 @@ namespace LegendaryTools
         }
 #endif
 
+        /// <summary>
+        /// If the <c>Type</c> isn't valid, we run the weaver and potentially change <c>Type</c>.
+        /// We then remove the old entry from the dictionary and re-add the new one if needed.
+        /// </summary>
         protected void OnValidate()
         {
+            // If name doesn't match the stored Type
             if (!IsValidType)
             {
+                TEnum oldType = Type;
+                
+                // Recompute 'Type' from the name
                 RunWeaver();
+
+                // If the Type actually changed, remove from dictionary under the old key
+                // and re-add under the new key if not present.
+                if (!EqualityComparer<TEnum>.Default.Equals(oldType, Type))
+                {
+                    if (GameObjectsByType.TryGetValue(oldType, out var existing) && existing == this)
+                    {
+                        GameObjectsByType.Remove(oldType);
+                    }
+
+                    if (!GameObjectsByType.ContainsKey(Type))
+                    {
+                        GameObjectsByType.Add(Type, this);
+                    }
+                }
             }
         }
 
         public void RunWeaver()
         {
             Type = name.FilterEnumName().GetEnumValue<TEnum>();
+        }
+
+        /// <summary>
+        /// Clean up the static dictionary when this object is destroyed.
+        /// </summary>
+        protected virtual void OnDestroy()
+        {
+            if (GameObjectsByType.TryGetValue(Type, out var existing) && existing == this)
+            {
+                GameObjectsByType.Remove(Type);
+            }
         }
     }
 }

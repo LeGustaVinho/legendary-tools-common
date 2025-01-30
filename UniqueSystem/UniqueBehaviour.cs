@@ -1,5 +1,4 @@
 ﻿using System;
-using NUnit.Framework.Constraints;
 using UnityEngine;
 
 namespace LegendaryTools
@@ -10,6 +9,7 @@ namespace LegendaryTools
         [Sirenix.OdinInspector.HorizontalGroup("Guid")]
 #endif
         [SerializeField] private string guid;
+
         public virtual string Name => gameObject != null ? gameObject.name : string.Empty;
         public string Guid => guid;
         public GameObject GameObject => gameObject;
@@ -65,19 +65,24 @@ namespace LegendaryTools
             }
 #endif
             if (string.IsNullOrEmpty(guid))
+            {
                 AssignNewGuid();
+            }
             else
             {
-                if (UniqueObjectListing.UniqueObjects.TryGetValue(Guid, out IUnique uniqueBehaviour))
+                if (UniqueObjectListing.UniqueObjects.TryGetValue(Guid, out IUnique uniqueObject))
                 {
                     try
                     {
-                        if (uniqueBehaviour == null || uniqueBehaviour.GameObject == null) //Attempt to provoke object destroyed exception
+                        // Attempt to provoke object-destroyed exception
+                        if (uniqueObject == null || uniqueObject.GameObject == null)
+                        {
                             UniqueObjectListing.UniqueObjects.AddOrUpdate(Guid, this);
+                        }
                         else
                         {
-                            if ((UniqueBehaviour)uniqueBehaviour != this)
-                                OnGuidCollisionDetected(uniqueBehaviour);
+                            if (uniqueObject != this)
+                                OnGuidCollisionDetected(uniqueObject);
                         }
                     }
                     catch (Exception ex)
@@ -88,14 +93,32 @@ namespace LegendaryTools
                     }
                 }
                 else
+                {
                     UniqueObjectListing.UniqueObjects.Add(guid, this);
+                }
             }
         }
 
         private void OnGuidCollisionDetected(IUnique uniqueBehaviour)
         {
             AssignNewGuid();
-            Debug.LogWarning($"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with {gameObject.name} and {uniqueBehaviour.GameObject.name}, assigning new Guid.");
+            Debug.LogWarning(
+                $"[UniqueBehaviour:OnValidate] Guid {guid} collision detected with " +
+                $"{gameObject.name} and {uniqueBehaviour.GameObject.name}, assigning new Guid."
+            );
+        }
+
+        /// <summary>
+        /// Remove this object's GUID from the dictionary upon destruction.
+        /// </summary>
+        protected virtual void OnDestroy()
+        {
+            if (!string.IsNullOrEmpty(guid) 
+                && UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueObject) 
+                && uniqueObject == this)
+            {
+                UniqueObjectListing.UniqueObjects.Remove(guid);
+            }
         }
     }
 }

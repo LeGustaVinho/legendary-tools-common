@@ -13,8 +13,20 @@ namespace LegendaryTools
         
         public UniqueBehaviour Value
         {
-            get => UniqueBehaviour.TryGetValue(uniqueBehaviourId, out UniqueBehaviour uniqueBehaviour) ? uniqueBehaviour : null;
-            set => uniqueBehaviourId = value.Guid;
+            get => UniqueBehaviour.TryGetValue(uniqueBehaviourId, out UniqueBehaviour uniqueBehaviour)
+                ? uniqueBehaviour
+                : null;
+            set
+            {
+                if (value == null)
+                {
+                    uniqueBehaviourId = string.Empty;
+                }
+                else
+                {
+                    uniqueBehaviourId = value.Guid;
+                }
+            }
         }
     }
     
@@ -24,8 +36,31 @@ namespace LegendaryTools
     {
         public new T Value
         {
-            get => UniqueBehaviour.TryGetValue(uniqueBehaviourId, out UniqueBehaviour uniqueBehaviour) ? uniqueBehaviour.GetComponent<T>() : null;
-            set => uniqueBehaviourId = value.GetComponent<UniqueBehaviour>().Guid;
+            get
+            {
+                if (UniqueBehaviour.TryGetValue(uniqueBehaviourId, out UniqueBehaviour uniqueBehaviour))
+                {
+                    return uniqueBehaviour != null 
+                        ? uniqueBehaviour.GetComponent<T>() 
+                        : null;
+                }
+                return null;
+            }
+            set
+            {
+                if (value == null)
+                {
+                    uniqueBehaviourId = string.Empty;
+                }
+                else
+                {
+                    var unique = value.GetComponent<UniqueBehaviour>();
+                    if (unique != null)
+                        uniqueBehaviourId = unique.Guid;
+                    else
+                        uniqueBehaviourId = string.Empty;
+                }
+            }
         }
     }
 }
