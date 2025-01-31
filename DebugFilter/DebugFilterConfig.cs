@@ -22,11 +22,13 @@ namespace LegendaryTools
         public Type Type;
 #endif
         public DebugLogLevel LogLevel = DebugLogLevel.All;
-
+        
+#if ODIN_INSPECTOR
         private void OnTypeChanged()
         {
             TypeFullName = Type.FullName;
         }
+#endif
     }
 
     [Flags]

@@ -22,7 +22,7 @@ namespace CommandPattern
         private string searchFilter = "";
         private int selectedClassIndex = 0;
 
-        [MenuItem("Tools/Command Generator")]
+        [MenuItem("Tools/LegendaryTools/Command Generator")]
         public static void ShowWindow()
         {
             GetWindow<CommandGenerator>("Command Generator");
