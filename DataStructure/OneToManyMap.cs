@@ -1,49 +1,92 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace LegendaryTools
 {
     /// <summary>
-    /// A generic data structure to map one-to-many relationships.
-    /// In our example, TParent might be a Species and TChild a Population.
+    ///     A generic data structure representing a one-to-many relationship.
+    ///     Provides batch operations, enumeration of relationships, query methods,
+    ///     update operations, and notifications via Action delegates.
     /// </summary>
     public class OneToManyMap<TParent, TChild>
     {
-        // Maps each parent to its list of children.
-        private readonly Dictionary<TParent, List<TChild>> parentToChildren;
+        // Internal storage for relationships.
+        private readonly Dictionary<TParent, List<TChild>> parentToChildren = new Dictionary<TParent, List<TChild>>();
+        private readonly Dictionary<TChild, TParent> childToParent = new Dictionary<TChild, TParent>();
 
-        // Maps each child to its parent.
-        private readonly Dictionary<TChild, TParent> childToParent;
-
-        public OneToManyMap()
-        {
-            parentToChildren = new Dictionary<TParent, List<TChild>>();
-            childToParent = new Dictionary<TChild, TParent>();
-        }
+        #region Notification Actions
 
         /// <summary>
-        /// Gets all parents (e.g. all species).
+        ///     Invoked when a new parent is added.
+        /// </summary>
+        public event Action<TParent> ParentAdded;
+
+        /// <summary>
+        ///     Invoked when a parent is removed.
+        /// </summary>
+        public event Action<TParent> ParentRemoved;
+
+        /// <summary>
+        ///     Invoked when a new (parent, child) relationship is established.
+        /// </summary>
+        public event Action<TParent, TChild> RelationshipAdded;
+
+        /// <summary>
+        ///     Invoked when a (parent, child) relationship is removed.
+        /// </summary>
+        public event Action<TParent, TChild> RelationshipRemoved;
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        ///     Gets all the parent keys.
         /// </summary>
         public IEnumerable<TParent> Parents => parentToChildren.Keys;
 
         /// <summary>
-        /// Gets all children (e.g. the entire population).
+        ///     Gets all the child keys.
         /// </summary>
         public IEnumerable<TChild> Children => childToParent.Keys;
 
         /// <summary>
-        /// Adds a new parent to the structure if it does not already exist.
+        ///     Enumerates all (parent, child) relationships.
+        /// </summary>
+        public IEnumerable<(TParent Parent, TChild Child)> Relationships
+        {
+            get
+            {
+                foreach (KeyValuePair<TParent, List<TChild>> kvp in parentToChildren)
+                {
+                    TParent parent = kvp.Key;
+                    foreach (TChild child in kvp.Value)
+                    {
+                        yield return (parent, child);
+                    }
+                }
+            }
+        }
+
+        #endregion
+
+        #region Basic Operations
+
+        /// <summary>
+        ///     Adds a parent if it doesn't already exist.
         /// </summary>
         public void AddParent(TParent parent)
         {
             if (!parentToChildren.ContainsKey(parent))
             {
                 parentToChildren.Add(parent, new List<TChild>());
+                ParentAdded.Invoke(parent);
             }
         }
 
         /// <summary>
-        /// Determines whether the specified parent exists.
+        ///     Checks whether the specified parent exists.
         /// </summary>
         public bool ContainsParent(TParent parent)
         {
@@ -51,7 +94,7 @@ namespace LegendaryTools
         }
 
         /// <summary>
-        /// Determines whether the specified child exists.
+        ///     Checks whether the specified child exists.
         /// </summary>
         public bool ContainsChild(TChild child)
         {
@@ -59,101 +102,252 @@ namespace LegendaryTools
         }
 
         /// <summary>
-        /// Adds a child to the specified parent. If the parent does not exist yet,
-        /// it is automatically added.
+        ///     Adds a single (parent, child) relationship.
+        ///     Automatically adds the parent if needed.
         /// </summary>
-        /// <exception cref="ArgumentException">
-        /// Thrown if the child is already present in the structure.
-        /// </exception>
+        /// <exception cref="ArgumentException">Thrown if the child already exists.</exception>
         public void Add(TParent parent, TChild child)
         {
-            // Ensure the parent is present.
             if (!parentToChildren.TryGetValue(parent, out List<TChild> children))
             {
                 children = new List<TChild>();
                 parentToChildren.Add(parent, children);
+                ParentAdded.Invoke(parent);
             }
-            // If the child already exists, throw an exception.
+
             if (childToParent.ContainsKey(child))
             {
                 throw new ArgumentException("Child already exists in the map.");
             }
+
             children.Add(child);
             childToParent.Add(child, parent);
+            RelationshipAdded.Invoke(parent, child);
+        }
+
+        #endregion
+
+        #region Batch Operations
+
+        /// <summary>
+        ///     Adds multiple children to the specified parent.
+        /// </summary>
+        /// <exception cref="ArgumentException">Thrown if any child already exists.</exception>
+        public void AddRange(TParent parent, IEnumerable<TChild> children)
+        {
+            if (children == null) throw new ArgumentNullException(nameof(children));
+
+            if (!parentToChildren.TryGetValue(parent, out List<TChild> childList))
+            {
+                childList = new List<TChild>();
+                parentToChildren.Add(parent, childList);
+                ParentAdded.Invoke(parent);
+            }
+
+            foreach (TChild child in children)
+            {
+                if (childToParent.ContainsKey(child))
+                {
+                    throw new ArgumentException("One of the children already exists in the map.");
+                }
+
+                childList.Add(child);
+                childToParent.Add(child, parent);
+                RelationshipAdded.Invoke(parent, child);
+            }
         }
 
         /// <summary>
-        /// Removes a parent and all its associated children from the structure.
+        ///     Removes multiple children from the specified parent.
+        ///     If a parent's child list becomes empty, the parent is removed.
         /// </summary>
-        /// <returns>True if the parent existed and was removed; otherwise, false.</returns>
+        public void RemoveRange(TParent parent, IEnumerable<TChild> childrenToRemove)
+        {
+            if (childrenToRemove == null) throw new ArgumentNullException(nameof(childrenToRemove));
+
+            if (!parentToChildren.TryGetValue(parent, out List<TChild> children))
+            {
+                throw new KeyNotFoundException("Parent not found in the map.");
+            }
+
+            // Convert to list to avoid modifying the collection during iteration.
+            foreach (TChild child in childrenToRemove.ToList())
+            {
+                if (childToParent.TryGetValue(child, out TParent currentParent) &&
+                    currentParent.Equals(parent))
+                {
+                    children.Remove(child);
+                    childToParent.Remove(child);
+                    RelationshipRemoved.Invoke(parent, child);
+                }
+            }
+
+            if (children.Count == 0)
+            {
+                parentToChildren.Remove(parent);
+                ParentRemoved.Invoke(parent);
+            }
+        }
+
+        #endregion
+
+        #region Update Operations
+
+        /// <summary>
+        ///     Reassigns a child from its current parent to a new parent.
+        /// </summary>
+        /// <exception cref="KeyNotFoundException">Thrown if the child is not found.</exception>
+        public void ReassignChild(TChild child, TParent newParent)
+        {
+            if (!childToParent.TryGetValue(child, out TParent currentParent))
+            {
+                throw new KeyNotFoundException("Child not found in the map.");
+            }
+
+            if (currentParent.Equals(newParent))
+            {
+                return; // No change needed.
+            }
+
+            // Remove the child from the current parent's list.
+            List<TChild> currentChildren = parentToChildren[currentParent];
+            currentChildren.Remove(child);
+            RelationshipRemoved.Invoke(currentParent, child);
+
+            // Remove the current parent if it has no more children.
+            if (currentChildren.Count == 0)
+            {
+                parentToChildren.Remove(currentParent);
+                ParentRemoved.Invoke(currentParent);
+            }
+
+            // Add the child to the new parent's list.
+            if (!parentToChildren.TryGetValue(newParent, out List<TChild> newChildren))
+            {
+                newChildren = new List<TChild>();
+                parentToChildren.Add(newParent, newChildren);
+                ParentAdded.Invoke(newParent);
+            }
+
+            newChildren.Add(child);
+            childToParent[child] = newParent;
+            RelationshipAdded.Invoke(newParent, child);
+        }
+
+        #endregion
+
+        #region Query by Predicate
+
+        /// <summary>
+        ///     Finds all parents that satisfy the specified predicate.
+        /// </summary>
+        public IEnumerable<TParent> FindParents(Func<TParent, bool> predicate)
+        {
+            if (predicate == null) throw new ArgumentNullException(nameof(predicate));
+            return parentToChildren.Keys.Where(predicate);
+        }
+
+        /// <summary>
+        ///     Finds all children that satisfy the specified predicate.
+        /// </summary>
+        public IEnumerable<TChild> FindChildren(Func<TChild, bool> predicate)
+        {
+            if (predicate == null) throw new ArgumentNullException(nameof(predicate));
+            return childToParent.Keys.Where(predicate);
+        }
+
+        /// <summary>
+        ///     Finds all (parent, child) relationships that satisfy the specified predicate.
+        /// </summary>
+        public IEnumerable<(TParent Parent, TChild Child)> FindRelationships(Func<TParent, TChild, bool> predicate)
+        {
+            if (predicate == null) throw new ArgumentNullException(nameof(predicate));
+            foreach (KeyValuePair<TParent, List<TChild>> kvp in parentToChildren)
+            {
+                TParent parent = kvp.Key;
+                foreach (TChild child in kvp.Value)
+                {
+                    if (predicate(parent, child))
+                    {
+                        yield return (parent, child);
+                    }
+                }
+            }
+        }
+
+        #endregion
+
+        #region Other Basic Operations
+
+        /// <summary>
+        ///     Removes the specified parent and all its associated children.
+        /// </summary>
         public bool RemoveParent(TParent parent)
         {
             if (!parentToChildren.TryGetValue(parent, out List<TChild> children))
+            {
                 return false;
+            }
 
-            // Remove all children associated with this parent.
-            foreach (var child in children)
+            // Remove each relationship.
+            foreach (TChild child in children.ToList())
             {
                 childToParent.Remove(child);
+                RelationshipRemoved.Invoke(parent, child);
             }
+
             parentToChildren.Remove(parent);
+            ParentRemoved.Invoke(parent);
             return true;
         }
 
         /// <summary>
-        /// Removes the specified child from the structure.
+        ///     Removes the specified child and its relationship.
         /// </summary>
-        /// <returns>True if the child existed and was removed; otherwise, false.</returns>
         public bool RemoveChild(TChild child)
         {
             if (!childToParent.TryGetValue(child, out TParent parent))
+            {
                 return false;
+            }
 
-            // Remove the child from its parent's list.
             List<TChild> children = parentToChildren[parent];
-            children.Remove(child);
-            childToParent.Remove(child);
-            return true;
+            if (children.Remove(child))
+            {
+                childToParent.Remove(child);
+                RelationshipRemoved.Invoke(parent, child);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
-        /// Retrieves the parent associated with the given child.
+        ///     Gets the parent associated with the given child.
         /// </summary>
-        /// <exception cref="KeyNotFoundException">Thrown if the child is not found.</exception>
         public TParent GetParentOfChild(TChild child)
         {
             if (childToParent.TryGetValue(child, out TParent parent))
+            {
                 return parent;
+            }
 
             throw new KeyNotFoundException("Child not found in the map.");
         }
 
         /// <summary>
-        /// Retrieves all the children associated with the given parent.
+        ///     Gets the list of children associated with the given parent.
         /// </summary>
-        /// <exception cref="KeyNotFoundException">Thrown if the parent is not found.</exception>
         public IEnumerable<TChild> GetChildrenOfParent(TParent parent)
         {
             if (parentToChildren.TryGetValue(parent, out List<TChild> children))
+            {
                 return children;
+            }
 
             throw new KeyNotFoundException("Parent not found in the map.");
         }
 
-        /// <summary>
-        /// Tries to retrieve the parent for the given child.
-        /// </summary>
-        public bool TryGetParentOfChild(TChild child, out TParent parent)
-        {
-            return childToParent.TryGetValue(child, out parent);
-        }
-
-        /// <summary>
-        /// Tries to retrieve the children for the given parent.
-        /// </summary>
-        public bool TryGetChildrenOfParent(TParent parent, out List<TChild> children)
-        {
-            return parentToChildren.TryGetValue(parent, out children);
-        }
+        #endregion
     }
 }

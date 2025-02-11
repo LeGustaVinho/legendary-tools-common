@@ -1,202 +1,295 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace LegendaryTools
 {
     /// <summary>
-    /// A generic many-to-many mapping between two types.
-    /// For example, this could map Students to Courses where each student can be enrolled in many courses,
-    /// and each course can have many students.
+    ///     A generic many-to-many mapping between two types.
+    ///     This implementation supports batch operations, full pair enumeration,
+    ///     relationship counting, predicate-based queries, and notifications via Action delegates.
+    ///     It also provides clear/reset functionality.
     /// </summary>
     public class ManyToManyMap<TLeft, TRight>
     {
-        // Maps each left key to a set of right keys.
-        private readonly Dictionary<TLeft, HashSet<TRight>> leftToRights;
+        // Internal storage: each left key maps to a set of right keys,
+        // and each right key maps to a set of left keys.
+        private readonly Dictionary<TLeft, HashSet<TRight>> leftToRights = new Dictionary<TLeft, HashSet<TRight>>();
+        private readonly Dictionary<TRight, HashSet<TLeft>> rightToLefts = new Dictionary<TRight, HashSet<TLeft>>();
 
-        // Maps each right key to a set of left keys.
-        private readonly Dictionary<TRight, HashSet<TLeft>> rightToLefts;
-
-        public ManyToManyMap()
-        {
-            leftToRights = new Dictionary<TLeft, HashSet<TRight>>();
-            rightToLefts = new Dictionary<TRight, HashSet<TLeft>>();
-        }
+        #region Notification Actions
 
         /// <summary>
-        /// Gets all left keys.
+        ///     Invoked when a new (left, right) relationship is added.
+        /// </summary>
+        public event Action<(TLeft left, TRight right)> RelationshipAdded;
+
+        /// <summary>
+        ///     Invoked when a (left, right) relationship is removed.
+        /// </summary>
+        public event Action<(TLeft left, TRight right)> RelationshipRemoved;
+
+        /// <summary>
+        ///     Invoked when a new left key is added.
+        /// </summary>
+        public event Action<TLeft> LeftAdded;
+
+        /// <summary>
+        ///     Invoked when a left key is removed.
+        /// </summary>
+        public event Action<TLeft> LeftRemoved;
+
+        /// <summary>
+        ///     Invoked when a new right key is added.
+        /// </summary>
+        public event Action<TRight> RightAdded;
+
+        /// <summary>
+        ///     Invoked when a right key is removed.
+        /// </summary>
+        public event Action<TRight> RightRemoved;
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        ///     Gets all left keys.
         /// </summary>
         public IEnumerable<TLeft> Lefts => leftToRights.Keys;
 
         /// <summary>
-        /// Gets all right keys.
+        ///     Gets all right keys.
         /// </summary>
         public IEnumerable<TRight> Rights => rightToLefts.Keys;
 
         /// <summary>
-        /// Adds a left key to the structure if it doesn't already exist.
+        ///     Enumerates all (left, right) relationships.
         /// </summary>
-        public void AddLeft(TLeft left)
+        public IEnumerable<(TLeft left, TRight right)> Relationships
         {
-            if (!leftToRights.ContainsKey(left))
+            get
             {
-                leftToRights.Add(left, new HashSet<TRight>());
+                foreach (KeyValuePair<TLeft, HashSet<TRight>> leftKvp in leftToRights)
+                {
+                    TLeft left = leftKvp.Key;
+                    foreach (TRight right in leftKvp.Value)
+                    {
+                        yield return (left, right);
+                    }
+                }
             }
         }
 
         /// <summary>
-        /// Adds a right key to the structure if it doesn't already exist.
+        ///     Gets the total number of relationships.
         /// </summary>
-        public void AddRight(TRight right)
-        {
-            if (!rightToLefts.ContainsKey(right))
-            {
-                rightToLefts.Add(right, new HashSet<TLeft>());
-            }
-        }
+        public int RelationshipCount => leftToRights.Values.Sum(set => set.Count);
+
+        #endregion
+
+        #region Basic Operations
 
         /// <summary>
-        /// Establishes a relationship between the given left and right keys.
-        /// If the keys do not already exist, they are automatically added.
+        ///     Adds a relationship between a left key and a right key.
+        ///     If a left or right key is new, it is automatically added.
         /// </summary>
         public void Add(TLeft left, TRight right)
         {
-            // Ensure the left key exists.
-            if (!leftToRights.TryGetValue(left, out var rights))
+            // Add left if not present.
+            if (!leftToRights.TryGetValue(left, out HashSet<TRight> rights))
             {
                 rights = new HashSet<TRight>();
-                leftToRights.Add(left, rights);
+                leftToRights[left] = rights;
+                LeftAdded?.Invoke(left);
             }
-            // Ensure the right key exists.
-            if (!rightToLefts.TryGetValue(right, out var lefts))
+
+            // Add right if not present.
+            if (!rightToLefts.TryGetValue(right, out HashSet<TLeft> lefts))
             {
                 lefts = new HashSet<TLeft>();
-                rightToLefts.Add(right, lefts);
+                rightToLefts[right] = lefts;
+                RightAdded?.Invoke(right);
             }
-            // Add the relationship in both directions.
-            rights.Add(right);
-            lefts.Add(left);
+
+            // Add the relationship if it doesn't already exist.
+            if (rights.Add(right))
+            {
+                lefts.Add(left);
+                RelationshipAdded?.Invoke((left, right));
+            }
         }
 
         /// <summary>
-        /// Removes the relationship between the given left and right keys.
-        /// If the relationship is the only one for a key, that key is removed from the mapping.
+        ///     Removes the relationship between the given left and right keys.
         /// </summary>
         /// <returns>True if the relationship existed and was removed; otherwise, false.</returns>
         public bool Remove(TLeft left, TRight right)
         {
             bool removed = false;
-            if (leftToRights.TryGetValue(left, out var rights))
+            if (leftToRights.TryGetValue(left, out HashSet<TRight> rights) && rights.Remove(right))
             {
-                removed = rights.Remove(right);
-                if (rights.Count == 0)
-                {
-                    leftToRights.Remove(left);
-                }
-            }
-            if (rightToLefts.TryGetValue(right, out var lefts))
-            {
-                lefts.Remove(left);
-                if (lefts.Count == 0)
-                {
-                    rightToLefts.Remove(right);
-                }
-            }
-            return removed;
-        }
-
-        /// <summary>
-        /// Checks whether a relationship exists between the specified left and right keys.
-        /// </summary>
-        public bool Contains(TLeft left, TRight right)
-        {
-            return leftToRights.TryGetValue(left, out var rights) && rights.Contains(right);
-        }
-
-        /// <summary>
-        /// Retrieves all the right keys related to the given left key.
-        /// </summary>
-        /// <exception cref="KeyNotFoundException">Thrown if the left key is not found.</exception>
-        public IEnumerable<TRight> GetRightsForLeft(TLeft left)
-        {
-            if (leftToRights.TryGetValue(left, out var rights))
-            {
-                return rights;
-            }
-            throw new KeyNotFoundException("Left key not found in the map.");
-        }
-
-        /// <summary>
-        /// Retrieves all the left keys related to the given right key.
-        /// </summary>
-        /// <exception cref="KeyNotFoundException">Thrown if the right key is not found.</exception>
-        public IEnumerable<TLeft> GetLeftsForRight(TRight right)
-        {
-            if (rightToLefts.TryGetValue(right, out var lefts))
-            {
-                return lefts;
-            }
-            throw new KeyNotFoundException("Right key not found in the map.");
-        }
-
-        /// <summary>
-        /// Attempts to get the set of right keys for the given left key.
-        /// </summary>
-        public bool TryGetRightsForLeft(TLeft left, out HashSet<TRight> rights)
-        {
-            return leftToRights.TryGetValue(left, out rights);
-        }
-
-        /// <summary>
-        /// Attempts to get the set of left keys for the given right key.
-        /// </summary>
-        public bool TryGetLeftsForRight(TRight right, out HashSet<TLeft> lefts)
-        {
-            return rightToLefts.TryGetValue(right, out lefts);
-        }
-
-        /// <summary>
-        /// Removes the left key and all its associated relationships.
-        /// </summary>
-        /// <returns>True if the left key existed and was removed; otherwise, false.</returns>
-        public bool RemoveLeft(TLeft left)
-        {
-            if (!leftToRights.TryGetValue(left, out var rights))
-                return false;
-
-            // Remove this left key from every related right key.
-            foreach (var right in rights)
-            {
-                if (rightToLefts.TryGetValue(right, out var lefts))
+                removed = true;
+                // Remove the corresponding left from the right's set.
+                if (rightToLefts.TryGetValue(right, out HashSet<TLeft> lefts))
                 {
                     lefts.Remove(left);
                     if (lefts.Count == 0)
+                    {
                         rightToLefts.Remove(right);
+                        RightRemoved?.Invoke(right);
+                    }
                 }
+
+                // If the left key has no more relationships, remove it.
+                if (rights.Count == 0)
+                {
+                    leftToRights.Remove(left);
+                    LeftRemoved?.Invoke(left);
+                }
+
+                RelationshipRemoved?.Invoke((left, right));
             }
-            leftToRights.Remove(left);
-            return true;
+
+            return removed;
+        }
+
+        #endregion
+
+        #region Batch Operations
+
+        /// <summary>
+        ///     Adds multiple relationships for a given left key.
+        /// </summary>
+        public void AddRange(TLeft left, IEnumerable<TRight> rights)
+        {
+            if (rights == null)
+            {
+                throw new ArgumentNullException(nameof(rights));
+            }
+
+            foreach (TRight right in rights)
+            {
+                Add(left, right);
+            }
         }
 
         /// <summary>
-        /// Removes the right key and all its associated relationships.
+        ///     Adds multiple (left, right) pairs.
         /// </summary>
-        /// <returns>True if the right key existed and was removed; otherwise, false.</returns>
-        public bool RemoveRight(TRight right)
+        public void AddRange(IEnumerable<(TLeft left, TRight right)> pairs)
         {
-            if (!rightToLefts.TryGetValue(right, out var lefts))
-                return false;
-
-            // Remove this right key from every related left key.
-            foreach (var left in lefts)
+            if (pairs == null)
             {
-                if (leftToRights.TryGetValue(left, out var rights))
+                throw new ArgumentNullException(nameof(pairs));
+            }
+
+            foreach ((TLeft left, TRight right) pair in pairs)
+            {
+                Add(pair.left, pair.right);
+            }
+        }
+
+        /// <summary>
+        ///     Removes multiple relationships for a given left key.
+        /// </summary>
+        public void RemoveRange(TLeft left, IEnumerable<TRight> rights)
+        {
+            if (rights == null)
+            {
+                throw new ArgumentNullException(nameof(rights));
+            }
+
+            // Create a list to avoid modifying the collection during iteration.
+            foreach (TRight right in rights.ToList())
+            {
+                Remove(left, right);
+            }
+        }
+
+        /// <summary>
+        ///     Removes multiple (left, right) pairs.
+        /// </summary>
+        public void RemoveRange(IEnumerable<(TLeft left, TRight right)> pairs)
+        {
+            if (pairs == null)
+            {
+                throw new ArgumentNullException(nameof(pairs));
+            }
+
+            foreach ((TLeft left, TRight right) pair in pairs.ToList())
+            {
+                Remove(pair.left, pair.right);
+            }
+        }
+
+        #endregion
+
+        #region Predicate-Based Queries
+
+        /// <summary>
+        ///     Finds all (left, right) relationships that satisfy the given predicate.
+        /// </summary>
+        public IEnumerable<(TLeft left, TRight right)> FindPairs(Func<TLeft, TRight, bool> predicate)
+        {
+            if (predicate == null)
+            {
+                throw new ArgumentNullException(nameof(predicate));
+            }
+
+            foreach (KeyValuePair<TLeft, HashSet<TRight>> leftKvp in leftToRights)
+            {
+                TLeft left = leftKvp.Key;
+                foreach (TRight right in leftKvp.Value)
                 {
-                    rights.Remove(right);
-                    if (rights.Count == 0)
-                        leftToRights.Remove(left);
+                    if (predicate(left, right))
+                    {
+                        yield return (left, right);
+                    }
                 }
             }
-            rightToLefts.Remove(right);
-            return true;
         }
+
+        #endregion
+
+        #region Clear and Reset Operations
+
+        /// <summary>
+        ///     Clears all relationships and resets the mapping.
+        ///     Invokes notifications for each removed relationship and key.
+        /// </summary>
+        public void Clear()
+        {
+            // Notify removal for each relationship.
+            foreach ((TLeft left, TRight right) pair in Relationships.ToList())
+            {
+                RelationshipRemoved?.Invoke(pair);
+            }
+
+            // Notify removal for each left key.
+            foreach (TLeft left in leftToRights.Keys.ToList())
+            {
+                LeftRemoved?.Invoke(left);
+            }
+
+            // Notify removal for each right key.
+            foreach (TRight right in rightToLefts.Keys.ToList())
+            {
+                RightRemoved?.Invoke(right);
+            }
+
+            leftToRights.Clear();
+            rightToLefts.Clear();
+        }
+
+        /// <summary>
+        ///     Resets the mapping (alias for Clear).
+        /// </summary>
+        public void Reset()
+        {
+            Clear();
+        }
+
+        #endregion
     }
 }
