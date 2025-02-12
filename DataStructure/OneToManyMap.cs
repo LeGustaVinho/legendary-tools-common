@@ -81,7 +81,7 @@ namespace LegendaryTools
             if (!parentToChildren.ContainsKey(parent))
             {
                 parentToChildren.Add(parent, new List<TChild>());
-                ParentAdded.Invoke(parent);
+                ParentAdded?.Invoke(parent);
             }
         }
 
@@ -112,7 +112,7 @@ namespace LegendaryTools
             {
                 children = new List<TChild>();
                 parentToChildren.Add(parent, children);
-                ParentAdded.Invoke(parent);
+                ParentAdded?.Invoke(parent);
             }
 
             if (childToParent.ContainsKey(child))
@@ -122,7 +122,7 @@ namespace LegendaryTools
 
             children.Add(child);
             childToParent.Add(child, parent);
-            RelationshipAdded.Invoke(parent, child);
+            RelationshipAdded?.Invoke(parent, child);
         }
 
         #endregion
@@ -141,7 +141,7 @@ namespace LegendaryTools
             {
                 childList = new List<TChild>();
                 parentToChildren.Add(parent, childList);
-                ParentAdded.Invoke(parent);
+                ParentAdded?.Invoke(parent);
             }
 
             foreach (TChild child in children)
@@ -153,7 +153,7 @@ namespace LegendaryTools
 
                 childList.Add(child);
                 childToParent.Add(child, parent);
-                RelationshipAdded.Invoke(parent, child);
+                RelationshipAdded?.Invoke(parent, child);
             }
         }
 
@@ -178,14 +178,14 @@ namespace LegendaryTools
                 {
                     children.Remove(child);
                     childToParent.Remove(child);
-                    RelationshipRemoved.Invoke(parent, child);
+                    RelationshipRemoved?.Invoke(parent, child);
                 }
             }
 
             if (children.Count == 0)
             {
                 parentToChildren.Remove(parent);
-                ParentRemoved.Invoke(parent);
+                ParentRemoved?.Invoke(parent);
             }
         }
 
@@ -212,13 +212,13 @@ namespace LegendaryTools
             // Remove the child from the current parent's list.
             List<TChild> currentChildren = parentToChildren[currentParent];
             currentChildren.Remove(child);
-            RelationshipRemoved.Invoke(currentParent, child);
+            RelationshipRemoved?.Invoke(currentParent, child);
 
             // Remove the current parent if it has no more children.
             if (currentChildren.Count == 0)
             {
                 parentToChildren.Remove(currentParent);
-                ParentRemoved.Invoke(currentParent);
+                ParentRemoved?.Invoke(currentParent);
             }
 
             // Add the child to the new parent's list.
@@ -226,12 +226,12 @@ namespace LegendaryTools
             {
                 newChildren = new List<TChild>();
                 parentToChildren.Add(newParent, newChildren);
-                ParentAdded.Invoke(newParent);
+                ParentAdded?.Invoke(newParent);
             }
 
             newChildren.Add(child);
             childToParent[child] = newParent;
-            RelationshipAdded.Invoke(newParent, child);
+            RelationshipAdded?.Invoke(newParent, child);
         }
 
         #endregion
@@ -293,11 +293,11 @@ namespace LegendaryTools
             foreach (TChild child in children.ToList())
             {
                 childToParent.Remove(child);
-                RelationshipRemoved.Invoke(parent, child);
+                RelationshipRemoved?.Invoke(parent, child);
             }
 
             parentToChildren.Remove(parent);
-            ParentRemoved.Invoke(parent);
+            ParentRemoved?.Invoke(parent);
             return true;
         }
 
@@ -315,7 +315,7 @@ namespace LegendaryTools
             if (children.Remove(child))
             {
                 childToParent.Remove(child);
-                RelationshipRemoved.Invoke(parent, child);
+                RelationshipRemoved?.Invoke(parent, child);
                 return true;
             }
 
