@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Sirenix.OdinInspector;
+using Sirenix.OdinInspector.Editor;
 
 namespace LegendaryTools
 {
@@ -12,8 +14,17 @@ namespace LegendaryTools
     public class OneToManyMap<TParent, TChild>
     {
         // Internal storage for relationships.
+#if ODIN_INSPECTOR
+        [ShowInInspector] [OnCollectionChanged("OnParentToChildrenChanged")]
+#endif
         private readonly Dictionary<TParent, List<TChild>> parentToChildren = new Dictionary<TParent, List<TChild>>();
+#if ODIN_INSPECTOR
+        [ShowInInspector] [OnCollectionChanged("OnChildToParentChanged")]
+#endif
         private readonly Dictionary<TChild, TParent> childToParent = new Dictionary<TChild, TParent>();
+
+        // Flag to prevent recursive synchronization.
+        private bool isSyncing;
 
         #region Notification Actions
 
@@ -349,5 +360,59 @@ namespace LegendaryTools
         }
 
         #endregion
+
+#if ODIN_INSPECTOR && UNITY_EDITOR
+
+        #region Odin Inspector Synchronization
+
+        /// <summary>
+        ///     Called by Odin Inspector when the parentToChildren dictionary changes.
+        ///     Synchronizes the childToParent dictionary.
+        /// </summary>
+        private void OnParentToChildrenChanged(CollectionChangeInfo changeInfo)
+        {
+            if (isSyncing) return;
+            isSyncing = true;
+            childToParent.Clear();
+            foreach (KeyValuePair<TParent, List<TChild>> kvp in parentToChildren)
+            {
+                foreach (TChild child in kvp.Value)
+                {
+                    if (!childToParent.ContainsKey(child))
+                    {
+                        childToParent.Add(child, kvp.Key);
+                    }
+                }
+            }
+
+            isSyncing = false;
+        }
+
+        /// <summary>
+        ///     Called by Odin Inspector when the childToParent dictionary changes.
+        ///     Synchronizes the parentToChildren dictionary.
+        /// </summary>
+        private void OnChildToParentChanged(CollectionChangeInfo changeInfo)
+        {
+            if (isSyncing) return;
+            isSyncing = true;
+            parentToChildren.Clear();
+            foreach (KeyValuePair<TChild, TParent> kvp in childToParent)
+            {
+                if (!parentToChildren.TryGetValue(kvp.Value, out List<TChild> children))
+                {
+                    children = new List<TChild>();
+                    parentToChildren.Add(kvp.Value, children);
+                }
+
+                children.Add(kvp.Key);
+            }
+
+            isSyncing = false;
+        }
+
+        #endregion
+
+#endif
     }
 }

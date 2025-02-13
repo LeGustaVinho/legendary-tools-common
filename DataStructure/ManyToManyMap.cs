@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Sirenix.OdinInspector;
+using Sirenix.OdinInspector.Editor;
 
 namespace LegendaryTools
 {
@@ -14,8 +16,18 @@ namespace LegendaryTools
     {
         // Internal storage: each left key maps to a set of right keys,
         // and each right key maps to a set of left keys.
+#if ODIN_INSPECTOR
+        [ShowInInspector] [OnCollectionChanged("OnLeftToRightsChanged")]
+#endif
         private readonly Dictionary<TLeft, HashSet<TRight>> leftToRights = new Dictionary<TLeft, HashSet<TRight>>();
+#if ODIN_INSPECTOR
+        [ShowInInspector] [OnCollectionChanged("OnRightToLeftsChanged")]
+#endif
         private readonly Dictionary<TRight, HashSet<TLeft>> rightToLefts = new Dictionary<TRight, HashSet<TLeft>>();
+
+#if ODIN_INSPECTOR
+        private bool isSyncing;
+#endif
 
         #region Notification Actions
 
@@ -291,5 +303,67 @@ namespace LegendaryTools
         }
 
         #endregion
+
+#if ODIN_INSPECTOR
+
+        #region Odin Inspector Synchronization
+
+        /// <summary>
+        ///     Called by Odin Inspector when the leftToRights dictionary changes.
+        ///     Synchronizes the rightToLefts dictionary.
+        /// </summary>
+        private void OnLeftToRightsChanged(CollectionChangeInfo changeInfo)
+        {
+            if (isSyncing) return;
+            isSyncing = true;
+            rightToLefts.Clear();
+            foreach (KeyValuePair<TLeft, HashSet<TRight>> kvp in leftToRights)
+            {
+                TLeft left = kvp.Key;
+                foreach (TRight right in kvp.Value)
+                {
+                    if (!rightToLefts.TryGetValue(right, out HashSet<TLeft> leftSet))
+                    {
+                        leftSet = new HashSet<TLeft>();
+                        rightToLefts[right] = leftSet;
+                    }
+
+                    leftSet.Add(left);
+                }
+            }
+
+            isSyncing = false;
+        }
+
+        /// <summary>
+        ///     Called by Odin Inspector when the rightToLefts dictionary changes.
+        ///     Synchronizes the leftToRights dictionary.
+        /// </summary>
+        private void OnRightToLeftsChanged(CollectionChangeInfo changeInfo)
+        {
+            if (isSyncing) return;
+            isSyncing = true;
+            leftToRights.Clear();
+            foreach (KeyValuePair<TRight, HashSet<TLeft>> kvp in rightToLefts)
+            {
+                TRight right = kvp.Key;
+                foreach (TLeft left in kvp.Value)
+                {
+                    if (!leftToRights.TryGetValue(left, out HashSet<TRight> rightSet))
+                    {
+                        rightSet = new HashSet<TRight>();
+                        leftToRights[left] = rightSet;
+                    }
+
+                    rightSet.Add(right);
+                }
+            }
+
+            isSyncing = false;
+        }
+
+        #endregion
+
+#endif
     }
 }
