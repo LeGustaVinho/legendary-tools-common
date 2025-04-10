@@ -10,6 +10,16 @@ using UnityEngine.Networking;
 
 namespace LegendaryTools.Editor
 {
+    using System;
+    using System.Collections;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Reflection;
+    using Unity.EditorCoroutines.Editor;
+    using UnityEditor;
+    using UnityEngine;
+    using UnityEngine.Networking;
+
     public class SpreadsheetImporterWindow : EditorWindow
     {
         // OAuth2 fields (used in both modes)
@@ -27,8 +37,8 @@ namespace LegendaryTools.Editor
 
         // Mapping fields for Individual Asset Import
         private string typeName = "";
-        private System.Type scriptableObjectType = null;
-        private readonly List<FieldMapping> fieldMappings = new List<FieldMapping>();
+        private Type scriptableObjectType = null;
+        private readonly List<FieldMapping> fieldMappings = new();
 
         // Nova variável para mapear a coluna de nome do asset
         private int assetNameColumnIndex = -1;
@@ -47,7 +57,7 @@ namespace LegendaryTools.Editor
         private MemberInfo[] collectionMembers;
         private int selectedCollectionMemberIndex = -1;
         private Type elementType = null; // Type of the collection elements
-        private List<FieldMapping> collectionFieldMappings = new List<FieldMapping>();
+        private List<FieldMapping> collectionFieldMappings = new();
 
         // Notification and progress fields
         private string notificationMessage = "";
@@ -104,10 +114,7 @@ namespace LegendaryTools.Editor
                 StartOAuthFlow();
             }
 
-            if (GUILayout.Button("Instruction How To Setup OAuth"))
-            {
-                GoogleOAuthInstructionsWindow.ShowInstructions();
-            }
+            if (GUILayout.Button("Instruction How To Setup OAuth")) GoogleOAuthInstructionsWindow.ShowInstructions();
 
             GUILayout.EndHorizontal();
 
@@ -163,7 +170,7 @@ namespace LegendaryTools.Editor
             }
 
             string tokenUrl = "https://oauth2.googleapis.com/token";
-            WWWForm form = new WWWForm();
+            WWWForm form = new();
             form.AddField("code", authCode);
             form.AddField("client_id", clientId);
             form.AddField("client_secret", clientSecret);
@@ -220,7 +227,7 @@ namespace LegendaryTools.Editor
             }
 
             string tokenUrl = "https://oauth2.googleapis.com/token";
-            WWWForm form = new WWWForm();
+            WWWForm form = new();
             form.AddField("refresh_token", refreshToken);
             form.AddField("client_id", clientId);
             form.AddField("client_secret", clientSecret);
@@ -311,7 +318,7 @@ namespace LegendaryTools.Editor
                 GUILayout.Space(10);
                 // Nova UI para mapear a coluna que servirá como nome do asset
                 GUILayout.Label("Asset Name Mapping", EditorStyles.boldLabel);
-                List<string> assetNameOptions = new List<string>() { "Default Name" };
+                List<string> assetNameOptions = new() { "Default Name" };
                 assetNameOptions.AddRange(csvHeaders);
                 int newAssetNameIndex = EditorGUILayout.Popup(assetNameColumnIndex + 1, assetNameOptions.ToArray()) - 1;
                 assetNameColumnIndex = newAssetNameIndex;
@@ -319,11 +326,11 @@ namespace LegendaryTools.Editor
                 GUILayout.Space(10);
                 GUILayout.Label("Mapping: Columns -> Fields", EditorStyles.boldLabel);
                 scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(200));
-                foreach (var mapping in fieldMappings)
+                foreach (FieldMapping mapping in fieldMappings)
                 {
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.LabelField(mapping.field.Name, GUILayout.Width(150));
-                    List<string> options = new List<string>() { "Do not map" };
+                    List<string> options = new() { "Do not map" };
                     options.AddRange(csvHeaders);
                     int newIndex = EditorGUILayout.Popup(mapping.selectedColumnIndex + 1, options.ToArray()) - 1;
                     mapping.selectedColumnIndex = newIndex;
@@ -334,28 +341,37 @@ namespace LegendaryTools.Editor
             }
 
             if (csvData != null && csvData.Count > 1 && scriptableObjectType != null)
-            {
                 if (GUILayout.Button("Import"))
                 {
                     notificationMessage = "";
                     ImportData();
                 }
-            }
         }
 
         /// <summary>
         /// Retrieves a ScriptableObject type by name from all loaded assemblies.
         /// </summary>
-        private System.Type GetTypeByName(string typeName)
+        private Type GetTypeByName(string typeName)
         {
             if (string.IsNullOrEmpty(typeName))
                 return null;
-            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-            foreach (var assembly in assemblies)
+
+            // Percorre todos os assemblies carregados
+            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            foreach (Assembly assembly in assemblies)
             {
-                var t = assembly.GetType(typeName);
+                // Tenta obter o type usando o nome totalmente qualificado, ignorando case sensitivity.
+                Type t = assembly.GetType(typeName, false, true);
                 if (t != null && t.IsSubclassOf(typeof(ScriptableObject)))
                     return t;
+
+                // Se não encontrou, itera sobre todos os tipos do assembly e compara pelo nome simples.
+                foreach (Type type in assembly.GetTypes())
+                {
+                    if (type.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase) &&
+                        type.IsSubclassOf(typeof(ScriptableObject)))
+                        return type;
+                }
             }
 
             return null;
@@ -392,9 +408,9 @@ namespace LegendaryTools.Editor
                 EditorUtility.DisplayProgressBar("Importing CSV", "Importing data...",
                     (float)(i - 1) / (csvData.Count - 1));
                 string[] row = csvData[i];
-                ScriptableObject asset = ScriptableObject.CreateInstance(scriptableObjectType);
+                ScriptableObject asset = CreateInstance(scriptableObjectType);
                 bool rowError = false;
-                foreach (var mapping in fieldMappings)
+                foreach (FieldMapping mapping in fieldMappings)
                 {
                     if (mapping.selectedColumnIndex >= 0 && mapping.selectedColumnIndex < row.Length)
                     {
@@ -488,8 +504,8 @@ namespace LegendaryTools.Editor
                 collectionMembers = GetCollectionMembers(collectionTarget);
                 if (collectionMembers != null && collectionMembers.Length > 0)
                 {
-                    List<string> memberNames = new List<string>();
-                    foreach (var member in collectionMembers)
+                    List<string> memberNames = new();
+                    foreach (MemberInfo member in collectionMembers)
                     {
                         memberNames.Add(member.Name + " (" + GetMemberType(member).Name + ")");
                     }
@@ -515,16 +531,14 @@ namespace LegendaryTools.Editor
                             if (collectionFieldMappings == null || collectionFieldMappings.Count == 0 ||
                                 (collectionFieldMappings.Count > 0 &&
                                  collectionFieldMappings[0].field.DeclaringType != elementType))
-                            {
                                 SetupCollectionFieldMappings(elementType);
-                            }
 
                             scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(200));
-                            foreach (var mapping in collectionFieldMappings)
+                            foreach (FieldMapping mapping in collectionFieldMappings)
                             {
                                 EditorGUILayout.BeginHorizontal();
                                 EditorGUILayout.LabelField(mapping.field.Name, GUILayout.Width(150));
-                                List<string> options = new List<string>() { "Do not map" };
+                                List<string> options = new() { "Do not map" };
                                 if (csvHeaders != null)
                                     options.AddRange(csvHeaders);
                                 int newIndex =
@@ -553,13 +567,11 @@ namespace LegendaryTools.Editor
             }
 
             if (csvData != null && csvData.Count > 1 && collectionTarget != null && elementType != null)
-            {
                 if (GUILayout.Button("Import into Collection"))
                 {
                     notificationMessage = "";
                     ImportDataToCollection();
                 }
-            }
         }
 
         /// <summary>
@@ -567,11 +579,11 @@ namespace LegendaryTools.Editor
         /// </summary>
         private MemberInfo[] GetCollectionMembers(ScriptableObject target)
         {
-            List<MemberInfo> members = new List<MemberInfo>();
+            List<MemberInfo> members = new();
             Type targetType = target.GetType();
             FieldInfo[] fields =
                 targetType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            foreach (var field in fields)
+            foreach (FieldInfo field in fields)
             {
                 Type t = field.FieldType;
                 if (t.IsArray || (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(List<>)))
@@ -580,7 +592,7 @@ namespace LegendaryTools.Editor
 
             PropertyInfo[] properties =
                 targetType.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            foreach (var prop in properties)
+            foreach (PropertyInfo prop in properties)
             {
                 Type t = prop.PropertyType;
                 if ((t.IsArray || (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(List<>))) &&
@@ -611,11 +623,11 @@ namespace LegendaryTools.Editor
             collectionFieldMappings.Clear();
             FieldInfo[] fields =
                 elementType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            foreach (var field in fields)
+            foreach (FieldInfo field in fields)
             {
                 if (field.IsPublic || field.GetCustomAttribute(typeof(SerializeField)) != null)
                 {
-                    FieldMapping mapping = new FieldMapping();
+                    FieldMapping mapping = new();
                     mapping.field = field;
                     mapping.selectedColumnIndex = -1;
                     collectionFieldMappings.Add(mapping);
@@ -638,8 +650,8 @@ namespace LegendaryTools.Editor
                 collectionValue = ((PropertyInfo)member).GetValue(collectionTarget, null);
 
             // Create a temporary list to accumulate imported items
-            var listType = typeof(List<>).MakeGenericType(elementType);
-            var tempList = Activator.CreateInstance(listType) as System.Collections.IList;
+            Type listType = typeof(List<>).MakeGenericType(elementType);
+            IList tempList = Activator.CreateInstance(listType) as IList;
 
             // Add existing items if any
             if (collectionValue != null)
@@ -648,19 +660,19 @@ namespace LegendaryTools.Editor
                 {
                     Array existingArray = collectionValue as Array;
                     if (existingArray != null)
-                    {
-                        foreach (var item in existingArray)
+                        foreach (object item in existingArray)
+                        {
                             tempList.Add(item);
-                    }
+                        }
                 }
                 else if (memberType.IsGenericType && memberType.GetGenericTypeDefinition() == typeof(List<>))
                 {
-                    var existingList = collectionValue as System.Collections.IList;
+                    IList existingList = collectionValue as IList;
                     if (existingList != null)
-                    {
-                        foreach (var item in existingList)
+                        foreach (object item in existingList)
+                        {
                             tempList.Add(item);
-                    }
+                        }
                 }
             }
 
@@ -673,7 +685,7 @@ namespace LegendaryTools.Editor
                 string[] row = csvData[i];
                 object elementInstance = Activator.CreateInstance(elementType);
                 bool rowError = false;
-                foreach (var mapping in collectionFieldMappings)
+                foreach (FieldMapping mapping in collectionFieldMappings)
                 {
                     if (mapping.selectedColumnIndex >= 0 && mapping.selectedColumnIndex < row.Length)
                     {
@@ -781,7 +793,7 @@ namespace LegendaryTools.Editor
             UnityWebRequest www = UnityWebRequest.Get(downloadUrl);
             if (!string.IsNullOrEmpty(accessToken))
                 www.SetRequestHeader("Authorization", "Bearer " + accessToken);
-            var operation = www.SendWebRequest();
+            UnityWebRequestAsyncOperation operation = www.SendWebRequest();
             while (!operation.isDone)
             {
                 EditorUtility.DisplayProgressBar("Downloading CSV", "Downloading data...", www.downloadProgress);
@@ -833,7 +845,7 @@ namespace LegendaryTools.Editor
                     if (!string.IsNullOrEmpty(query))
                     {
                         string[] parameters = query.TrimStart('?').Split('&');
-                        foreach (var param in parameters)
+                        foreach (string param in parameters)
                         {
                             if (param.StartsWith("gid="))
                             {
@@ -858,10 +870,10 @@ namespace LegendaryTools.Editor
         /// </summary>
         private List<string[]> ParseCSV(string content)
         {
-            List<string[]> data = new List<string[]>();
+            List<string[]> data = new();
             try
             {
-                using (StringReader reader = new StringReader(content))
+                using (StringReader reader = new(content))
                 {
                     string line;
                     while ((line = reader.ReadLine()) != null)
@@ -892,9 +904,9 @@ namespace LegendaryTools.Editor
         /// </summary>
         private string[] ParseCSVLine(string line)
         {
-            List<string> fields = new List<string>();
+            List<string> fields = new();
             bool inQuotes = false;
-            System.Text.StringBuilder field = new System.Text.StringBuilder();
+            System.Text.StringBuilder field = new();
             for (int i = 0; i < line.Length; i++)
             {
                 char c = line[i];
@@ -935,11 +947,11 @@ namespace LegendaryTools.Editor
                 return;
             FieldInfo[] fields =
                 scriptableObjectType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            foreach (var field in fields)
+            foreach (FieldInfo field in fields)
             {
                 if (field.IsPublic || field.GetCustomAttribute(typeof(SerializeField)) != null)
                 {
-                    FieldMapping mapping = new FieldMapping();
+                    FieldMapping mapping = new();
                     mapping.field = field;
                     mapping.selectedColumnIndex = -1;
                     fieldMappings.Add(mapping);
@@ -955,12 +967,38 @@ namespace LegendaryTools.Editor
             try
             {
                 if (targetType == typeof(string))
+                {
                     return valueStr;
+                }
                 // Nova verificação para tipos que herdam de UnityEngine.Object
                 else if (typeof(UnityEngine.Object).IsAssignableFrom(targetType))
+                {
+                    // Check if valueStr represents a relative file path in the project Assets folder
+                    if (!string.IsNullOrEmpty(valueStr) && valueStr.StartsWith("Assets/"))
+                    {
+                        UnityEngine.Object assetAtPath = AssetDatabase.LoadAssetAtPath(valueStr, targetType);
+                        if (assetAtPath != null) return assetAtPath;
+                        Debug.LogWarning($"Asset not found at path: {valueStr}");
+                        return null;
+                    }
+
+                    // Check if valueStr is a GUID of an asset
+                    string assetPathFromGuid = AssetDatabase.GUIDToAssetPath(valueStr);
+                    if (!string.IsNullOrEmpty(assetPathFromGuid))
+                    {
+                        UnityEngine.Object assetFromGuid = AssetDatabase.LoadAssetAtPath(assetPathFromGuid, targetType);
+                        if (assetFromGuid != null) return assetFromGuid;
+                        Debug.LogWarning($"Asset not found for GUID: {valueStr}");
+                        return null;
+                    }
+
+                    // Fallback to search by asset name
                     return FindAssetByName(valueStr, targetType);
+                }
                 else if (targetType.IsEnum)
+                {
                     return Enum.Parse(targetType, valueStr, true); // Adicionado reconhecimento de enum
+                }
                 else if (targetType == typeof(int))
                 {
                     if (int.TryParse(valueStr, out int intValue))
@@ -983,7 +1021,9 @@ namespace LegendaryTools.Editor
                         throw new Exception($"Value '{valueStr}' cannot be converted to bool.");
                 }
                 else
+                {
                     return Convert.ChangeType(valueStr, targetType);
+                }
             }
             catch (Exception ex)
             {
@@ -1015,7 +1055,7 @@ namespace LegendaryTools.Editor
             else if (guids.Length > 1)
             {
                 // Tenta filtrar pela correspondência exata do nome do asset
-                List<UnityEngine.Object> matches = new List<UnityEngine.Object>();
+                List<UnityEngine.Object> matches = new();
                 foreach (string guid in guids)
                 {
                     string assetPath = AssetDatabase.GUIDToAssetPath(guid);
@@ -1046,10 +1086,8 @@ namespace LegendaryTools.Editor
                 UnityEngine.Object asset = AssetDatabase.LoadAssetAtPath(assetPath, targetType);
                 // Caso o nome do asset não corresponda exatamente, emite um aviso mas utiliza o asset encontrado
                 if (asset != null && !asset.name.Equals(assetName, StringComparison.OrdinalIgnoreCase))
-                {
                     Debug.LogWarning(
                         $"Asset found for type {targetType} does not exactly match the name '{assetName}'.");
-                }
 
                 return asset;
             }
