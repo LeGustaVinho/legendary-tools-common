@@ -10,19 +10,13 @@ using UnityEngine.Networking;
 
 namespace LegendaryTools.Editor
 {
-    using System;
-    using System.Collections;
-    using System.Collections.Generic;
-    using System.IO;
-    using System.Reflection;
-    using Unity.EditorCoroutines.Editor;
-    using UnityEditor;
-    using UnityEngine;
-    using UnityEngine.Networking;
-
+    /// <summary>
+    /// Editor window for importing CSV spreadsheets into ScriptableObject assets or collections.
+    /// </summary>
     public class SpreadsheetImporterWindow : EditorWindow
     {
-        // OAuth2 fields (used in both modes)
+        #region OAuth2 Fields
+
         private string clientId = "";
         private string clientSecret = "";
         private string authCode = "";
@@ -30,40 +24,53 @@ namespace LegendaryTools.Editor
         private string refreshToken = "";
         private DateTime tokenExpiry = DateTime.MinValue;
 
-        // CSV import fields (used in both modes)
+        #endregion
+
+        #region CSV Import Fields
+
         private string csvPathOrUrl = "";
         private List<string[]> csvData = null;
+
         private string[] csvHeaders = null;
 
-        // Mapping fields for Individual Asset Import
+        // Output folder defined via the UI
+        private string outputFolderPath = "";
+
+        #endregion
+
+        #region Individual Asset Import Fields
+
         private string typeName = "";
         private Type scriptableObjectType = null;
         private readonly List<FieldMapping> fieldMappings = new();
 
-        // Nova variável para mapear a coluna de nome do asset
+        // New variable to map the asset name column
         private int assetNameColumnIndex = -1;
 
-        // Fields for Mode 2 (Import into Collection)
-        private enum ImportMode
-        {
-            IndividualAssets, // Create individual assets
-            CollectionsInAsset // Populate a collection (Array or List) in a ScriptableObject
-        }
+        // ImportMode – using the enum defined in the configuration
+        private ImportMode importerMode = ImportMode.IndividualAssets;
 
-        private ImportMode currentMode = ImportMode.IndividualAssets;
+        #endregion
 
-        // Mode 2 specific fields
+        #region Collection Import Fields
+
         private ScriptableObject collectionTarget;
         private MemberInfo[] collectionMembers;
         private int selectedCollectionMemberIndex = -1;
         private Type elementType = null; // Type of the collection elements
         private List<FieldMapping> collectionFieldMappings = new();
 
-        // Notification and progress fields
+        #endregion
+
+        #region Notification and UI Fields
+
         private string notificationMessage = "";
         private NotificationType notificationType = NotificationType.None;
         private Vector2 scrollPos;
 
+        /// <summary>
+        /// Enum for notification types used in the UI.
+        /// </summary>
         private enum NotificationType
         {
             None,
@@ -72,28 +79,175 @@ namespace LegendaryTools.Editor
             Error
         }
 
+        /// <summary>
+        /// Enum for the main tab selection in the window.
+        /// </summary>
+        private enum MainTab
+        {
+            OAuth,
+            Import
+        }
+
+        private MainTab currentTab = MainTab.Import;
+
+        // Configuration template reference
+        private SpreadsheetImportConfiguration configTemplate;
+
+        #endregion
+
+        #region Menu Item and OnGUI
+
+        /// <summary>
+        /// Adds a menu item to show the Spreadsheet Importer window.
+        /// </summary>
         [MenuItem("Tools/Spreadsheet Importer")]
         public static void ShowWindow()
         {
             GetWindow<SpreadsheetImporterWindow>("Spreadsheet Importer");
         }
 
+        /// <summary>
+        /// Implements the OnGUI callback to render the editor window UI.
+        /// </summary>
         private void OnGUI()
         {
-            // Draw common OAuth section
-            DrawOAuthSection();
-
-            GUILayout.Space(10);
-            GUILayout.Label("Import Mode", EditorStyles.boldLabel);
-            currentMode = (ImportMode)GUILayout.Toolbar((int)currentMode,
-                new string[] { "ScriptableObject Instances", "ScriptableObject Collections" });
             GUILayout.Space(10);
 
-            if (currentMode == ImportMode.IndividualAssets)
-                DrawMode1Content();
-            else
-                DrawMode2Content();
+            // --- Configuration Template Section ---
+            GUILayout.BeginVertical("box");
+            GUILayout.Label("Configuration Template", EditorStyles.boldLabel);
+
+            configTemplate =
+                EditorGUILayout.ObjectField("Config Template", configTemplate, typeof(SpreadsheetImportConfiguration),
+                    false) as SpreadsheetImportConfiguration;
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Load Configuration"))
+            {
+                if (configTemplate != null)
+                {
+                    // Populate importer variables with data from the template
+                    csvPathOrUrl = configTemplate.csvPathOrUrl;
+                    outputFolderPath = configTemplate.outputFolderPath;
+                    importerMode = configTemplate.importMode;
+                    typeName = configTemplate.scriptableObjectTypeName;
+                    scriptableObjectType = GetTypeByName(typeName);
+
+                    if (importerMode == ImportMode.IndividualAssets)
+                    {
+                        assetNameColumnIndex = configTemplate.assetNameColumnIndex;
+                        // Apply saved mappings for individual assets
+                        foreach (FieldMapping mapping in fieldMappings)
+                        {
+                            FieldMappingConfig cfg = configTemplate.fieldMappings.Find(x =>
+                                x.fieldName.Equals(mapping.field.Name, StringComparison.OrdinalIgnoreCase));
+                            if (cfg != null)
+                                mapping.selectedColumnIndex = cfg.csvColumnIndex;
+                        }
+                    }
+                    else // Collections mode: load the target instance
+                    {
+                        collectionTarget = configTemplate.collectionTarget;
+                    }
+
+                    Repaint();
+                }
+                else
+                {
+                    EditorUtility.DisplayDialog("Configuration Not Found", "Please assign a configuration template.",
+                        "OK");
+                }
+            }
+
+            if (GUILayout.Button("Save Configuration"))
+            {
+                if (configTemplate == null)
+                {
+                    string path = EditorUtility.SaveFilePanelInProject("Save Config Template",
+                        "SpreadsheetImportConfiguration", "asset", "Enter a file name for the configuration");
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        configTemplate = CreateInstance<SpreadsheetImportConfiguration>();
+                        AssetDatabase.CreateAsset(configTemplate, path);
+                    }
+                }
+
+                if (configTemplate != null)
+                {
+                    // Save current importer values to the configuration
+                    configTemplate.csvPathOrUrl = csvPathOrUrl;
+                    configTemplate.outputFolderPath = outputFolderPath;
+                    configTemplate.importMode = importerMode;
+                    configTemplate.scriptableObjectTypeName = typeName;
+                    configTemplate.assetNameColumnIndex = assetNameColumnIndex;
+                    // Save mappings for individual assets
+                    configTemplate.fieldMappings.Clear();
+                    foreach (FieldMapping mapping in fieldMappings)
+                    {
+                        FieldMappingConfig fmConfig = new();
+                        fmConfig.fieldName = mapping.field.Name;
+                        fmConfig.csvColumnIndex = mapping.selectedColumnIndex;
+                        configTemplate.fieldMappings.Add(fmConfig);
+                    }
+
+                    // Save mappings for collection
+                    configTemplate.collectionFieldMappings.Clear();
+                    foreach (FieldMapping mapping in collectionFieldMappings)
+                    {
+                        FieldMappingConfig fmConfig = new();
+                        fmConfig.fieldName = mapping.field.Name;
+                        fmConfig.csvColumnIndex = mapping.selectedColumnIndex;
+                        configTemplate.collectionFieldMappings.Add(fmConfig);
+                    }
+
+                    // Save target instance for Collections mode
+                    if (importerMode == ImportMode.CollectionsInAsset)
+                        configTemplate.collectionTarget = collectionTarget;
+
+                    EditorUtility.SetDirty(configTemplate);
+                    AssetDatabase.SaveAssets();
+                    EditorUtility.DisplayDialog("Configuration Saved", "Configuration template saved successfully.",
+                        "OK");
+                }
+            }
+
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
+
+            GUILayout.Space(10);
+
+            // Main tab toolbar for switching between OAuth and Import UI
+            currentTab = (MainTab)GUILayout.Toolbar((int)currentTab, new string[] { "OAuth", "Import" });
+            GUILayout.Space(10);
+
+            switch (currentTab)
+            {
+                case MainTab.OAuth:
+                    GUILayout.BeginVertical("box");
+                    DrawOAuthSection();
+                    GUILayout.EndVertical();
+                    break;
+                case MainTab.Import:
+                    GUILayout.BeginVertical("box");
+                    GUILayout.Label("Import Mode", EditorStyles.boldLabel);
+                    // Update the importerMode based on the selection
+                    int modeIndex = importerMode == ImportMode.IndividualAssets ? 0 : 1;
+                    int newModeIndex = GUILayout.Toolbar(modeIndex,
+                        new string[] { "ScriptableObject Instances", "ScriptableObject Collections" });
+                    importerMode = newModeIndex == 0 ? ImportMode.IndividualAssets : ImportMode.CollectionsInAsset;
+                    GUILayout.Space(10);
+
+                    if (importerMode == ImportMode.IndividualAssets)
+                        DrawMode1Content();
+                    else
+                        DrawMode2Content();
+
+                    GUILayout.EndVertical();
+                    break;
+            }
         }
+
+        #endregion
 
         #region OAuth Section (Common to Both Modes)
 
@@ -114,7 +268,8 @@ namespace LegendaryTools.Editor
                 StartOAuthFlow();
             }
 
-            if (GUILayout.Button("Instruction How To Setup OAuth")) GoogleOAuthInstructionsWindow.ShowInstructions();
+            if (GUILayout.Button("Instruction How To Setup OAuth"))
+                GoogleOAuthInstructionsWindow.ShowInstructions();
 
             GUILayout.EndHorizontal();
 
@@ -267,6 +422,9 @@ namespace LegendaryTools.Editor
             }
         }
 
+        /// <summary>
+        /// Data structure for deserializing OAuth token responses.
+        /// </summary>
         [Serializable]
         private class OAuthTokenResponse
         {
@@ -287,36 +445,48 @@ namespace LegendaryTools.Editor
         private void DrawMode1Content()
         {
             GUILayout.Label("CSV Import Settings", EditorStyles.boldLabel);
+            GUILayout.BeginHorizontal("box");
             csvPathOrUrl = EditorGUILayout.TextField("CSV Path/URL", csvPathOrUrl);
-            if (GUILayout.Button("Select Local File"))
+            if (GUILayout.Button("Browse", GUILayout.Width(75)))
             {
                 string selectedFile = EditorUtility.OpenFilePanel("Select CSV File", "", "csv");
                 if (!string.IsNullOrEmpty(selectedFile))
                     csvPathOrUrl = selectedFile;
             }
 
-            typeName = EditorGUILayout.TextField("ScriptableObject Type", typeName);
+            GUILayout.EndHorizontal();
 
-            if (GUILayout.Button("Load Spreadsheet"))
+            // --- Extra Output Folder field (for both modes) ---
+            GUILayout.BeginHorizontal("box");
+            GUILayout.Label("Output Folder (relative to Assets)", GUILayout.Width(200));
+            outputFolderPath = EditorGUILayout.TextField(outputFolderPath);
+            if (GUILayout.Button("Browse", GUILayout.Width(75)))
             {
-                notificationMessage = "";
-                scriptableObjectType = GetTypeByName(typeName);
-                if (scriptableObjectType == null)
+                string selected = EditorUtility.OpenFolderPanel("Select Output Folder", Application.dataPath, "");
+                if (!string.IsNullOrEmpty(selected))
                 {
-                    notificationMessage = $"ScriptableObject type not found: {typeName}";
-                    notificationType = NotificationType.Error;
-                    Debug.LogError(notificationMessage);
-                }
-                else
-                {
-                    LoadCSVData();
+                    if (selected.StartsWith(Application.dataPath))
+                        outputFolderPath = "Assets" + selected.Substring(Application.dataPath.Length);
+                    else
+                        EditorUtility.DisplayDialog("Error", "Selected folder must be inside the Assets folder.", "OK");
                 }
             }
+
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal("box");
+            typeName = EditorGUILayout.TextField("ScriptableObject Type", typeName);
+            if (GUILayout.Button("Load Spreadsheet", GUILayout.Width(200)))
+            {
+                notificationMessage = "";
+                LoadCSVData();
+            }
+
+            GUILayout.EndHorizontal();
 
             if (csvHeaders != null)
             {
                 GUILayout.Space(10);
-                // Nova UI para mapear a coluna que servirá como nome do asset
                 GUILayout.Label("Asset Name Mapping", EditorStyles.boldLabel);
                 List<string> assetNameOptions = new() { "Default Name" };
                 assetNameOptions.AddRange(csvHeaders);
@@ -341,6 +511,7 @@ namespace LegendaryTools.Editor
             }
 
             if (csvData != null && csvData.Count > 1 && scriptableObjectType != null)
+                // Use the outputFolderPath defined in the Inspector (does not open folder selection dialog)
                 if (GUILayout.Button("Import"))
                 {
                     notificationMessage = "";
@@ -351,21 +522,18 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Retrieves a ScriptableObject type by name from all loaded assemblies.
         /// </summary>
+        /// <param name="typeName">Name of the type.</param>
+        /// <returns>Type if found; otherwise, null.</returns>
         private Type GetTypeByName(string typeName)
         {
             if (string.IsNullOrEmpty(typeName))
                 return null;
-
-            // Percorre todos os assemblies carregados
             Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
             foreach (Assembly assembly in assemblies)
             {
-                // Tenta obter o type usando o nome totalmente qualificado, ignorando case sensitivity.
                 Type t = assembly.GetType(typeName, false, true);
                 if (t != null && t.IsSubclassOf(typeof(ScriptableObject)))
                     return t;
-
-                // Se não encontrou, itera sobre todos os tipos do assembly e compara pelo nome simples.
                 foreach (Type type in assembly.GetTypes())
                 {
                     if (type.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase) &&
@@ -378,29 +546,24 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Imports CSV data as individual assets into a user-selected folder.
+        /// Imports CSV data as individual assets into the output folder defined in the Inspector.
         /// </summary>
         private void ImportData()
         {
-            // Prompt the user to select the destination folder for the assets.
-            string selectedFolder =
-                EditorUtility.OpenFolderPanel("Select Destination Folder for Assets", Application.dataPath, "");
-            if (string.IsNullOrEmpty(selectedFolder))
+            if (string.IsNullOrEmpty(outputFolderPath))
             {
-                notificationMessage = "No folder selected for saving assets.";
-                notificationType = NotificationType.Warning;
+                EditorUtility.DisplayDialog("Error", "Output Folder not defined. Please set it in the Inspector.",
+                    "OK");
                 return;
             }
 
-            if (!selectedFolder.StartsWith(Application.dataPath))
+            if (!outputFolderPath.StartsWith("Assets"))
             {
-                notificationMessage = "The selected folder must be inside the 'Assets' folder.";
-                notificationType = NotificationType.Error;
+                EditorUtility.DisplayDialog("Error", "The output folder must be inside the Assets folder.", "OK");
                 return;
             }
 
-            string folderPath = "Assets" + selectedFolder.Substring(Application.dataPath.Length);
-
+            string folderPath = outputFolderPath;
             int errorCount = 0;
             int importedCount = 0;
             for (int i = 1; i < csvData.Count; i++)
@@ -431,8 +594,6 @@ namespace LegendaryTools.Editor
 
                 if (rowError)
                     errorCount++;
-
-                // Determina o nome do asset baseado na coluna mapeada, se configurada
                 string assetName;
                 if (assetNameColumnIndex >= 0 && assetNameColumnIndex < row.Length)
                 {
@@ -446,7 +607,6 @@ namespace LegendaryTools.Editor
                 }
 
                 string assetPath = $"{folderPath}/{assetName}.asset";
-
                 try
                 {
                     AssetDatabase.CreateAsset(asset, assetPath);
@@ -473,29 +633,41 @@ namespace LegendaryTools.Editor
         #region Import into Collection
 
         /// <summary>
-        /// Draws the UI for Collection field: Import CSV data into a collection field.
+        /// Draws the UI for importing CSV data into a collection field.
         /// </summary>
         private void DrawMode2Content()
         {
             GUILayout.Label("Mode 2: Import into a Collection", EditorStyles.boldLabel);
-
-            // CSV configuration (same as Mode 1)
+            GUILayout.BeginHorizontal("box");
             csvPathOrUrl = EditorGUILayout.TextField("CSV Path/URL", csvPathOrUrl);
-            if (GUILayout.Button("Select Local File"))
+            if (GUILayout.Button("Browse", GUILayout.Width(75)))
             {
                 string selectedFile = EditorUtility.OpenFilePanel("Select CSV File", "", "csv");
                 if (!string.IsNullOrEmpty(selectedFile))
                     csvPathOrUrl = selectedFile;
             }
 
-            if (GUILayout.Button("Load Spreadsheet"))
+            GUILayout.EndHorizontal();
+
+            // --- Extra Output Folder field (for both modes) ---
+            GUILayout.BeginHorizontal("box");
+            GUILayout.Label("Output Folder (relative to Assets)", GUILayout.Width(200));
+            outputFolderPath = EditorGUILayout.TextField(outputFolderPath);
+            if (GUILayout.Button("Browse", GUILayout.Width(75)))
             {
-                notificationMessage = "";
-                LoadCSVData();
+                string selected = EditorUtility.OpenFolderPanel("Select Output Folder", Application.dataPath, "");
+                if (!string.IsNullOrEmpty(selected))
+                {
+                    if (selected.StartsWith(Application.dataPath))
+                        outputFolderPath = "Assets" + selected.Substring(Application.dataPath.Length);
+                    else
+                        EditorUtility.DisplayDialog("Error", "Selected folder must be inside the Assets folder.", "OK");
+                }
             }
 
-            GUILayout.Space(10);
-            // Selection of target object and collection field
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal("box");
             collectionTarget =
                 EditorGUILayout.ObjectField("Target Object", collectionTarget, typeof(ScriptableObject), false) as
                     ScriptableObject;
@@ -511,12 +683,11 @@ namespace LegendaryTools.Editor
                     }
 
                     selectedCollectionMemberIndex = EditorGUILayout.Popup("Collection Field",
-                        selectedCollectionMemberIndex, memberNames.ToArray());
-
+                        selectedCollectionMemberIndex,
+                        memberNames.ToArray());
                     if (selectedCollectionMemberIndex >= 0 && selectedCollectionMemberIndex < collectionMembers.Length)
                     {
                         Type colType = GetMemberType(collectionMembers[selectedCollectionMemberIndex]);
-                        // Determine the type of elements in the collection
                         if (colType.IsArray)
                             elementType = colType.GetElementType();
                         else if (colType.IsGenericType && colType.GetGenericTypeDefinition() == typeof(List<>))
@@ -533,6 +704,16 @@ namespace LegendaryTools.Editor
                                  collectionFieldMappings[0].field.DeclaringType != elementType))
                                 SetupCollectionFieldMappings(elementType);
 
+                            // If a template is defined for Collections, apply saved mappings
+                            if (configTemplate != null && importerMode == ImportMode.CollectionsInAsset)
+                                foreach (FieldMapping mapping in collectionFieldMappings)
+                                {
+                                    FieldMappingConfig cfg = configTemplate.collectionFieldMappings.Find(x =>
+                                        x.fieldName.Equals(mapping.field.Name, StringComparison.OrdinalIgnoreCase));
+                                    if (cfg != null)
+                                        mapping.selectedColumnIndex = cfg.csvColumnIndex;
+                                }
+
                             scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(200));
                             foreach (FieldMapping mapping in collectionFieldMappings)
                             {
@@ -542,7 +723,8 @@ namespace LegendaryTools.Editor
                                 if (csvHeaders != null)
                                     options.AddRange(csvHeaders);
                                 int newIndex =
-                                    EditorGUILayout.Popup(mapping.selectedColumnIndex + 1, options.ToArray()) - 1;
+                                    EditorGUILayout.Popup(mapping.selectedColumnIndex + 1, options.ToArray()) -
+                                    1;
                                 mapping.selectedColumnIndex = newIndex;
                                 EditorGUILayout.EndHorizontal();
                             }
@@ -566,6 +748,14 @@ namespace LegendaryTools.Editor
                 }
             }
 
+            if (GUILayout.Button("Load Spreadsheet", GUILayout.Width(200)))
+            {
+                notificationMessage = "";
+                LoadCSVData();
+            }
+
+            GUILayout.EndHorizontal();
+
             if (csvData != null && csvData.Count > 1 && collectionTarget != null && elementType != null)
                 if (GUILayout.Button("Import into Collection"))
                 {
@@ -575,8 +765,10 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Retrieves members (fields and properties) of the target object that are Arrays or List&lt;T&gt;.
+        /// Retrieves collection fields (arrays or lists) from the target ScriptableObject.
         /// </summary>
+        /// <param name="target">The ScriptableObject target.</param>
+        /// <returns>An array of MemberInfo representing the collection fields.</returns>
         private MemberInfo[] GetCollectionMembers(ScriptableObject target)
         {
             List<MemberInfo> members = new();
@@ -604,8 +796,10 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Returns the type of the member (field or property).
+        /// Gets the type of a member (field or property).
         /// </summary>
+        /// <param name="member">The MemberInfo object.</param>
+        /// <returns>The type of the member if recognized; otherwise, null.</returns>
         private Type GetMemberType(MemberInfo member)
         {
             if (member is FieldInfo)
@@ -616,8 +810,9 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Sets up the field mappings for the collection element type.
+        /// Sets up the field mappings for collection elements by scanning the element type for serializable fields.
         /// </summary>
+        /// <param name="elementType">The type of collection element.</param>
         private void SetupCollectionFieldMappings(Type elementType)
         {
             collectionFieldMappings.Clear();
@@ -636,11 +831,10 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Imports CSV data into the selected collection field of the target object.
+        /// Imports CSV data and adds each row as an element in the target collection.
         /// </summary>
         private void ImportDataToCollection()
         {
-            // Get the selected collection member
             MemberInfo member = collectionMembers[selectedCollectionMemberIndex];
             object collectionValue = null;
             Type memberType = GetMemberType(member);
@@ -649,11 +843,9 @@ namespace LegendaryTools.Editor
             else if (member is PropertyInfo)
                 collectionValue = ((PropertyInfo)member).GetValue(collectionTarget, null);
 
-            // Create a temporary list to accumulate imported items
             Type listType = typeof(List<>).MakeGenericType(elementType);
             IList tempList = Activator.CreateInstance(listType) as IList;
 
-            // Add existing items if any
             if (collectionValue != null)
             {
                 if (memberType.IsArray)
@@ -711,8 +903,6 @@ namespace LegendaryTools.Editor
             }
 
             EditorUtility.ClearProgressBar();
-
-            // If the member is an array, convert the list to an array; otherwise, assign the list directly.
             if (memberType.IsArray)
             {
                 Array newArray = Array.CreateInstance(elementType, tempList.Count);
@@ -744,7 +934,7 @@ namespace LegendaryTools.Editor
         #region Common Methods
 
         /// <summary>
-        /// Loads the CSV data either from a URL or from a local file.
+        /// Loads CSV data either by downloading from a URL or reading from a file.
         /// </summary>
         private void LoadCSVData()
         {
@@ -760,10 +950,24 @@ namespace LegendaryTools.Editor
                     {
                         string content = File.ReadAllText(csvPathOrUrl);
                         csvData = ParseCSV(content);
+                        scriptableObjectType = GetTypeByName(typeName);
                         if (csvData != null && csvData.Count > 0)
                         {
                             csvHeaders = csvData[0];
                             SetupFieldMappings();
+                            // If a template is defined for the IndividualAssets mode, apply saved mappings
+                            if (configTemplate != null && importerMode == ImportMode.IndividualAssets)
+                            {
+                                assetNameColumnIndex = configTemplate.assetNameColumnIndex;
+                                foreach (FieldMapping mapping in fieldMappings)
+                                {
+                                    FieldMappingConfig cfg = configTemplate.fieldMappings.Find(x =>
+                                        x.fieldName.Equals(mapping.field.Name, StringComparison.OrdinalIgnoreCase));
+                                    if (cfg != null)
+                                        mapping.selectedColumnIndex = cfg.csvColumnIndex;
+                                }
+                            }
+
                             notificationMessage = "CSV loaded successfully.";
                             notificationType = NotificationType.Info;
                         }
@@ -785,7 +989,7 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Downloads the CSV data from a URL. If the URL is a public Google Spreadsheet, converts it to the CSV export URL.
+        /// Downloads the CSV file from a remote URL.
         /// </summary>
         private IEnumerator DownloadCSV()
         {
@@ -801,7 +1005,6 @@ namespace LegendaryTools.Editor
             }
 
             EditorUtility.ClearProgressBar();
-
 #if UNITY_2020_1_OR_NEWER
             if (www.result == UnityWebRequest.Result.ConnectionError ||
                 www.result == UnityWebRequest.Result.ProtocolError)
@@ -821,6 +1024,18 @@ namespace LegendaryTools.Editor
                 {
                     csvHeaders = csvData[0];
                     SetupFieldMappings();
+                    if (configTemplate != null && importerMode == ImportMode.IndividualAssets)
+                    {
+                        assetNameColumnIndex = configTemplate.assetNameColumnIndex;
+                        foreach (FieldMapping mapping in fieldMappings)
+                        {
+                            FieldMappingConfig cfg = configTemplate.fieldMappings.Find(x =>
+                                x.fieldName.Equals(mapping.field.Name, StringComparison.OrdinalIgnoreCase));
+                            if (cfg != null)
+                                mapping.selectedColumnIndex = cfg.csvColumnIndex;
+                        }
+                    }
+
                     notificationMessage = "CSV downloaded and processed successfully.";
                     notificationType = NotificationType.Info;
                     Debug.Log(notificationMessage);
@@ -829,8 +1044,10 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Converts a public Google Spreadsheet URL to its CSV export URL if applicable.
+        /// Converts a Google Sheets URL into a CSV export URL if necessary.
         /// </summary>
+        /// <param name="url">The original URL.</param>
+        /// <returns>The URL adjusted for CSV export if applicable.</returns>
         private string GetCsvDownloadUrl(string url)
         {
             if (url.Contains("docs.google.com/spreadsheets") && url.Contains("/edit"))
@@ -868,6 +1085,8 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Parses CSV content into a list of string arrays.
         /// </summary>
+        /// <param name="content">The full CSV content as a string.</param>
+        /// <returns>A list where each element represents a row as a string array.</returns>
         private List<string[]> ParseCSV(string content)
         {
             List<string[]> data = new();
@@ -900,8 +1119,10 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Parses a single CSV line, handling fields enclosed in quotes.
+        /// Parses a single line of CSV and returns the fields.
         /// </summary>
+        /// <param name="line">The CSV line.</param>
+        /// <returns>An array of field values.</returns>
         private string[] ParseCSVLine(string line)
         {
             List<string> fields = new();
@@ -938,7 +1159,7 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Sets up field mappings for Mode 1 based on the ScriptableObject type.
+        /// Sets up field mappings for individual asset import based on the specified ScriptableObject type.
         /// </summary>
         private void SetupFieldMappings()
         {
@@ -962,6 +1183,9 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Converts a string value to the specified target type.
         /// </summary>
+        /// <param name="valueStr">The input string.</param>
+        /// <param name="targetType">The target conversion type.</param>
+        /// <returns>The converted value.</returns>
         private object ConvertValue(string valueStr, Type targetType)
         {
             try
@@ -970,10 +1194,8 @@ namespace LegendaryTools.Editor
                 {
                     return valueStr;
                 }
-                // Nova verificação para tipos que herdam de UnityEngine.Object
                 else if (typeof(UnityEngine.Object).IsAssignableFrom(targetType))
                 {
-                    // Check if valueStr represents a relative file path in the project Assets folder
                     if (!string.IsNullOrEmpty(valueStr) && valueStr.StartsWith("Assets/"))
                     {
                         UnityEngine.Object assetAtPath = AssetDatabase.LoadAssetAtPath(valueStr, targetType);
@@ -982,7 +1204,6 @@ namespace LegendaryTools.Editor
                         return null;
                     }
 
-                    // Check if valueStr is a GUID of an asset
                     string assetPathFromGuid = AssetDatabase.GUIDToAssetPath(valueStr);
                     if (!string.IsNullOrEmpty(assetPathFromGuid))
                     {
@@ -992,12 +1213,11 @@ namespace LegendaryTools.Editor
                         return null;
                     }
 
-                    // Fallback to search by asset name
                     return FindAssetByName(valueStr, targetType);
                 }
                 else if (targetType.IsEnum)
                 {
-                    return Enum.Parse(targetType, valueStr, true); // Adicionado reconhecimento de enum
+                    return Enum.Parse(targetType, valueStr, true);
                 }
                 else if (targetType == typeof(int))
                 {
@@ -1033,20 +1253,18 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Searches for an asset within the project by name and type.
-        /// Se houver múltiplos ativos com mesmo nome, emite um aviso e retorna o primeiro encontrado.
-        /// Se não encontrar nenhum, emite um aviso e retorna null.
+        /// Finds and returns an asset by its name and type.
         /// </summary>
+        /// <param name="assetName">The name of the asset.</param>
+        /// <param name="targetType">The type of the asset.</param>
+        /// <returns>The asset if found; otherwise, null.</returns>
         private UnityEngine.Object FindAssetByName(string assetName, Type targetType)
         {
             if (string.IsNullOrEmpty(assetName))
                 return null;
-
-            // Faz a busca usando um filtro com o nome e o tipo (usando apenas o nome do tipo)
             string typeFilter = $"t:{targetType.Name}";
             string query = $"{assetName} {typeFilter}";
             string[] guids = AssetDatabase.FindAssets(query);
-
             if (guids.Length == 0)
             {
                 Debug.LogWarning($"Asset not found for name '{assetName}' of type {targetType}");
@@ -1054,7 +1272,6 @@ namespace LegendaryTools.Editor
             }
             else if (guids.Length > 1)
             {
-                // Tenta filtrar pela correspondência exata do nome do asset
                 List<UnityEngine.Object> matches = new();
                 foreach (string guid in guids)
                 {
@@ -1080,31 +1297,22 @@ namespace LegendaryTools.Editor
                     return null;
                 }
             }
-            else // Apenas um asset encontrado
+            else
             {
                 string assetPath = AssetDatabase.GUIDToAssetPath(guids[0]);
                 UnityEngine.Object asset = AssetDatabase.LoadAssetAtPath(assetPath, targetType);
-                // Caso o nome do asset não corresponda exatamente, emite um aviso mas utiliza o asset encontrado
                 if (asset != null && !asset.name.Equals(assetName, StringComparison.OrdinalIgnoreCase))
                     Debug.LogWarning(
                         $"Asset found for type {targetType} does not exactly match the name '{assetName}'.");
-
                 return asset;
             }
         }
 
         /// <summary>
-        /// Helper class representing a mapping between a field and a CSV column index.
+        /// Sanitizes the asset name by removing invalid characters.
         /// </summary>
-        private class FieldMapping
-        {
-            public FieldInfo field;
-            public int selectedColumnIndex;
-        }
-
-        /// <summary>
-        /// Sanitizes the asset name by removing invalid file name characters.
-        /// </summary>
+        /// <param name="name">The original name.</param>
+        /// <returns>The sanitized asset name.</returns>
         private string SanitizeAssetName(string name)
         {
             foreach (char c in Path.GetInvalidFileNameChars())
@@ -1115,21 +1323,36 @@ namespace LegendaryTools.Editor
             return name;
         }
 
+        /// <summary>
+        /// Private class representing a mapping from a ScriptableObject field to a CSV column index.
+        /// </summary>
+        private class FieldMapping
+        {
+            public FieldInfo field;
+            public int selectedColumnIndex;
+        }
+
         #endregion
     }
 
     /// <summary>
-    /// Window with step-by-step instructions for obtaining the Client ID and Client Secret from Google.
+    /// Window providing step-by-step instructions for obtaining the Client ID and Client Secret from Google.
     /// </summary>
     public class GoogleOAuthInstructionsWindow : EditorWindow
     {
         private Vector2 scrollPos;
 
+        /// <summary>
+        /// Opens the Google OAuth2 Instructions window.
+        /// </summary>
         public static void ShowInstructions()
         {
             GetWindow<GoogleOAuthInstructionsWindow>("Google OAuth2 Instructions");
         }
 
+        /// <summary>
+        /// Implements the OnGUI callback to render the instructions.
+        /// </summary>
         private void OnGUI()
         {
             scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
