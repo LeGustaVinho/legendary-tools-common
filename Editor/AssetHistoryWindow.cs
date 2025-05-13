@@ -22,7 +22,7 @@ namespace LegendaryTools.Editor
         private const int HISTORY_SIZE = 20;
 
         // Create a menu item to open the window (Window > Asset History)
-        [MenuItem("Window/Asset History")]
+        [MenuItem("Tools/LegendaryTools/Asset History")]
         public static void ShowWindow()
         {
             AssetHistoryWindow window = GetWindow<AssetHistoryWindow>("Asset History");

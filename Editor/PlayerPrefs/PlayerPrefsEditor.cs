@@ -32,7 +32,7 @@ namespace LegendaryTools.Editor
             String
         }
 
-        [MenuItem("Tools/PlayerPrefs/Viewer")]
+        [MenuItem("Tools/LegendaryTools/PlayerPrefs/Viewer")]
         public static void ShowWindow()
         {
             GetWindow<PlayerPrefsEditor>("PlayerPrefs Viewer");

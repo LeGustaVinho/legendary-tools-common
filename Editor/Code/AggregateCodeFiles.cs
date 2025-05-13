@@ -9,7 +9,7 @@ namespace LegendaryTools.Editor
     {
         private List<string> selectedFolders = new();
 
-        [MenuItem("Tools/Aggregate Code from Folders")]
+        [MenuItem("Tools/LegendaryTools/Code/Aggregate Code from Folders")]
         public static void ShowWindow()
         {
             GetWindow<AggregateCodeFiles>("Aggregate Code");

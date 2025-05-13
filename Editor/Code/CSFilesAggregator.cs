@@ -22,7 +22,7 @@ namespace LegendaryTools.Editor
         private string aggregatedText = "";
 
         // Adds an option in the Unity menu to open the Editor window
-        [MenuItem("Tools/C# File Aggregator")]
+        [MenuItem("Tools/LegendaryTools/Code/C# File Aggregator")]
         public static void ShowWindow()
         {
             // Creates or focuses the existing window

@@ -17,7 +17,7 @@ namespace LegendaryTools.Editor
         private bool exportSingleFile = false;
         private string filterTypes = "";
 
-        [MenuItem("Tools/Export DLL API")]
+        [MenuItem("Tools/LegendaryTools/Code/Export DLL API")]
         public static void ShowWindow()
         {
             GetWindow<DLLDocumentationExporter>("Export DLL API");
