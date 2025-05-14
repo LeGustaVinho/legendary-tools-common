@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
-namespace CommandPattern
+namespace LegendaryTools.Editor
 {
     /// <summary>
     /// Editor script to generate command classes based on the methods of a selected class.
@@ -22,7 +22,7 @@ namespace CommandPattern
         private string searchFilter = "";
         private int selectedClassIndex = 0;
 
-        [MenuItem("Tools/LegendaryTools/Command Generator")]
+        [MenuItem("Tools/LegendaryTools/Automation/Command Generator")]
         public static void ShowWindow()
         {
             GetWindow<CommandGenerator>("Command Generator");
