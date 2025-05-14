@@ -116,7 +116,7 @@ namespace LegendaryTools.Editor
             }
 
             // Collect all components of the specified type from the scene
-            Object[] found = FindObjectsOfType(componentType, true);
+            Object[] found = FindObjectsByType(componentType, FindObjectsInactive.Include, FindObjectsSortMode.None);
             monoBehaviours.AddRange(found.Cast<MonoBehaviour>().ToArray());
 
             if (found.Length == 0)
