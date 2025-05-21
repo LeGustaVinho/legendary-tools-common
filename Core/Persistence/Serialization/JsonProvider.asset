@@ -1,0 +1,18 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 42633b52a98a4baabda2f4e9bbec2d7b, type: 3}
+  m_Name: JsonProvider
+  m_EditorClassIdentifier: 
+  FormatType: 1
+  TypeNameHandling: 4
+  PreserveReferencesHandling: 0
+  JsonConverterProviders: []

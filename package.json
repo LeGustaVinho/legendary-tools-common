@@ -11,7 +11,11 @@
     "url": "git+https://github.com/LeGustaVinho/legendary-tools-common.git"
   },
   "dependencies": {
-    "com.unity.test-framework": "1.3.9"
+    "com.unity.test-framework": "1.3.9",
+    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.unity.addressables": "1.21.21",
+    "com.unity.editorcoroutines" : "1.0.0",
+    "com.unity.ugui": "2.0.0"
   },
   "author": {
     "name": "LeGustaVinho",
