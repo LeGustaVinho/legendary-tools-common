@@ -94,7 +94,7 @@ namespace LegendaryTools.Systems.AssetProvider
         public override ILoadOperation LoadWithCoroutines<T>(Action<T> onComplete)
         {
             ILoadOperation loadOperation = PrepareLoadRoutine<T>(onComplete);
-            MonoBehaviourFacade.Instance.StartRoutine(WaitLoadRoutine());
+            UnityHub.Instance.StartRoutine(WaitLoadRoutine());
             return loadOperation;
         }
 

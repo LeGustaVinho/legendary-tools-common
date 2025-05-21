@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace LegendaryTools
 {
-    public interface IMonoBehaviourFacade
+    public interface IUnityHub
     {
         event Action OnUpdate;
         event Action OnFixedUpdate;

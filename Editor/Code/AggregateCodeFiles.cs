@@ -8,6 +8,7 @@ namespace LegendaryTools.Editor
     public class AggregateCodeFiles : EditorWindow
     {
         private List<string> selectedFolders = new();
+        private const int CHUNKS = 10;
 
         [MenuItem("Tools/LegendaryTools/Code/Aggregate Code from Folders")]
         public static void ShowWindow()
@@ -90,9 +91,9 @@ namespace LegendaryTools.Editor
                 fileBlocks.Add(blockContent);
             }
 
-            // Determine how many chunks to create (max 20)
+            // Determine how many chunks to create (max 10)
             int totalBlocks = fileBlocks.Count;
-            int chunks = Mathf.Min(20, totalBlocks);
+            int chunks = Mathf.Min(CHUNKS, totalBlocks);
 
             // Evenly distribute file blocks among the chunks without splitting any block
             int blocksPerChunk = totalBlocks / chunks;

@@ -5,11 +5,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace LegendaryTools.Threads
+namespace LegendaryTools.Concurrency
 {
     public static class AsyncWait
     {
-        public static Task ForSeconds(MonoBehaviour owner, float seconds,
+        public static Task ForSeconds(float seconds,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             switch (backend)
@@ -22,13 +22,11 @@ namespace LegendaryTools.Threads
                     return Task.Delay(TimeSpan.FromSeconds(seconds), cancellationToken);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForSecondsCoroutine(seconds, cancellationToken), cancellationToken);
+                    return RunCoroutine(WaitForSecondsCoroutine(seconds, cancellationToken), cancellationToken);
             }
         }
 
-        public static Task ForFrames(MonoBehaviour owner, int frames,
+        public static Task ForFrames(int frames,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             switch (backend)
@@ -41,13 +39,11 @@ namespace LegendaryTools.Threads
                     return WaitForFramesNativeAsync(frames, cancellationToken);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForFramesCoroutine(frames), cancellationToken);
+                    return RunCoroutine( WaitForFramesCoroutine(frames), cancellationToken);
             }
         }
 
-        public static Task Until(MonoBehaviour owner, Func<bool> condition,
+        public static Task Until(Func<bool> condition,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             switch (backend)
@@ -60,13 +56,11 @@ namespace LegendaryTools.Threads
                     return WaitUntilNativeAsync(condition, cancellationToken);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitUntilCoroutine(condition), cancellationToken);
+                    return RunCoroutine(WaitUntilCoroutine(condition), cancellationToken);
             }
         }
 
-        public static Task While(MonoBehaviour owner, Func<bool> condition,
+        public static Task While(Func<bool> condition,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             switch (backend)
@@ -79,33 +73,29 @@ namespace LegendaryTools.Threads
                     return WaitWhileNativeAsync(condition, cancellationToken);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitWhileCoroutine(condition), cancellationToken);
+                    return RunCoroutine(WaitWhileCoroutine(condition), cancellationToken);
             }
         }
 
-        public static Task ForEndOfFrame(MonoBehaviour owner,
-            AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
+        public static Task ForEndOfFrame(AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, 
+            CancellationToken cancellationToken = default)
         {
             switch (backend)
             {
 #if ENABLE_UNITASK
                 case AsyncWaitBackend.UniTask:
-                    return UniTaskAsyncWait.ForEndOfFrame(owner, cancellationToken);
+                    return UniTaskAsyncWait.ForEndOfFrame(UnityHub.Instance, cancellationToken);
 #endif
                 case AsyncWaitBackend.NativeAsyncWait:
                     return WaitForEndOfFrameNativeAsync(cancellationToken);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForEndOfFrameCoroutine(), cancellationToken);
+                    return RunCoroutine(WaitForEndOfFrameCoroutine(), cancellationToken);
             }
         }
 
-        public static Task ForFixedUpdate(MonoBehaviour owner,
-            AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
+        public static Task ForFixedUpdate(AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, 
+            CancellationToken cancellationToken = default)
         {
             switch (backend)
             {
@@ -117,13 +107,11 @@ namespace LegendaryTools.Threads
                     return WaitForFixedUpdateNativeAsync(cancellationToken);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForFixedUpdateCoroutine(), cancellationToken);
+                    return RunCoroutine(WaitForFixedUpdateCoroutine(), cancellationToken);
             }
         }
 
-        public static Task ForAsync(MonoBehaviour owner, Func<AsyncWaitTaskContext, Task> asyncAction,
+        public static Task ForAsync(Func<AsyncWaitTaskContext, Task> asyncAction,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
             IProgress<float> progress = null)
         {
@@ -144,13 +132,11 @@ namespace LegendaryTools.Threads
                     return asyncAction(context);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForAsyncCoroutine(asyncAction, context), cancellationToken);
+                    return RunCoroutine(WaitForAsyncCoroutine(asyncAction, context), cancellationToken);
             }
         }
 
-        public static Task<T> ForAsync<T>(MonoBehaviour owner, Func<AsyncWaitTaskContext, Task<T>> asyncAction,
+        public static Task<T> ForAsync<T>(Func<AsyncWaitTaskContext, Task<T>> asyncAction,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
             IProgress<float> progress = null)
         {
@@ -171,14 +157,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutineWithResult<T>(owner, WaitForAsyncCoroutine(asyncAction, context),
+                    return RunCoroutineWithResult<T>(WaitForAsyncCoroutine(asyncAction, context),
                         cancellationToken);
             }
         }
 
-        public static Task ForAsync<T1>(MonoBehaviour owner, Func<AsyncWaitTaskContext, T1, Task> asyncAction,
+        public static Task ForAsync<T1>(Func<AsyncWaitTaskContext, T1, Task> asyncAction,
             T1 param1,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
             IProgress<float> progress = null)
@@ -200,13 +184,11 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForAsyncCoroutine(asyncAction, context, param1), cancellationToken);
+                    return RunCoroutine(WaitForAsyncCoroutine(asyncAction, context, param1), cancellationToken);
             }
         }
 
-        public static Task ForAsync<T1, T2>(MonoBehaviour owner, Func<AsyncWaitTaskContext, T1, T2, Task> asyncAction,
+        public static Task ForAsync<T1, T2>(Func<AsyncWaitTaskContext, T1, T2, Task> asyncAction,
             T1 param1, T2 param2, AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine,
             CancellationToken cancellationToken = default, IProgress<float> progress = null)
         {
@@ -227,15 +209,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1, param2);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForAsyncCoroutine(asyncAction, context, param1, param2),
+                    return RunCoroutine(WaitForAsyncCoroutine(asyncAction, context, param1, param2),
                         cancellationToken);
             }
         }
 
-        public static Task ForAsync<T1, T2, T3>(MonoBehaviour owner,
-            Func<AsyncWaitTaskContext, T1, T2, T3, Task> asyncAction, T1 param1, T2 param2, T3 param3,
+        public static Task ForAsync<T1, T2, T3>(Func<AsyncWaitTaskContext, T1, T2, T3, Task> asyncAction, T1 param1, T2 param2, T3 param3,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
             IProgress<float> progress = null)
         {
@@ -256,15 +235,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1, param2, param3);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3),
+                    return RunCoroutine(WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3),
                         cancellationToken);
             }
         }
 
-        public static Task ForAsync<T1, T2, T3, T4>(MonoBehaviour owner,
-            Func<AsyncWaitTaskContext, T1, T2, T3, T4, Task> asyncAction, T1 param1, T2 param2, T3 param3, T4 param4,
+        public static Task ForAsync<T1, T2, T3, T4>(Func<AsyncWaitTaskContext, T1, T2, T3, T4, Task> asyncAction, T1 param1, T2 param2, T3 param3, T4 param4,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
             IProgress<float> progress = null)
         {
@@ -285,16 +261,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1, param2, param3, param4);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner,
-                        WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4),
+                    return RunCoroutine(WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4),
                         cancellationToken);
             }
         }
 
-        public static Task ForAsync<T1, T2, T3, T4, T5>(MonoBehaviour owner,
-            Func<AsyncWaitTaskContext, T1, T2, T3, T4, T5, Task> asyncAction, T1 param1, T2 param2, T3 param3,
+        public static Task ForAsync<T1, T2, T3, T4, T5>(Func<AsyncWaitTaskContext, T1, T2, T3, T4, T5, Task> asyncAction, T1 param1, T2 param2, T3 param3,
             T4 param4,
             T5 param5, AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine,
             CancellationToken cancellationToken = default, IProgress<float> progress = null)
@@ -316,16 +288,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1, param2, param3, param4, param5);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner,
-                        WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4, param5),
+                    return RunCoroutine(WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4, param5),
                         cancellationToken);
             }
         }
 
-        public static Task ForAsync<T1, T2, T3, T4, T5, T6>(MonoBehaviour owner,
-            Func<AsyncWaitTaskContext, T1, T2, T3, T4, T5, T6, Task> asyncAction, T1 param1, T2 param2, T3 param3,
+        public static Task ForAsync<T1, T2, T3, T4, T5, T6>(Func<AsyncWaitTaskContext, T1, T2, T3, T4, T5, T6, Task> asyncAction, T1 param1, T2 param2, T3 param3,
             T4 param4, T5 param5, T6 param6, AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine,
             CancellationToken cancellationToken = default, IProgress<float> progress = null)
         {
@@ -347,15 +315,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1, param2, param3, param4, param5, param6);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner,
-                        WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4, param5, param6),
+                    return RunCoroutine(WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4, param5, param6),
                         cancellationToken);
             }
         }
 
-        public static Task<T> ForAsync<T, T1>(MonoBehaviour owner, Func<AsyncWaitTaskContext, T1, Task<T>> asyncAction,
+        public static Task<T> ForAsync<T, T1>(Func<AsyncWaitTaskContext, T1, Task<T>> asyncAction,
             T1 param1, AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine,
             CancellationToken cancellationToken = default, IProgress<float> progress = null)
         {
@@ -376,15 +341,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutineWithResult<T>(owner, WaitForAsyncCoroutine(asyncAction, context, param1),
+                    return RunCoroutineWithResult<T>(WaitForAsyncCoroutine(asyncAction, context, param1),
                         cancellationToken);
             }
         }
 
-        public static Task<T> ForAsync<T, T1, T2>(MonoBehaviour owner,
-            Func<AsyncWaitTaskContext, T1, T2, Task<T>> asyncAction, T1 param1, T2 param2,
+        public static Task<T> ForAsync<T, T1, T2>(Func<AsyncWaitTaskContext, T1, T2, Task<T>> asyncAction, T1 param1, T2 param2,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
             IProgress<float> progress = null)
         {
@@ -405,15 +367,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1, param2);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutineWithResult<T>(owner, WaitForAsyncCoroutine(asyncAction, context, param1, param2),
+                    return RunCoroutineWithResult<T>(WaitForAsyncCoroutine(asyncAction, context, param1, param2),
                         cancellationToken);
             }
         }
 
-        public static Task<T> ForAsync<T, T1, T2, T3>(MonoBehaviour owner,
-            Func<AsyncWaitTaskContext, T1, T2, T3, Task<T>> asyncAction, T1 param1, T2 param2, T3 param3,
+        public static Task<T> ForAsync<T, T1, T2, T3>(Func<AsyncWaitTaskContext, T1, T2, T3, Task<T>> asyncAction, T1 param1, T2 param2, T3 param3,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
             IProgress<float> progress = null)
         {
@@ -434,16 +393,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1, param2, param3);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutineWithResult<T>(owner,
-                        WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3),
+                    return RunCoroutineWithResult<T>(WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3),
                         cancellationToken);
             }
         }
 
-        public static Task<T> ForAsync<T, T1, T2, T3, T4>(MonoBehaviour owner,
-            Func<AsyncWaitTaskContext, T1, T2, T3, T4, Task<T>> asyncAction, T1 param1, T2 param2, T3 param3, T4 param4,
+        public static Task<T> ForAsync<T, T1, T2, T3, T4>(Func<AsyncWaitTaskContext, T1, T2, T3, T4, Task<T>> asyncAction, T1 param1, T2 param2, T3 param3, T4 param4,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
             IProgress<float> progress = null)
         {
@@ -464,16 +419,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1, param2, param3, param4);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutineWithResult<T>(owner,
-                        WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4),
+                    return RunCoroutineWithResult<T>(WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4),
                         cancellationToken);
             }
         }
 
-        public static Task<T> ForAsync<T, T1, T2, T3, T4, T5>(MonoBehaviour owner,
-            Func<AsyncWaitTaskContext, T1, T2, T3, T4, T5, Task<T>> asyncAction, T1 param1, T2 param2, T3 param3,
+        public static Task<T> ForAsync<T, T1, T2, T3, T4, T5>(Func<AsyncWaitTaskContext, T1, T2, T3, T4, T5, Task<T>> asyncAction, T1 param1, T2 param2, T3 param3,
             T4 param4, T5 param5, AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine,
             CancellationToken cancellationToken = default, IProgress<float> progress = null)
         {
@@ -494,16 +445,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1, param2, param3, param4, param5);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutineWithResult<T>(owner,
-                        WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4, param5),
+                    return RunCoroutineWithResult<T>(WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4, param5),
                         cancellationToken);
             }
         }
 
-        public static Task<T> ForAsync<T, T1, T2, T3, T4, T5, T6>(MonoBehaviour owner,
-            Func<AsyncWaitTaskContext, T1, T2, T3, T4, T5, T6, Task<T>> asyncAction, T1 param1, T2 param2, T3 param3,
+        public static Task<T> ForAsync<T, T1, T2, T3, T4, T5, T6>(Func<AsyncWaitTaskContext, T1, T2, T3, T4, T5, T6, Task<T>> asyncAction, T1 param1, T2 param2, T3 param3,
             T4 param4, T5 param5, T6 param6, AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine,
             CancellationToken cancellationToken = default, IProgress<float> progress = null)
         {
@@ -525,15 +472,12 @@ namespace LegendaryTools.Threads
                     return asyncAction(context, param1, param2, param3, param4, param5, param6);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutineWithResult<T>(owner,
-                        WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4, param5, param6),
+                    return RunCoroutineWithResult<T>(WaitForAsyncCoroutine(asyncAction, context, param1, param2, param3, param4, param5, param6),
                         cancellationToken);
             }
         }
 
-        public static async Task Block(MonoBehaviour owner, IEnumerable<Task> tasks,
+        public static async Task Block(IEnumerable<Task> tasks,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             switch (backend)
@@ -552,12 +496,9 @@ namespace LegendaryTools.Threads
                     break;
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
                     foreach (Task task in tasks)
                     {
-                        await RunCoroutine(owner,
-                            WaitForAsyncCoroutine(ct => task,
+                        await RunCoroutine(WaitForAsyncCoroutine(ct => task,
                                 new AsyncWaitTaskContext { CancellationToken = cancellationToken, Backend = backend }),
                             cancellationToken);
                     }
@@ -566,7 +507,7 @@ namespace LegendaryTools.Threads
             }
         }
 
-        public static async Task<T[]> Block<T>(MonoBehaviour owner, IEnumerable<Task<T>> tasks,
+        public static async Task<T[]> Block<T>(IEnumerable<Task<T>> tasks,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             List<T> results = new();
@@ -586,12 +527,9 @@ namespace LegendaryTools.Threads
                     break;
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
                     foreach (Task<T> task in tasks)
                     {
-                        T result = await RunCoroutineWithResult<T>(owner,
-                            WaitForAsyncCoroutine(ct => task,
+                        T result = await RunCoroutineWithResult<T>(WaitForAsyncCoroutine(ct => task,
                                 new AsyncWaitTaskContext { CancellationToken = cancellationToken, Backend = backend }),
                             cancellationToken);
                         results.Add(result);
@@ -603,7 +541,7 @@ namespace LegendaryTools.Threads
             return results.ToArray();
         }
 
-        public static Task Sync(MonoBehaviour owner, IEnumerable<Task> tasks,
+        public static Task Sync(IEnumerable<Task> tasks,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             switch (backend)
@@ -616,13 +554,11 @@ namespace LegendaryTools.Threads
                     return Task.WhenAll(tasks);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForTasksCoroutine(tasks, cancellationToken), cancellationToken);
+                    return RunCoroutine(WaitForTasksCoroutine(tasks, cancellationToken), cancellationToken);
             }
         }
 
-        public static async Task<T[]> Sync<T>(MonoBehaviour owner, IEnumerable<Task<T>> tasks,
+        public static async Task<T[]> Sync<T>(IEnumerable<Task<T>> tasks,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             switch (backend)
@@ -635,11 +571,9 @@ namespace LegendaryTools.Threads
                     return await Task.WhenAll(tasks);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
                     List<Task<T>> taskList = tasks.ToList();
                     TaskCompletionSource<T[]> tcs = new();
-                    owner.StartCoroutine(WrapCoroutineWithResult(WaitForTasksCoroutine(taskList.Select(t => (Task)t),
+                    UnityHub.Instance.StartCoroutine(WrapCoroutineWithResult(WaitForTasksCoroutine(taskList.Select(t => (Task)t),
                         cancellationToken, async () =>
                         {
                             T[] results = new T[taskList.Count];
@@ -654,7 +588,7 @@ namespace LegendaryTools.Threads
             }
         }
 
-        public static async Task Race(MonoBehaviour owner, IEnumerable<Task> tasks,
+        public static async Task Race(IEnumerable<Task> tasks,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -673,16 +607,14 @@ namespace LegendaryTools.Threads
                     break;
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    await RunCoroutine(owner, WaitForFirstTaskCoroutine(taskList, cts, cancellationToken),
+                    await RunCoroutine(WaitForFirstTaskCoroutine(taskList, cts, cancellationToken),
                         cancellationToken);
                     cts.Cancel();
                     break;
             }
         }
 
-        public static async Task<T> Race<T>(MonoBehaviour owner, IEnumerable<Task<T>> tasks,
+        public static async Task<T> Race<T>(IEnumerable<Task<T>> tasks,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -701,10 +633,8 @@ namespace LegendaryTools.Threads
                     return await completedTask;
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
                     TaskCompletionSource<T> tcs = new();
-                    owner.StartCoroutine(WrapCoroutineWithResult(WaitForFirstTaskCoroutine(
+                    UnityHub.Instance.StartCoroutine(WrapCoroutineWithResult(WaitForFirstTaskCoroutine(
                         taskList.Select(t => (Task)t), cts, cancellationToken, async () =>
                         {
                             Task<T> completedTask = await Task.WhenAny(taskList);
@@ -716,7 +646,7 @@ namespace LegendaryTools.Threads
             }
         }
 
-        public static Task Rush(MonoBehaviour owner, IEnumerable<Task> tasks,
+        public static Task Rush(IEnumerable<Task> tasks,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             List<Task> taskList = tasks.ToList();
@@ -730,14 +660,12 @@ namespace LegendaryTools.Threads
                     return Task.WhenAny(taskList);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForFirstTaskCoroutine(taskList, null, cancellationToken),
+                    return RunCoroutine(WaitForFirstTaskCoroutine(taskList, null, cancellationToken),
                         cancellationToken);
             }
         }
 
-        public static async Task<T> Rush<T>(MonoBehaviour owner, IEnumerable<Task<T>> tasks,
+        public static async Task<T> Rush<T>(IEnumerable<Task<T>> tasks,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             List<Task<T>> taskList = tasks.ToList();
@@ -752,10 +680,8 @@ namespace LegendaryTools.Threads
                     return await completedTask;
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
                     TaskCompletionSource<T> tcs = new();
-                    owner.StartCoroutine(WrapCoroutineWithResult(WaitForFirstTaskCoroutine(
+                    UnityHub.Instance.StartCoroutine(WrapCoroutineWithResult(WaitForFirstTaskCoroutine(
                         taskList.Select(t => (Task)t), null, cancellationToken, async () =>
                         {
                             Task<T> completedTask = await Task.WhenAny(taskList);
@@ -765,7 +691,7 @@ namespace LegendaryTools.Threads
             }
         }
 
-        public static Task Branch(MonoBehaviour owner, IEnumerable<Task> tasks,
+        public static Task Branch(IEnumerable<Task> tasks,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default)
         {
             List<Task> taskList = tasks.ToList();
@@ -784,13 +710,11 @@ namespace LegendaryTools.Threads
                     return Task.CompletedTask;
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, StartTasksCoroutine(taskList, cancellationToken), cancellationToken);
+                    return RunCoroutine(StartTasksCoroutine(taskList, cancellationToken), cancellationToken);
             }
         }
 
-        public static Task ForAsyncOperation(MonoBehaviour owner, AsyncOperation asyncOperation,
+        public static Task ForAsyncOperation(AsyncOperation asyncOperation,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
             IProgress<float> progress = null)
         {
@@ -814,23 +738,16 @@ namespace LegendaryTools.Threads
                     return WaitForAsyncOperation(context, asyncOperation);
                 case AsyncWaitBackend.UnityCoroutine:
                 default:
-                    if (owner == null)
-                        throw new ArgumentNullException(nameof(owner));
-                    return RunCoroutine(owner, WaitForAsyncOperationCoroutine(context, asyncOperation),
+                    return RunCoroutine(WaitForAsyncOperationCoroutine(context, asyncOperation),
                         cancellationToken);
             }
         }
 
-        private static async Task RunCoroutine(MonoBehaviour owner, System.Collections.IEnumerator coroutine,
+        private static async Task RunCoroutine(System.Collections.IEnumerator coroutine,
             CancellationToken cancellationToken)
         {
-            if (owner == null)
-                throw new ArgumentNullException(nameof(owner));
-            if (!owner.gameObject.activeInHierarchy)
-                throw new InvalidOperationException("MonoBehaviour owner is not active.");
-
             TaskCompletionSource<object> tcs = new();
-            Coroutine startedCoroutine = owner.StartCoroutine(WrapCoroutine(coroutine, tcs, cancellationToken));
+            Coroutine startedCoroutine = UnityHub.Instance.StartCoroutine(WrapCoroutine(coroutine, tcs, cancellationToken));
 
             try
             {
@@ -838,22 +755,16 @@ namespace LegendaryTools.Threads
             }
             catch (OperationCanceledException)
             {
-                owner.StopCoroutine(startedCoroutine);
+                UnityHub.Instance.StopCoroutine(startedCoroutine);
                 throw;
             }
         }
 
-        private static async Task<T> RunCoroutineWithResult<T>(MonoBehaviour owner,
-            System.Collections.IEnumerator coroutine, CancellationToken cancellationToken)
+        private static async Task<T> RunCoroutineWithResult<T>(System.Collections.IEnumerator coroutine, CancellationToken cancellationToken)
         {
-            if (owner == null)
-                throw new ArgumentNullException(nameof(owner));
-            if (!owner.gameObject.activeInHierarchy)
-                throw new InvalidOperationException("MonoBehaviour owner is not active.");
-
             TaskCompletionSource<T> tcs = new();
             Coroutine startedCoroutine =
-                owner.StartCoroutine(WrapCoroutineWithResult(coroutine, tcs, cancellationToken));
+                UnityHub.Instance.StartCoroutine(WrapCoroutineWithResult(coroutine, tcs, cancellationToken));
 
             try
             {
@@ -861,7 +772,7 @@ namespace LegendaryTools.Threads
             }
             catch (OperationCanceledException)
             {
-                owner.StopCoroutine(startedCoroutine);
+                UnityHub.Instance.StopCoroutine(startedCoroutine);
                 throw;
             }
         }

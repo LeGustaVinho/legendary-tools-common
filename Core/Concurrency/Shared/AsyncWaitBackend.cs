@@ -1,4 +1,4 @@
-﻿namespace LegendaryTools.Threads
+﻿namespace LegendaryTools.Concurrency
 {
     public enum AsyncWaitBackend
     {

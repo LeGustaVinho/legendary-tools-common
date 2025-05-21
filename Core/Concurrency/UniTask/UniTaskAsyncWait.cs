@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using UnityEngine;
 using Cysharp.Threading.Tasks;
 
-namespace LegendaryTools.Threads
+namespace LegendaryTools.Concurrency
 {
     public static class UniTaskAsyncWait
     {

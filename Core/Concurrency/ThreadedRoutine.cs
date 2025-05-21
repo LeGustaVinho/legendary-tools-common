@@ -2,12 +2,12 @@ using UnityEngine;
 using System.Collections;
 using System.Threading;
 
-namespace LegendaryTools.Threads
+namespace LegendaryTools.Concurrency
 {
     /// <summary>
     /// Running state of a task.
     /// </summary>
-    public enum AsyncRoutineState
+    public enum ThreadedRoutineState
     {
         /// <summary>
         /// Task has been created, but has not begun.
@@ -34,7 +34,7 @@ namespace LegendaryTools.Threads
     /// <summary>
     /// Represents an async task.
     /// </summary>
-    public class AsyncRoutine : IEnumerator
+    public class ThreadedRoutine : IEnumerator
     {
         // inner running state used by state machine;
         private enum RunningState
@@ -78,27 +78,27 @@ namespace LegendaryTools.Threads
         /// <summary>
         /// Gets state of the task.
         /// </summary>
-        public AsyncRoutineState State
+        public ThreadedRoutineState State
         {
             get
             {
                 switch (runningState)
                 {
                     case RunningState.CancellationRequested:
-                        return AsyncRoutineState.Cancelled;
+                        return ThreadedRoutineState.Cancelled;
                     case RunningState.Done:
-                        return AsyncRoutineState.Done;
+                        return ThreadedRoutineState.Done;
                     case RunningState.Error:
-                        return AsyncRoutineState.Error;
+                        return ThreadedRoutineState.Error;
                     case RunningState.Init:
-                        return AsyncRoutineState.Init;
+                        return ThreadedRoutineState.Init;
                     default:
-                        return AsyncRoutineState.Running;
+                        return ThreadedRoutineState.Running;
                 }
             }
         }
 
-        public AsyncRoutine(IEnumerator routine)
+        public ThreadedRoutine(IEnumerator routine)
         {
             userRoutine = routine;
             // runs into background first;
@@ -110,7 +110,7 @@ namespace LegendaryTools.Threads
         /// </summary>
         public void Cancel()
         {
-            if (State == AsyncRoutineState.Running)
+            if (State == ThreadedRoutineState.Running)
             {
                 GotoState(RunningState.CancellationRequested);
             }
@@ -121,7 +121,7 @@ namespace LegendaryTools.Threads
         /// </summary>
         public IEnumerator Wait()
         {
-            while (State == AsyncRoutineState.Running)
+            while (State == ThreadedRoutineState.Running)
                 yield return null;
         }
 
@@ -296,9 +296,9 @@ namespace LegendaryTools.Threads
         /// <param name="task">Gets a task object with more control on the background thread.</param>
         /// <returns></returns>
         public static Coroutine StartCoroutineAsync(this MonoBehaviour behaviour, IEnumerator routine, 
-            out AsyncRoutine task)
+            out ThreadedRoutine task)
         {
-            task = new AsyncRoutine(routine);
+            task = new ThreadedRoutine(routine);
             return behaviour.StartCoroutine(task);
         }
 
@@ -307,7 +307,7 @@ namespace LegendaryTools.Threads
         /// </summary>
         public static Coroutine StartCoroutineAsync(this MonoBehaviour behaviour, IEnumerator routine)
         {
-            return behaviour.StartCoroutine(new AsyncRoutine(routine));
+            return behaviour.StartCoroutine(new ThreadedRoutine(routine));
         }
     }
 }

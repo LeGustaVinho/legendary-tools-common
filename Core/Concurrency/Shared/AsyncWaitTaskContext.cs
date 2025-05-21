@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Threading;
 
-namespace LegendaryTools.Threads
+namespace LegendaryTools.Concurrency
 {
     public struct AsyncWaitTaskContext
     {

@@ -8,7 +8,7 @@ namespace LegendaryTools
         {
             if (action != null)
             {
-                MonoBehaviourFacade.Instance.Execute(action);
+                UnityHub.Instance.Execute(action);
             }
         }
 
@@ -16,7 +16,7 @@ namespace LegendaryTools
         {
             if (action != null)
             {
-                MonoBehaviourFacade.Instance.Execute(() =>
+                UnityHub.Instance.Execute(() =>
                 {
                     action(arg);
                 });
@@ -27,7 +27,7 @@ namespace LegendaryTools
         {
             if (action != null)
             {
-                MonoBehaviourFacade.Instance.Execute(() =>
+                UnityHub.Instance.Execute(() =>
                 {
                     action(arg1, arg2);
                 });
@@ -38,7 +38,7 @@ namespace LegendaryTools
         {
             if (action != null)
             {
-                MonoBehaviourFacade.Instance.Execute(() =>
+                UnityHub.Instance.Execute(() =>
                 {
                     action(arg1, arg2, arg3);
                 });
@@ -49,7 +49,7 @@ namespace LegendaryTools
         {
             if (action != null)
             {
-                MonoBehaviourFacade.Instance.Execute(() =>
+                UnityHub.Instance.Execute(() =>
                 {
                     action(arg1, arg2, arg3, arg4);
                 });
@@ -60,7 +60,7 @@ namespace LegendaryTools
         {
             if (action != null)
             {
-                MonoBehaviourFacade.Instance.Execute(() =>
+                UnityHub.Instance.Execute(() =>
                 {
                     action(arg1, arg2, arg3, arg4, arg5);
                 });

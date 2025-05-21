@@ -67,7 +67,7 @@ namespace LegendaryTools.Chronos
         public SerializedDateTime NowUtc => LastRecordedDateTimeUtc.DateTime.AddSeconds(Time.unscaledTimeAsDouble - lastUnscaledTimeAsDouble);
 
         private readonly ChronosConfig config;
-        private readonly IMonoBehaviourFacade monoBehaviourFacade;
+        private readonly IUnityHub unityHub;
         private static readonly string LastRecordedDateTimeKey = "LastRecordedDateTimeKey";
         private static readonly string FirstStartKey = "FirstStart";
         
@@ -89,13 +89,13 @@ namespace LegendaryTools.Chronos
             set => PlayerPrefs.SetInt(FirstStartKey, System.Convert.ToInt32(value));
         }
 
-        public Chronos(ChronosConfig config, IMonoBehaviourFacade monoBehaviourFacade)
+        public Chronos(ChronosConfig config, IUnityHub unityHub)
         {
             this.config = config;
-            this.monoBehaviourFacade = monoBehaviourFacade;
+            this.unityHub = unityHub;
             
-            monoBehaviourFacade.OnApplicationFocused += OnApplicationFocus;
-            monoBehaviourFacade.OnApplicationPaused += OnApplicationPause;
+            unityHub.OnApplicationFocused += OnApplicationFocus;
+            unityHub.OnApplicationPaused += OnApplicationPause;
         }
 
         public async Task Initialize()
@@ -207,8 +207,8 @@ namespace LegendaryTools.Chronos
         
         public void Dispose()
         {
-            monoBehaviourFacade.OnApplicationFocused -= OnApplicationFocus;
-            monoBehaviourFacade.OnApplicationPaused -= OnApplicationPause;
+            unityHub.OnApplicationFocused -= OnApplicationFocus;
+            unityHub.OnApplicationPaused -= OnApplicationPause;
         }
     }
 }

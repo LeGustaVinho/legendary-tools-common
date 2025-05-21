@@ -355,7 +355,7 @@ namespace LegendaryTools.Actor
             {
                 PreloadQueue.Add(pair.Value);
             }
-            MonoBehaviourFacade.Instance.StartCoroutine(PreloadingAssets(onInitialize));
+            UnityHub.Instance.StartCoroutine(PreloadingAssets(onInitialize));
         }
 
         public static T AddOrGetActorComponent<T>(GameObject gameObject)

@@ -6,7 +6,7 @@ using UnityEngine;
 namespace LegendaryTools
 {
     [SingletonBehaviour(true, true, true)]
-    public class MonoBehaviourFacade : SingletonBehaviour<MonoBehaviourFacade>, IMonoBehaviourFacade
+    public class UnityHub : SingletonBehaviour<UnityHub>, IUnityHub
     {
         public event Action OnUpdate;
         public event Action OnFixedUpdate;
