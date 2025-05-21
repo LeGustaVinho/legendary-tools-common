@@ -1,5 +1,5 @@
 {
-    "name": "LegendaryTools.Common",
+    "name": "LegendaryTools.Common.Thread.Shared",
     "rootNamespace": "",
     "references": [],
     "includePlatforms": [],
@@ -9,6 +9,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "Select...",
+            "expression": "",
+            "define": ""
+        }
+    ],
     "noEngineReferences": false
 }
