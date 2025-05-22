@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using LegendaryTools.GraphV2;
 using NUnit.Framework;
 
-namespace LegendaryTools.GraphV2.Tests
+namespace LegendaryTools.Tests.Graphs
 {
     [TestFixture]
     public class NodeUnitTests

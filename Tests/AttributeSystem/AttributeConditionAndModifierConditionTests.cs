@@ -4,7 +4,7 @@ using LegendaryTools.AttributeSystem;
 using LegendaryTools.TagSystem;
 using System.Collections.Generic;
 
-namespace Tests
+namespace LegendaryTools.Tests.AttributeSystem
 {
     public class AttributeConditionAndModifierConditionTests
     {

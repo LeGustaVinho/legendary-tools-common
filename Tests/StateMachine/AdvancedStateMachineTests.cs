@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using LegendaryTools.GraphV2;
+using LegendaryTools.StateMachineV2;
 using NUnit.Framework;
 
-namespace LegendaryTools.StateMachineV2.Tests
+namespace LegendaryTools.Tests.StateMachine
 {
     public class AdvancedStateMachineTests
     {

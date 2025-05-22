@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using LegendaryTools.StateMachineV2;
 
-namespace LegendaryTools.StateMachineV2.Tests
+namespace LegendaryTools.Tests.StateMachine
 {
     // Define a test enum with multiple states
     public enum TestStates

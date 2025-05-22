@@ -208,7 +208,8 @@ namespace LegendaryTools.Editor
         /// </summary>
         private static void OnPlayModeStateChanged(PlayModeStateChange state)
         {
-            if (state == PlayModeStateChange.ExitingPlayMode) ShowStatePersisterWindow();
+            if (state == PlayModeStateChange.ExitingPlayMode && File.Exists(saveFilePath)) 
+                ShowStatePersisterWindow();
         }
 
         /// <summary>

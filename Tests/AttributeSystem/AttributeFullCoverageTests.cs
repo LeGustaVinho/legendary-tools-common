@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using LegendaryTools.AttributeSystem;
 using LegendaryTools.TagSystem;
 
-namespace Tests
+namespace LegendaryTools.Tests.AttributeSystem
 {
     public class AttributeFullCoverageTests
     {

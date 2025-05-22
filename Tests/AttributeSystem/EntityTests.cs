@@ -7,7 +7,7 @@ using UnityEngine.TestTools; // for LogAssert
 using LegendaryTools.AttributeSystem;
 using LegendaryTools.TagSystem;
 
-namespace Tests
+namespace LegendaryTools.Tests.AttributeSystem
 {
     public class EntityTests
     {
@@ -197,4 +197,3 @@ namespace Tests
         }
     }
 }
-

@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using LegendaryTools.Maestro;
 using NUnit.Framework;
 
-namespace MaestroTests
+namespace LegendaryTools.Tests.Maestro
 {
     // Fake implementation of IMaestroTask for testing purposes
     public class FakeMaestroTask : IMaestroTask
@@ -56,7 +56,7 @@ namespace MaestroTests
         public async Task AddSingleTask_ShouldBeAddedSuccessfully()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask task = new FakeMaestroTask();
             maestro.Add(task);
 
@@ -72,7 +72,7 @@ namespace MaestroTests
         public async Task AddMultipleTasks_ShouldBeAddedAndExecutedSuccessfully()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask task1 = new FakeMaestroTask();
             FakeMaestroTask task2 = new FakeMaestroTask();
             FakeMaestroTask task3 = new FakeMaestroTask();
@@ -90,7 +90,7 @@ namespace MaestroTests
         public async Task AddTaskWithDependencies_ShouldRespectDependencies()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask dependency = new FakeMaestroTask();
             FakeMaestroTask mainTask = new FakeMaestroTask();
             maestro.Add(mainTask, dependency);
@@ -115,12 +115,12 @@ namespace MaestroTests
             Assert.IsTrue(mainTaskExecuted, "Main task should have been executed successfully after dependencies.");
         }
 
-        // Test 4: Starting Maestro with all tasks succeeding
+        // Test 4: Starting LegendaryTools.Maestro.Maestro with all tasks succeeding
         [Test]
         public async Task StartMaestro_AllTasksSucceed_ShouldInvokeOnFinishedWithTrue()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask task1 = new FakeMaestroTask();
             FakeMaestroTask task2 = new FakeMaestroTask();
             maestro.Add(task1, task2);
@@ -147,7 +147,7 @@ namespace MaestroTests
         public async Task OnTaskFinished_ShouldBeInvokedForEachTask()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask task1 = new FakeMaestroTask();
             FakeMaestroTask task2 = new FakeMaestroTask();
             maestro.Add(task1, task2);
@@ -175,7 +175,7 @@ namespace MaestroTests
         public async Task OnFinished_ShouldBeCalledAfterAllTasksComplete()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask task1 = new FakeMaestroTask(executionTime: 500);
             FakeMaestroTask task2 = new FakeMaestroTask(executionTime: 500);
             maestro.Add(task1, task2);
@@ -196,12 +196,12 @@ namespace MaestroTests
             Assert.AreEqual("OnFinished", eventOrder[2], "Last event should be OnFinished.");
         }
 
-        // Test 9: Disposing Maestro should clear all tasks
+        // Test 9: Disposing LegendaryTools.Maestro.Maestro should clear all tasks
         [Test]
         public void DisposeMaestro_ShouldClearAllTasks()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask task1 = new FakeMaestroTask();
             maestro.Add(task1);
 
@@ -210,13 +210,13 @@ namespace MaestroTests
 
             // Use reflection to access private maestroNodeMapping
             FieldInfo field =
-                typeof(Maestro).GetField("maestroTaskDependencyMap", BindingFlags.NonPublic | BindingFlags.Instance);
+                typeof(LegendaryTools.Maestro.Maestro).GetField("maestroTaskDependencyMap", BindingFlags.NonPublic | BindingFlags.Instance);
             Dictionary<IMaestroTask, List<IMaestroTask>> mapping =
                 field.GetValue(maestro) as Dictionary<IMaestroTask, List<IMaestroTask>>;
 
             // Assert
-            Assert.IsNotNull(mapping, "Maestro should have a mapping dictionary.");
-            Assert.AreEqual(0, mapping.Count, "Maestro's task mapping should be cleared after disposal.");
+            Assert.IsNotNull(mapping, "LegendaryTools.Maestro.Maestro should have a mapping dictionary.");
+            Assert.AreEqual(0, mapping.Count, "LegendaryTools.Maestro.Maestro's task mapping should be cleared after disposal.");
         }
 
         // Test 11: Multiple tasks sharing the same single dependency
@@ -224,13 +224,13 @@ namespace MaestroTests
         public async Task MultipleTasksWithSharedSingleDependency_ShouldExecuteDependencyOnce()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask sharedDependency = new FakeMaestroTask();
             FakeMaestroTask task1 = new FakeMaestroTask();
             FakeMaestroTask task2 = new FakeMaestroTask();
             FakeMaestroTask task3 = new FakeMaestroTask();
 
-            // Register tasks with Maestro
+            // Register tasks with LegendaryTools.Maestro.Maestro
             maestro.Add(sharedDependency);
             maestro.Add(task1, sharedDependency);
             maestro.Add(task2, sharedDependency);
@@ -251,7 +251,7 @@ namespace MaestroTests
         public async Task MultipleTasksWithSharedMultipleDependencies_ShouldExecuteEachDependencyOnce()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask sharedDependency1 = new FakeMaestroTask();
             FakeMaestroTask sharedDependency2 = new FakeMaestroTask();
             FakeMaestroTask task1 = new FakeMaestroTask();
@@ -277,7 +277,7 @@ namespace MaestroTests
         public async Task ComplexDependencyGraphWithSharedDependencies_ShouldExecuteInCorrectOrder()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask dependencyA = new FakeMaestroTask();
             FakeMaestroTask dependencyB = new FakeMaestroTask();
             FakeMaestroTask dependencyC = new FakeMaestroTask();
@@ -332,7 +332,7 @@ namespace MaestroTests
         public async Task MultipleTasksWithOverlappingDependencies_ShouldHandleProperly()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask dependency1 = new FakeMaestroTask();
             FakeMaestroTask dependency2 = new FakeMaestroTask();
             FakeMaestroTask dependency3 = new FakeMaestroTask();
@@ -364,7 +364,7 @@ namespace MaestroTests
         public async Task SharedDependencyWithNestedDependencies_ShouldExecuteAllInCorrectOrder()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask rootDependency = new FakeMaestroTask();
             FakeMaestroTask intermediateDependency = new FakeMaestroTask();
             FakeMaestroTask sharedDependency = new FakeMaestroTask();
@@ -410,7 +410,7 @@ namespace MaestroTests
         public async Task SharedDependencyWithAdditionalDependencies_ShouldExecuteAllDependenciesProperly()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask sharedDependency = new FakeMaestroTask();
             FakeMaestroTask additionalDependency = new FakeMaestroTask();
             FakeMaestroTask task1 = new FakeMaestroTask();
@@ -449,7 +449,7 @@ namespace MaestroTests
         public async Task SharedDependenciesNotReExecuted_ShouldExecuteOnlyOnce()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTask sharedDependency = new FakeMaestroTask();
             FakeMaestroTask task1 = new FakeMaestroTask();
             FakeMaestroTask task2 = new FakeMaestroTask();
@@ -476,7 +476,7 @@ namespace MaestroTests
         public void IndirectCyclicDependency_ShouldThrowException()
         {
             // Arrange
-            Maestro maestro = new Maestro();
+            LegendaryTools.Maestro.Maestro maestro = new LegendaryTools.Maestro.Maestro();
             FakeMaestroTaskA task1 = new FakeMaestroTaskA();
             FakeMaestroTaskB task2 = new FakeMaestroTaskB();
             FakeMaestroTaskC task3 = new FakeMaestroTaskC();

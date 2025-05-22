@@ -743,7 +743,7 @@ namespace LegendaryTools.Concurrency
             }
         }
 
-        private static async Task RunCoroutine(System.Collections.IEnumerator coroutine,
+        public static async Task RunCoroutine(System.Collections.IEnumerator coroutine,
             CancellationToken cancellationToken)
         {
             TaskCompletionSource<object> tcs = new();
@@ -796,7 +796,7 @@ namespace LegendaryTools.Concurrency
 
             if (!tcs.Task.IsCompleted) tcs.SetResult(null);
         }
-
+        
         private static System.Collections.IEnumerator WrapCoroutineWithResult<T>(
             System.Collections.IEnumerator coroutine,
             TaskCompletionSource<T> tcs,
@@ -862,6 +862,12 @@ namespace LegendaryTools.Concurrency
 
         private static System.Collections.IEnumerator WaitForEndOfFrameCoroutine()
         {
+            //WaitForEndOfFrame yields control until rendering phase of the current frame, not the next.
+            //Newly started coroutines using a single WaitForEndOfFrame will fire before the next Update.
+            // Wait one frame (advance to the next frame) before waiting for its end.
+            yield return null;
+
+            // Wait until the end of the next frame's rendering.
             yield return new WaitForEndOfFrame();
         }
 

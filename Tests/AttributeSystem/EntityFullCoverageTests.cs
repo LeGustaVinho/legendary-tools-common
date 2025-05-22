@@ -3,10 +3,9 @@ using UnityEngine;
 using LegendaryTools.AttributeSystem;
 using LegendaryTools.TagSystem;
 using System.Linq;
-using System.Collections.Generic;
 using UnityEngine.TestTools;
 
-namespace Tests
+namespace LegendaryTools.Tests.AttributeSystem
 {
     public class EntityFullCoverageTests
     {

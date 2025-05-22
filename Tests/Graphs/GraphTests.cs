@@ -1,13 +1,14 @@
 ﻿using System;
 using System.Linq;
+using LegendaryTools.GraphV2;
 using NUnit.Framework;
 
-namespace LegendaryTools.GraphV2.Tests
+namespace LegendaryTools.Tests.Graphs
 {
     [TestFixture]
     public class GraphTests
     {
-        private Graph graph;
+        private GraphV2.Graph graph;
         private Node nodeA;
         private Node nodeB;
         private Node nodeC;
@@ -19,7 +20,7 @@ namespace LegendaryTools.GraphV2.Tests
         [SetUp]
         public void Setup()
         {
-            graph = new Graph();
+            graph = new GraphV2.Graph();
             nodeA = new Node(true);
             nodeB = new Node(true);
             nodeC = new Node(true);
@@ -62,19 +63,19 @@ namespace LegendaryTools.GraphV2.Tests
         public void ContainsNode_ShouldReturnTrueForExistingNode()
         {
             graph.Add(nodeA);
-            Assert.IsTrue(graph.Contains(nodeA), "Graph should contain the node that was added.");
+            Assert.IsTrue(graph.Contains(nodeA), "GraphV2.Graph should contain the node that was added.");
         }
 
         [Test]
         public void ContainsNode_ShouldReturnFalseForNonExistentNode()
         {
-            Assert.IsFalse(graph.Contains(nodeA), "Graph should not contain a node that was not added.");
+            Assert.IsFalse(graph.Contains(nodeA), "GraphV2.Graph should not contain a node that was not added.");
         }
 
         [Test]
         public void AddGraph_ShouldIncreaseChildGraphCount()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             graph.AddGraph(childGraph);
             Assert.AreEqual(1, graph.ChildGraphs.Length, "Adding a child graph should increase child graph count to 1.");
         }
@@ -96,7 +97,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void RemoveGraph_ShouldDecreaseChildGraphCount()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             graph.AddGraph(childGraph);
             graph.RemoveGraph(childGraph);
             Assert.AreEqual(0, graph.ChildGraphs.Length, "Removing a child graph should decrease child graph count to 0.");
@@ -105,7 +106,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void RemoveGraph_NonExistent_ShouldThrowArgumentException()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             var ex = Assert.Throws<ArgumentException>(() => graph.RemoveGraph(childGraph), "Removing a non-existent child graph should throw ArgumentException.");
             Assert.That(ex.Message, Does.Contain("The specified graph is not a child of this graph."), "Exception message should indicate that the graph is not a child.");
         }
@@ -113,14 +114,14 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void GraphHierarchy_ShouldReturnCorrectHierarchy()
         {
-            Graph parentGraph = new Graph();
-            Graph childGraph = new Graph();
-            Graph grandChildGraph = new Graph();
+            GraphV2.Graph parentGraph = new GraphV2.Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
+            GraphV2.Graph grandChildGraph = new GraphV2.Graph();
 
             parentGraph.AddGraph(childGraph);
             childGraph.AddGraph(grandChildGraph);
 
-            Assert.AreEqual(2, grandChildGraph.GraphHierarchy.Length, "Graph hierarchy should include two ancestors.");
+            Assert.AreEqual(2, grandChildGraph.GraphHierarchy.Length, "GraphV2.Graph hierarchy should include two ancestors.");
             Assert.AreEqual(parentGraph, grandChildGraph.GraphHierarchy[0], "The first ancestor should be the parent graph.");
             Assert.AreEqual(childGraph, grandChildGraph.GraphHierarchy[1], "The second ancestor should be the child graph.");
         }
@@ -131,7 +132,7 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeA);
             graph.Add(nodeB);
             nodeA.ConnectTo(nodeB, NodeConnectionDirection.Bidirectional);
-            Assert.IsFalse(graph.IsDirected, "Graph should be undirected when all connections are bidirectional.");
+            Assert.IsFalse(graph.IsDirected, "GraphV2.Graph should be undirected when all connections are bidirectional.");
         }
 
         [Test]
@@ -140,7 +141,7 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeA);
             graph.Add(nodeB);
             nodeA.ConnectTo(nodeB, NodeConnectionDirection.Unidirectional);
-            Assert.IsTrue(graph.IsDirected, "Graph should be directed when there is at least one unidirectional connection.");
+            Assert.IsTrue(graph.IsDirected, "GraphV2.Graph should be directed when there is at least one unidirectional connection.");
         }
 
         [Test]
@@ -149,7 +150,7 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeA);
             graph.Add(nodeB);
             nodeA.ConnectTo(nodeB, NodeConnectionDirection.Unidirectional);
-            Assert.IsTrue(graph.IsAcyclic, "Graph should be acyclic when there are no cycles.");
+            Assert.IsTrue(graph.IsAcyclic, "GraphV2.Graph should be acyclic when there are no cycles.");
         }
 
         [Test]
@@ -160,7 +161,7 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeC);
             nodeA.ConnectTo(nodeB, NodeConnectionDirection.Unidirectional);
             nodeB.ConnectTo(nodeC, NodeConnectionDirection.Unidirectional);
-            Assert.IsTrue(graph.IsDirectedAcyclic, "Graph should be directed acyclic when it is directed and has no cycles.");
+            Assert.IsTrue(graph.IsDirectedAcyclic, "GraphV2.Graph should be directed acyclic when it is directed and has no cycles.");
         }
 
         [Test]
@@ -170,7 +171,7 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeB);
             nodeA.ConnectTo(nodeB, NodeConnectionDirection.Unidirectional);
             nodeB.ConnectTo(nodeA, NodeConnectionDirection.Unidirectional);
-            Assert.IsFalse(graph.IsDirectedCyclic, "Graph should not be directed cyclic when it is directed and has cycles.");
+            Assert.IsFalse(graph.IsDirectedCyclic, "GraphV2.Graph should not be directed cyclic when it is directed and has cycles.");
         }
 
         [Test]
@@ -179,11 +180,11 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeA);
             graph.Add(nodeB);
 
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             childGraph.Add(nodeC);
             graph.AddGraph(childGraph);
 
-            Graph grandChildGraph = new Graph();
+            GraphV2.Graph grandChildGraph = new GraphV2.Graph();
             grandChildGraph.Add(nodeD);
             childGraph.AddGraph(grandChildGraph);
 
@@ -201,7 +202,7 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeA);
             graph.Add(nodeB);
 
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             childGraph.Add(nodeC);
             graph.AddGraph(childGraph);
 
@@ -245,7 +246,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AddGraph_CircularHierarchy_ShouldThrowInvalidOperationException()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             graph.AddGraph(childGraph);
             var ex = Assert.Throws<InvalidOperationException>(() => childGraph.AddGraph(graph), "Adding a parent graph as a child should throw InvalidOperationException due to circular hierarchy.");
             Assert.That(ex.Message, Is.EqualTo("Adding this child would create a circular hierarchy."), "Exception message should indicate that a circular hierarchy is being created.");
@@ -282,9 +283,9 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AddMultipleChildGraphs_ShouldIncreaseChildGraphCountAppropriately()
         {
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
-            Graph childGraph3 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph3 = new GraphV2.Graph();
 
             graph.AddGraph(childGraph1);
             graph.AddGraph(childGraph2);
@@ -299,8 +300,8 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void ParentGraph_ShouldBeSetCorrectlyWhenAddingChildGraph()
         {
-            Graph parentGraph = new Graph();
-            Graph childGraph = new Graph();
+            GraphV2.Graph parentGraph = new GraphV2.Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
 
             parentGraph.AddGraph(childGraph);
 
@@ -356,9 +357,9 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AddGraph_WithExistingParent_ShouldThrowInvalidOperationException()
         {
-            Graph parentGraph1 = new Graph();
-            Graph parentGraph2 = new Graph();
-            Graph childGraph = new Graph();
+            GraphV2.Graph parentGraph1 = new GraphV2.Graph();
+            GraphV2.Graph parentGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
 
             parentGraph1.AddGraph(childGraph);
 
@@ -369,7 +370,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AddGraph_WithCircularHierarchy_ShouldThrowInvalidOperationException()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             graph.AddGraph(childGraph);
 
             var ex = Assert.Throws<InvalidOperationException>(() => childGraph.AddGraph(graph), "Adding a graph as a child to one of its descendants should throw InvalidOperationException.");
@@ -408,7 +409,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void RemoveGraph_ShouldUnsetParentGraph()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             graph.AddGraph(childGraph);
             graph.RemoveGraph(childGraph);
 
@@ -429,9 +430,9 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeA);
             graph.Add(nodeB);
 
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
-            Graph childGraph3 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph3 = new GraphV2.Graph();
 
             childGraph1.Add(nodeC);
             childGraph2.Add(nodeD);
@@ -454,12 +455,12 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void ParentGraph_ShouldNotAffectOtherGraphs()
         {
-            Graph parentGraph1 = new Graph();
-            Graph parentGraph2 = new Graph();
-            Graph childGraph = new Graph();
+            GraphV2.Graph parentGraph1 = new GraphV2.Graph();
+            GraphV2.Graph parentGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
 
             parentGraph1.AddGraph(childGraph);
-            parentGraph2.AddGraph(new Graph());
+            parentGraph2.AddGraph(new GraphV2.Graph());
 
             Assert.AreEqual(parentGraph1, childGraph.ParentGraph, "Child graph should have only one parent graph.");
             Assert.AreNotEqual(parentGraph2, childGraph.ParentGraph, "Child graph's parent should not be affected by other parent graphs.");
@@ -468,8 +469,8 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void RemoveGraph_ShouldNotAffectOtherChildGraphs()
         {
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
 
             graph.AddGraph(childGraph1);
             graph.AddGraph(childGraph2);
@@ -517,9 +518,9 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AddGraph_WithMultipleLevels_ShouldMaintainCorrectParentReferences()
         {
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
-            Graph childGraph3 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph3 = new GraphV2.Graph();
 
             graph.AddGraph(childGraph1);
             childGraph1.AddGraph(childGraph2);
@@ -569,7 +570,7 @@ namespace LegendaryTools.GraphV2.Tests
             bool removed = graph.Remove(nodeA);
 
             Assert.IsTrue(removed, "Removing an existing node should return true.");
-            Assert.IsFalse(graph.Contains(nodeA), "Graph should no longer contain the removed node.");
+            Assert.IsFalse(graph.Contains(nodeA), "GraphV2.Graph should no longer contain the removed node.");
             Assert.AreEqual(0, nodeB.Neighbours.Length, "NodeB should have no neighbours after nodeA is removed.");
             Assert.AreEqual(0, nodeC.Neighbours.Length, "NodeC should have no neighbours after nodeA is removed.");
         }
@@ -584,12 +585,12 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void ParentGraph_ShouldNotAffectGraphHierarchyOfOtherGraphs()
         {
-            Graph parentGraph1 = new Graph();
-            Graph parentGraph2 = new Graph();
-            Graph childGraph = new Graph();
+            GraphV2.Graph parentGraph1 = new GraphV2.Graph();
+            GraphV2.Graph parentGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
 
             parentGraph1.AddGraph(childGraph);
-            parentGraph2.AddGraph(new Graph());
+            parentGraph2.AddGraph(new GraphV2.Graph());
 
             Assert.AreEqual(parentGraph1, childGraph.ParentGraph, "childGraph's parent should remain as parentGraph1.");
             Assert.IsEmpty(parentGraph2.GraphHierarchy, "parentGraph2 should have its own separate hierarchy.");
@@ -630,7 +631,7 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeA);
             graph.Add(nodeB);
 
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             childGraph.Add(nodeC);
             graph.AddGraph(childGraph);
 
@@ -657,7 +658,7 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeA);
             graph.Add(nodeB);
 
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             childGraph.Add(nodeC);
             graph.AddGraph(childGraph);
 
@@ -679,7 +680,7 @@ namespace LegendaryTools.GraphV2.Tests
             nodeA.ConnectTo(nodeB, NodeConnectionDirection.Bidirectional);
             nodeB.ConnectTo(nodeC, NodeConnectionDirection.Bidirectional);
 
-            Assert.IsFalse(graph.IsDirected, "Graph should be undirected when all connections are bidirectional.");
+            Assert.IsFalse(graph.IsDirected, "GraphV2.Graph should be undirected when all connections are bidirectional.");
             Assert.IsFalse(graph.IsAcyclic, "Undirected graph with bidirectional connections should not be acyclic.");
             Assert.IsTrue(graph.IsCyclic, "Undirected graph with bidirectional connections be cyclic.");
         }
@@ -695,8 +696,8 @@ namespace LegendaryTools.GraphV2.Tests
             nodeB.ConnectTo(nodeC, NodeConnectionDirection.Bidirectional);
             nodeC.ConnectTo(nodeA, NodeConnectionDirection.Bidirectional);
 
-            Assert.IsFalse(graph.IsAcyclic, "Graph with a bidirectional cycle should not be acyclic.");
-            Assert.IsTrue(graph.IsCyclic, "Graph with a bidirectional cycle should be cyclic.");
+            Assert.IsFalse(graph.IsAcyclic, "GraphV2.Graph with a bidirectional cycle should not be acyclic.");
+            Assert.IsTrue(graph.IsCyclic, "GraphV2.Graph with a bidirectional cycle should be cyclic.");
         }
         
         [Test]
@@ -710,9 +711,9 @@ namespace LegendaryTools.GraphV2.Tests
             nodeB.ConnectTo(nodeC, NodeConnectionDirection.Unidirectional);
             nodeC.ConnectTo(nodeA, NodeConnectionDirection.Unidirectional);
 
-            Assert.IsFalse(graph.IsAcyclic, "Graph with a Unidirectional cycle should not be acyclic.");
-            Assert.IsTrue(graph.IsCyclic, "Graph with a Unidirectional cycle should be cyclic.");
-            Assert.IsTrue(graph.IsDirected, "Graph with Unidirectional connections should be Directed.");
+            Assert.IsFalse(graph.IsAcyclic, "GraphV2.Graph with a Unidirectional cycle should not be acyclic.");
+            Assert.IsTrue(graph.IsCyclic, "GraphV2.Graph with a Unidirectional cycle should be cyclic.");
+            Assert.IsTrue(graph.IsDirected, "GraphV2.Graph with Unidirectional connections should be Directed.");
         }
 
         [Test]
@@ -731,9 +732,9 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AddGraph_ShouldMaintainCorrectGraphHierarchy()
         {
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
-            Graph childGraph3 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph3 = new GraphV2.Graph();
 
             graph.AddGraph(childGraph1);
             graph.AddGraph(childGraph2);
@@ -756,14 +757,14 @@ namespace LegendaryTools.GraphV2.Tests
             nodeA.ConnectTo(nodeB, NodeConnectionDirection.Unidirectional);
             nodeA.ConnectTo(nodeC, NodeConnectionDirection.Bidirectional);
 
-            Assert.IsTrue(graph.IsDirected, "Graph should be directed when there are both unidirectional and bidirectional connections.");
+            Assert.IsTrue(graph.IsDirected, "GraphV2.Graph should be directed when there are both unidirectional and bidirectional connections.");
         }
         
         [Test]
         public void GraphId_ShouldBeUnique()
         {
-            Graph anotherGraph = new Graph();
-            Assert.AreNotEqual(graph.Id, anotherGraph.Id, "Each Graph instance should have a unique Id.");
+            GraphV2.Graph anotherGraph = new GraphV2.Graph();
+            Assert.AreNotEqual(graph.Id, anotherGraph.Id, "Each GraphV2.Graph instance should have a unique Id.");
         }
 
         [Test]
@@ -778,13 +779,13 @@ namespace LegendaryTools.GraphV2.Tests
         {
             var mockGraph = new MockGraph();
             var ex = Assert.Throws<ArgumentException>(() => graph.AddGraph(mockGraph), "Adding a graph of a different type should throw ArgumentException.");
-            Assert.That(ex.Message, Does.Contain("Child graph must be of type Graph."), "Exception message should indicate that the child graph must be of type Graph.");
+            Assert.That(ex.Message, Does.Contain("Child graph must be of type Graph."), "Exception message should indicate that the child graph must be of type GraphV2.Graph.");
         }
 
         [Test]
         public void ParentGraph_ShouldRemainImmutableExternally()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             graph.AddGraph(childGraph);
 
             // Attempting to set ParentGraph externally should not be possible
@@ -795,9 +796,9 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AddGraph_MultipleLevels_ShouldMaintainCorrectHierarchy()
         {
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
-            Graph childGraph3 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph3 = new GraphV2.Graph();
 
             graph.AddGraph(childGraph1);
             childGraph1.AddGraph(childGraph2);
@@ -812,7 +813,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AllNodesRecursive_ShouldIncludeNodesFromOtherGraphs()
         {
-            Graph anotherGraph = new Graph();
+            GraphV2.Graph anotherGraph = new GraphV2.Graph();
             anotherGraph.Add(nodeF);
 
             graph.Add(nodeA);
@@ -879,8 +880,8 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AddGraph_ShouldThrowWhenGraphIsAlreadyInHierarchy()
         {
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
 
             graph.AddGraph(childGraph1);
             childGraph1.AddGraph(childGraph2);
@@ -946,9 +947,9 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void GraphWithMultipleChildGraphs_ShouldMaintainSeparateHierarchies()
         {
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
-            Graph childGraph3 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph3 = new GraphV2.Graph();
 
             graph.AddGraph(childGraph1);
             graph.AddGraph(childGraph2);
@@ -968,7 +969,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void RemoveGraph_ShouldNotAffectParentGraph()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             graph.AddGraph(childGraph);
 
             graph.RemoveGraph(childGraph);
@@ -980,7 +981,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AddGraph_ShouldAllowReusingRemovedGraph()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             graph.AddGraph(childGraph);
             graph.RemoveGraph(childGraph);
 
@@ -1018,11 +1019,11 @@ namespace LegendaryTools.GraphV2.Tests
             // Initially undirected
             nodeA.ConnectTo(nodeB, NodeConnectionDirection.Bidirectional);
             nodeB.ConnectTo(nodeC, NodeConnectionDirection.Bidirectional);
-            Assert.IsFalse(graph.IsDirected, "Graph should initially be undirected.");
+            Assert.IsFalse(graph.IsDirected, "GraphV2.Graph should initially be undirected.");
 
             // Add a unidirectional connection
             nodeC.ConnectTo(nodeA, NodeConnectionDirection.Unidirectional);
-            Assert.IsTrue(graph.IsDirected, "Graph should be directed after adding a unidirectional connection.");
+            Assert.IsTrue(graph.IsDirected, "GraphV2.Graph should be directed after adding a unidirectional connection.");
         }
 
         [Test]
@@ -1037,21 +1038,21 @@ namespace LegendaryTools.GraphV2.Tests
             nodeB.ConnectTo(nodeC, NodeConnectionDirection.Unidirectional);
             nodeC.ConnectTo(nodeA, NodeConnectionDirection.Unidirectional);
 
-            Assert.IsTrue(graph.IsCyclic, "Graph should be cyclic after adding a cycle.");
+            Assert.IsTrue(graph.IsCyclic, "GraphV2.Graph should be cyclic after adding a cycle.");
 
             // Remove the cycle by disconnecting C -> A
             var connectionCA = nodeC.OutboundConnections.FirstOrDefault(c => c.ToNode == nodeA);
             nodeC.RemoveConnection(connectionCA);
 
-            Assert.IsFalse(graph.IsCyclic, "Graph should not be cyclic after removing the cycle.");
+            Assert.IsFalse(graph.IsCyclic, "GraphV2.Graph should not be cyclic after removing the cycle.");
         }
 
         [Test]
         public void RemoveGraph_ShouldOnlyRemoveSpecifiedGraph()
         {
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
-            Graph childGraph3 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph3 = new GraphV2.Graph();
 
             graph.AddGraph(childGraph1);
             graph.AddGraph(childGraph2);
@@ -1103,8 +1104,8 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AllNodesRecursive_ShouldHandleGraphsWithSharedChildGraphs()
         {
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
 
             childGraph1.Add(nodeA);
             childGraph1.Add(nodeB);
@@ -1139,7 +1140,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AddGraph_ShouldNotAllowAddingGraphMultipleTimes()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             graph.AddGraph(childGraph);
 
             var ex = Assert.Throws<InvalidOperationException>(() => graph.AddGraph(childGraph), "Adding the same child graph multiple times should throw InvalidOperationException.");
@@ -1152,10 +1153,10 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeA);
             graph.Add(nodeB);
 
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
-            Graph childGraph3 = new Graph();
-            Graph childGraph4 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph3 = new GraphV2.Graph();
+            GraphV2.Graph childGraph4 = new GraphV2.Graph();
 
             childGraph1.Add(nodeC);
             childGraph2.Add(nodeD);
@@ -1206,9 +1207,9 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void GraphHierarchy_ShouldReflectDeeplyNestedGraphs()
         {
-            Graph childGraph1 = new Graph();
-            Graph childGraph2 = new Graph();
-            Graph childGraph3 = new Graph();
+            GraphV2.Graph childGraph1 = new GraphV2.Graph();
+            GraphV2.Graph childGraph2 = new GraphV2.Graph();
+            GraphV2.Graph childGraph3 = new GraphV2.Graph();
 
             graph.AddGraph(childGraph1);
             childGraph1.AddGraph(childGraph2);
@@ -1225,8 +1226,8 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AllNodesRecursive_ShouldExcludeNodesFromSiblingGraphs()
         {
-            Graph siblingGraph1 = new Graph();
-            Graph siblingGraph2 = new Graph();
+            GraphV2.Graph siblingGraph1 = new GraphV2.Graph();
+            GraphV2.Graph siblingGraph2 = new GraphV2.Graph();
 
             siblingGraph1.Add(nodeA);
             siblingGraph2.Add(nodeB);
@@ -1248,9 +1249,9 @@ namespace LegendaryTools.GraphV2.Tests
             graph.Add(nodeB);
             graph.Add(nodeC);
 
-            Assert.IsTrue(graph.IsAcyclic, "Graph with no connections should be acyclic.");
-            Assert.IsFalse(graph.IsDirected, "Graph with no connections should be undirected.");
-            Assert.IsFalse(graph.IsCyclic, "Graph with no connections should not be cyclic.");
+            Assert.IsTrue(graph.IsAcyclic, "GraphV2.Graph with no connections should be acyclic.");
+            Assert.IsFalse(graph.IsDirected, "GraphV2.Graph with no connections should be undirected.");
+            Assert.IsFalse(graph.IsCyclic, "GraphV2.Graph with no connections should not be cyclic.");
         }
 
         [Test]
@@ -1290,7 +1291,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void AllNodesRecursive_ShouldHandleGraphWithNoNodesButWithChildGraphs()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             childGraph.Add(nodeA);
             graph.AddGraph(childGraph);
 
@@ -1303,7 +1304,7 @@ namespace LegendaryTools.GraphV2.Tests
         [Test]
         public void GraphHierarchy_ShouldReflectImmediateParentOnly()
         {
-            Graph childGraph = new Graph();
+            GraphV2.Graph childGraph = new GraphV2.Graph();
             graph.AddGraph(childGraph);
 
             var hierarchy = childGraph.GraphHierarchy;
@@ -1321,7 +1322,7 @@ namespace LegendaryTools.GraphV2.Tests
         }
     }
 
-    // MockGraph class to test adding non-Graph types
+    // MockGraph class to test adding non-GraphV2.Graph types
     public class MockGraph : IGraph
     {
         public string Id { get; set; }
