@@ -85,6 +85,8 @@ namespace LegendaryTools.Systems.ScreenFlow
         private CanvasScaler canvasScaler;
         private GraphicRaycaster graphicRaycaster;
 
+        private Dictionary<ScreenFlowCommandType, Func<ScreenFlowCommand, IEnumerator>> commandExecutors;
+
         public void BindController<T>(IScreenViewController<T> controller)
             where T : IScreenBase
         {
@@ -202,6 +204,33 @@ namespace LegendaryTools.Systems.ScreenFlow
                 }
             }
         }
+
+        private void BuildCommandExecutors()
+        {
+            commandExecutors = new Dictionary<ScreenFlowCommandType, Func<ScreenFlowCommand, IEnumerator>>
+            {
+                {
+                    ScreenFlowCommandType.Trigger, command =>
+                        command.Object is ScreenConfig screenConfig
+                            ?
+                            ScreenTransitTo(screenConfig, false, command.Args, command.OnShow, command.OnHide)
+                            : command.Object is PopupConfig popupConfig && CurrentScreenConfig != null &&
+                              CurrentScreenConfig.AllowPopups
+                                ? PopupTransitTo(popupConfig, command.Args, command.OnShow, command.OnHide)
+                                :
+                                null
+                },
+                {
+                    ScreenFlowCommandType.MoveBack, command =>
+                        MoveBackOp(command.Args, command.OnShow, command.OnHide)
+                },
+                {
+                    ScreenFlowCommandType.ClosePopup, command =>
+                        ClosePopupOp(command.Object as IPopupBase, command.Args, command.OnShow, command.OnHide)
+                }
+            };
+        }
+        
 #if SCREEN_FLOW_SINGLETON
         protected override void Awake()
         {
@@ -211,6 +240,7 @@ namespace LegendaryTools.Systems.ScreenFlow
             canvas = GetComponent<Canvas>();
             canvasScaler = GetComponent<CanvasScaler>();
             graphicRaycaster = GetComponent<GraphicRaycaster>();
+            BuildCommandExecutors();
         }
 #else
         protected void Awake()
@@ -219,6 +249,7 @@ namespace LegendaryTools.Systems.ScreenFlow
             canvas = GetComponent<Canvas>();
             canvasScaler = GetComponent<CanvasScaler>();
             graphicRaycaster = GetComponent<GraphicRaycaster>();
+            BuildCommandExecutors();
         }
 #endif
 
@@ -339,44 +370,25 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
         }
 
+        private IEnumerator ExecuteCommand(ScreenFlowCommand command)
+        {
+            if (commandExecutors.TryGetValue(command.Type, out var executor))
+            {
+                IEnumerator routine = executor(command);
+                if (routine != null)
+                {
+                    yield return routine;
+                }
+            }
+        }
+
         private IEnumerator ProcessCommandQueue()
         {
             while (commandQueue.Count > 0)
             {
                 ScreenFlowCommand next = commandQueue[0];
                 commandQueue.RemoveAt(0);
-
-                switch (next.Type)
-                {
-                    case ScreenFlowCommandType.Trigger:
-                    {
-                        if (next.Object is ScreenConfig screenConfig)
-                        {
-                            yield return ScreenTransitTo(screenConfig, false, next.Args, next.OnShow, next.OnHide);
-                        }
-                        else if (next.Object is PopupConfig popupConfig)
-                        {
-                            if (CurrentScreenConfig != null)
-                            {
-                                if (CurrentScreenConfig.AllowPopups)
-                                {
-                                    yield return PopupTransitTo(popupConfig, next.Args, next.OnShow, next.OnHide);
-                                }
-                            }
-                        }
-                        break;
-                    }
-                    case ScreenFlowCommandType.MoveBack:
-                    {
-                        yield return MoveBackOp(next.Args, next.OnShow, next.OnHide);
-                        break;
-                    }
-                    case ScreenFlowCommandType.ClosePopup:
-                    {
-                        yield return ClosePopupOp(next.Object as IPopupBase, next.Args, next.OnShow, next.OnHide);
-                        break;
-                    }
-                }
+                yield return ExecuteCommand(next);
             }
 
             transitionRoutine = null;
@@ -395,89 +407,44 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
         }
         
+        private void RemovePopupFromStack(PopupConfig popupConfig, IPopupBase popupInstance)
+        {
+            PopupConfigsStack.Remove(popupConfig);
+            PopupInstancesStack.Remove(popupInstance);
+            RecyclePopupCanvas(popupInstance);
+            popupInstance.OnClosePopupRequest -= OnClosePopupRequest;
+        }
+        
         private IEnumerator ClosePopupOp(IPopupBase popupBase, System.Object args, Action<IScreenBase> onShow = null, 
             Action<IScreenBase> onHide = null)
         {
             int stackIndex = PopupInstancesStack.FindIndex(item => item == popupBase);
+            if (stackIndex < 0) yield break;
 
-            if (stackIndex >= 0)
+            bool isTopOfStack = stackIndex == PopupInstancesStack.Count - 1;
+            PopupConfig popupConfig = PopupConfigsStack[stackIndex];
+
+            PopupConfig behindPopupConfig = stackIndex > 0 ? PopupConfigsStack[stackIndex - 1] : null;
+            IPopupBase behindPopupInstance = stackIndex > 0 ? PopupInstancesStack[stackIndex - 1] : null;
+
+            if (isTopOfStack)
             {
-                bool isTopOfStack = stackIndex == PopupInstancesStack.Count - 1;
-                PopupConfig popupConfig = PopupConfigsStack[stackIndex];
-
-                PopupConfig behindPopupConfig = null;
-                IPopupBase behindPopupInstance = null;
-
-                if (stackIndex - 1 >= 0)
-                {
-                    behindPopupConfig = PopupConfigsStack[stackIndex - 1];
-                    behindPopupInstance = PopupInstancesStack[stackIndex - 1];
-                }
-
-                if (isTopOfStack)
-                {
-                    switch (popupConfig.AnimationType)
-                    {
-                        case AnimationType.NoAnimation:
-                        case AnimationType.Wait:
-                        {
-                            //Wait for hide's animation to complete
-                            yield return popupBase.RequestHide(args);
-                            onHide?.Invoke(CurrentPopupInstance);
-                            CallOnHideForController(popupBase);
-                            DisposePopupFromHide(popupConfig, popupBase);
-                            break;
-                        }
-                        case AnimationType.Intersection:
-                        {
-                            hidePopupRoutine = StartCoroutine(popupBase.RequestHide(args));
-                            break;
-                        }
-                    }
-
-                    if (behindPopupInstance != null && 
-                        (behindPopupConfig.GoingBackgroundBehaviour == PopupGoingBackgroundBehaviour.JustHide ||
-                         behindPopupConfig.GoingBackgroundBehaviour == PopupGoingBackgroundBehaviour.HideAndDestroy))
-                    {
-                        switch (popupConfig.AnimationType)
-                        {
-                            case AnimationType.NoAnimation:
-                            case AnimationType.Wait:
-                            {
-                                //Wait for shows's animation to complete
-                                yield return behindPopupInstance.Show(args);
-                                break;
-                            }
-                            case AnimationType.Intersection:
-                            {
-                                //Show animation starts playing (may be playing in parallel with hide's animation)
-                                showPopupRoutine = StartCoroutine(behindPopupInstance.Show(args));
-                                break;
-                            }
-                        }
-                    }
-
-                    if (hidePopupRoutine != null) //If we were waiting for hide's animation
-                    {
-                        yield return hidePopupRoutine; //Wait for hide's animation to complete
-                        onHide?.Invoke(CurrentPopupInstance);
-                        CallOnHideForController(popupBase);
-                        DisposePopupFromHide(CurrentPopupConfig, CurrentPopupInstance);
-                        hidePopupRoutine = null;
-                    }
-
-                    if (showPopupRoutine != null) //If we were waiting for show's animation
-                    {
-                        yield return showPopupRoutine; //Wait for show's animation to complete
-                        showPopupRoutine = null;
-                    }
-                }
-                else
-                {
-                    onHide?.Invoke(popupBase);
-                    DisposePopupFromHide(popupConfig, popupBase);
-                }
+                yield return ExecuteHideAnimation(popupBase, popupConfig, args, onHide, 
+                    instance => DisposePopupFromHide(popupConfig, popupBase));
                 
+                if (behindPopupInstance != null && 
+                    (behindPopupConfig.GoingBackgroundBehaviour == PopupGoingBackgroundBehaviour.JustHide ||
+                     behindPopupConfig.GoingBackgroundBehaviour == PopupGoingBackgroundBehaviour.HideAndDestroy))
+                {
+                    yield return ExecuteShowAnimation(behindPopupInstance, behindPopupConfig, args);
+                }
+
+                onShow?.Invoke(behindPopupInstance);
+            }
+            else
+            {
+                onHide?.Invoke(popupBase);
+                RemovePopupFromStack(popupConfig, popupBase);
                 onShow?.Invoke(behindPopupInstance);
             }
 
@@ -550,17 +517,8 @@ namespace LegendaryTools.Systems.ScreenFlow
         {
             if (oldScreenConfig == null || oldScreenInstance == null) yield break;
 
-            switch (oldScreenConfig.AnimationType)
-            {
-                case AnimationType.NoAnimation:
-                case AnimationType.Wait:
-                    yield return oldScreenInstance.RequestHide(args);
-                    HandleScreenHideCompletion(oldScreenConfig, oldScreenInstance, onHide);
-                    break;
-                case AnimationType.Intersection:
-                    hideScreenRoutine = StartCoroutine(oldScreenInstance.RequestHide(args));
-                    break;
-            }
+            yield return ExecuteHideAnimation(oldScreenInstance, oldScreenConfig, args, onHide, 
+                instance => HandleScreenHideCompletion(oldScreenConfig, oldScreenInstance, null));
         }
 
         private void HandleScreenHideCompletion(ScreenConfig screenConfig, IScreenBase screenInstance, 
@@ -642,18 +600,48 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
         }
 
-        private IEnumerator ShowNewScreen(ScreenConfig screenConfig, ScreenBase newScreenInstance, System.Object args)
+        private IEnumerator ExecuteShowAnimation(IScreenBase instance, UIEntityBaseConfig config, System.Object args)
         {
-            switch (screenConfig.AnimationType)
+            switch (config.AnimationType)
             {
                 case AnimationType.NoAnimation:
                 case AnimationType.Wait:
-                    yield return newScreenInstance.Show(args);
+                    yield return instance.Show(args);
                     break;
                 case AnimationType.Intersection:
-                    showScreenRoutine = StartCoroutine(newScreenInstance.Show(args));
+                    showScreenRoutine = StartCoroutine(instance.Show(args));
+                    yield return showScreenRoutine;
+                    showScreenRoutine = null;
                     break;
             }
+        }
+
+        private IEnumerator ExecuteHideAnimation(IScreenBase instance, UIEntityBaseConfig config, System.Object args, 
+            Action<IScreenBase> onHide = null, Action<IScreenBase> postHideAction = null)
+        {
+            switch (config.AnimationType)
+            {
+                case AnimationType.NoAnimation:
+                case AnimationType.Wait:
+                    yield return instance.RequestHide(args);
+                    onHide?.Invoke(instance);
+                    CallOnHideForController(instance);
+                    postHideAction?.Invoke(instance);
+                    break;
+                case AnimationType.Intersection:
+                    hideScreenRoutine = StartCoroutine(instance.RequestHide(args));
+                    yield return hideScreenRoutine;
+                    onHide?.Invoke(instance);
+                    CallOnHideForController(instance);
+                    postHideAction?.Invoke(instance);
+                    hideScreenRoutine = null;
+                    break;
+            }
+        }
+        
+        private IEnumerator ShowNewScreen(ScreenConfig screenConfig, ScreenBase newScreenInstance, System.Object args)
+        {
+            yield return ExecuteShowAnimation(newScreenInstance, screenConfig, args);
 
             if (hideScreenRoutine != null)
             {
@@ -661,34 +649,23 @@ namespace LegendaryTools.Systems.ScreenFlow
                 HandleScreenHideCompletion(CurrentScreenConfig, CurrentScreenInstance, null);
                 hideScreenRoutine = null;
             }
-
-            if (showScreenRoutine != null)
-            {
-                yield return showScreenRoutine;
-                showScreenRoutine = null;
-            }
         }
 
         private void UpdateScreenState(ScreenConfig screenConfig, ScreenBase newScreenInstance, 
             bool isMoveBack, System.Object args)
         {
             CurrentScreenInstance = newScreenInstance;
-            
-            if (isMoveBack)
-            {
-                ScreensHistory.RemoveAt(ScreensHistory.Count - 1);
-            }
-            else
-            {
-                ScreensHistory.Add(new EntityArgPair<ScreenConfig>(screenConfig, args));
-            }
-
-            foreach (IPopupBase popup in PopupInstancesStack)
-            {
-                popup.ParentScreen = CurrentScreenInstance;
-            }
-
+            UpdateScreenHistory(screenConfig, args, isMoveBack);
+            foreach (IPopupBase popup in PopupInstancesStack) popup.ParentScreen = CurrentScreenInstance;
             screenTransitionRoutine = null;
+        }
+        
+        private void UpdateScreenHistory(ScreenConfig screenConfig, System.Object args, bool isMoveBack)
+        {
+            if (isMoveBack) 
+                ScreensHistory.RemoveAt(ScreensHistory.Count - 1);
+            else 
+                ScreensHistory.Add(new EntityArgPair<ScreenConfig>(screenConfig, args));
         }
 
         private void NotifyScreenChange(ScreenConfig oldScreenConfig, IScreenBase oldScreenInstance, 
@@ -778,47 +755,27 @@ namespace LegendaryTools.Systems.ScreenFlow
             if (oldPopupConfig == null || oldPopupInstance == null) yield break;
 
             bool allowStackablePopups = CurrentScreenConfig.AllowStackablePopups;
-            
-            switch (oldPopupConfig.AnimationType)
+
+            if (allowStackablePopups)
             {
-                case AnimationType.NoAnimation:
-                case AnimationType.Wait:
-                    if (allowStackablePopups)
-                    {
-                        oldPopupInstance.GoToBackground(args);
-                        CallOnGoingToBackgroundForController(oldPopupInstance);
-                        if (oldPopupConfig.GoingBackgroundBehaviour != PopupGoingBackgroundBehaviour.DontHide)
+                oldPopupInstance.GoToBackground(args);
+                CallOnGoingToBackgroundForController(oldPopupInstance);
+                if (oldPopupConfig.GoingBackgroundBehaviour != PopupGoingBackgroundBehaviour.DontHide)
+                {
+                    yield return ExecuteHideAnimation(oldPopupInstance, oldPopupConfig, args, null,
+                        instance => 
                         {
-                            yield return oldPopupInstance.RequestHide(args);
-                            CallOnHideForController(oldPopupInstance);
                             if (oldPopupConfig.GoingBackgroundBehaviour == PopupGoingBackgroundBehaviour.HideAndDestroy)
                             {
                                 DisposePopupFromHide(oldPopupConfig, oldPopupInstance, oldPopupConfig == newPopupConfig);
                             }
-                        }
-                    }
-                    else
-                    {
-                        yield return oldPopupInstance.RequestHide(args);
-                        CallOnHideForController(oldPopupInstance);
-                        DisposePopupFromHide(oldPopupConfig, oldPopupInstance, oldPopupConfig == newPopupConfig);
-                    }
-                    break;
-                case AnimationType.Intersection:
-                    if (allowStackablePopups)
-                    {
-                        oldPopupInstance.GoToBackground(args);
-                        CallOnGoingToBackgroundForController(oldPopupInstance);
-                        if (oldPopupConfig.GoingBackgroundBehaviour != PopupGoingBackgroundBehaviour.DontHide)
-                        {
-                            hidePopupRoutine = StartCoroutine(oldPopupInstance.RequestHide(args));
-                        }
-                    }
-                    else
-                    {
-                        hidePopupRoutine = StartCoroutine(oldPopupInstance.RequestHide(args));
-                    }
-                    break;
+                        });
+                }
+            }
+            else
+            {
+                yield return ExecuteHideAnimation(oldPopupInstance, oldPopupConfig, args, null,
+                    instance => DisposePopupFromHide(oldPopupConfig, oldPopupInstance, oldPopupConfig == newPopupConfig));
             }
         }
 
@@ -886,16 +843,7 @@ namespace LegendaryTools.Systems.ScreenFlow
             newPopupInstance.ParentScreen = CurrentScreenInstance;
             CalculatePopupCanvasSortOrder(canvasPopup, CurrentPopupInstance);
 
-            switch (popupConfig.AnimationType)
-            {
-                case AnimationType.NoAnimation:
-                case AnimationType.Wait:
-                    yield return newPopupInstance.Show(args);
-                    break;
-                case AnimationType.Intersection:
-                    showPopupRoutine = StartCoroutine(newPopupInstance.Show(args));
-                    break;
-            }
+            yield return ExecuteShowAnimation(newPopupInstance, popupConfig, args);
 
             if (hidePopupRoutine != null)
             {
@@ -906,12 +854,6 @@ namespace LegendaryTools.Systems.ScreenFlow
                     DisposePopupFromHide(CurrentPopupConfig, CurrentPopupInstance);
                 }
                 hidePopupRoutine = null;
-            }
-
-            if (showPopupRoutine != null)
-            {
-                yield return showPopupRoutine;
-                showPopupRoutine = null;
             }
         }
 
@@ -1032,6 +974,33 @@ namespace LegendaryTools.Systems.ScreenFlow
             return canvasPopup;
         }
 
+        private void ConfigureCanvasComponents(Canvas canvas, CanvasScaler canvasScaler, GraphicRaycaster graphicRaycaster)
+        {
+            // Configura as propriedades do Canvas
+            canvas.renderMode = this.canvas.renderMode;
+            canvas.pixelPerfect = this.canvas.pixelPerfect;
+            canvas.sortingLayerID = this.canvas.sortingLayerID;
+            canvas.sortingOrder = this.canvas.sortingOrder;
+            canvas.targetDisplay = this.canvas.targetDisplay;
+            canvas.additionalShaderChannels = this.canvas.additionalShaderChannels;
+            canvas.worldCamera = this.canvas.worldCamera;
+
+            // Configura as propriedades do CanvasScaler
+            canvasScaler.uiScaleMode = this.canvasScaler.uiScaleMode;
+            canvasScaler.referenceResolution = this.canvasScaler.referenceResolution;
+            canvasScaler.screenMatchMode = this.canvasScaler.screenMatchMode;
+            canvasScaler.matchWidthOrHeight = this.canvasScaler.matchWidthOrHeight;
+            canvasScaler.referencePixelsPerUnit = this.canvasScaler.referencePixelsPerUnit;
+            canvasScaler.scaleFactor = this.canvasScaler.scaleFactor;
+            canvasScaler.physicalUnit = this.canvasScaler.physicalUnit;
+            canvasScaler.fallbackScreenDPI = this.canvasScaler.fallbackScreenDPI;
+            canvasScaler.defaultSpriteDPI = this.canvasScaler.defaultSpriteDPI;
+
+            // Configura as propriedades do GraphicRaycaster
+            graphicRaycaster.ignoreReversedGraphics = this.graphicRaycaster.ignoreReversedGraphics;
+            graphicRaycaster.blockingObjects = this.graphicRaycaster.blockingObjects;
+        }
+
         private Canvas AllocatePopupCanvas(IPopupBase popupInstance)
         {
             Canvas availableCanvas = null;
@@ -1062,44 +1031,23 @@ namespace LegendaryTools.Systems.ScreenFlow
 
         private Canvas CreatePopupCanvas()
         {
+            Canvas canvasPopup;
             if (Config.OverridePopupCanvasPrefab != null)
             {
-                Canvas canvasPopupOverride = Instantiate(Config.OverridePopupCanvasPrefab);
-                DontDestroyOnLoad(canvasPopupOverride); //Canvas are persistent because they can be reused 
-                return canvasPopupOverride;
+                canvasPopup = Instantiate(Config.OverridePopupCanvasPrefab);
+                DontDestroyOnLoad(canvasPopup); // Canvas são persistentes porque podem ser reutilizados
             }
+            else
+            {
+                GameObject canvasPopupGo = new GameObject("[Canvas] - Popup");
+                DontDestroyOnLoad(canvasPopupGo); // Canvas são persistentes porque podem ser reutilizados
 
-            GameObject canvasPopupGo = new GameObject("[Canvas] - Popup");
-            DontDestroyOnLoad(canvasPopupGo); //Canvas are persistent because they can be reused 
+                canvasPopup = canvasPopupGo.AddComponent<Canvas>();
+                CanvasScaler canvasScalerPopup = canvasPopupGo.AddComponent<CanvasScaler>();
+                GraphicRaycaster graphicRaycasterPopup = canvasPopupGo.AddComponent<GraphicRaycaster>();
 
-            Canvas canvasPopup = canvasPopupGo.AddComponent<Canvas>();
-            CanvasScaler canvasScalerPopup = canvasPopupGo.AddComponent<CanvasScaler>();
-            GraphicRaycaster graphicRaycasterPopup = canvasPopupGo.AddComponent<GraphicRaycaster>();
-
-            //Copies the settings from the screen's canvas to the popup's canvas
-            canvasPopup.renderMode = canvas.renderMode;
-            canvasPopup.pixelPerfect = canvas.pixelPerfect;
-            canvasPopup.sortingLayerID = canvas.sortingLayerID;
-            canvasPopup.sortingOrder = canvas.sortingOrder;
-            canvasPopup.targetDisplay = canvas.targetDisplay;
-            canvasPopup.renderMode = canvas.renderMode;
-            canvasPopup.additionalShaderChannels = canvas.additionalShaderChannels;
-            canvasPopup.worldCamera = canvas.worldCamera;
-
-            //Copies the settings from the screen's canvasScaler to the popup's canvasScaler
-            canvasScalerPopup.uiScaleMode = canvasScaler.uiScaleMode;
-            canvasScalerPopup.referenceResolution = canvasScaler.referenceResolution;
-            canvasScalerPopup.screenMatchMode = canvasScaler.screenMatchMode;
-            canvasScalerPopup.matchWidthOrHeight = canvasScaler.matchWidthOrHeight;
-            canvasScalerPopup.referencePixelsPerUnit = canvasScaler.referencePixelsPerUnit;
-            canvasScalerPopup.scaleFactor = canvasScaler.scaleFactor;
-            canvasScalerPopup.physicalUnit = canvasScaler.physicalUnit;
-            canvasScalerPopup.fallbackScreenDPI = canvasScaler.fallbackScreenDPI;
-            canvasScalerPopup.defaultSpriteDPI = canvasScaler.defaultSpriteDPI;
-
-            //Copies the settings from the screen's graphicRaycaster to the popup's graphicRaycaster
-            graphicRaycasterPopup.ignoreReversedGraphics = graphicRaycaster.ignoreReversedGraphics;
-            graphicRaycasterPopup.blockingObjects = graphicRaycaster.blockingObjects;
+                ConfigureCanvasComponents(canvasPopup, canvasScalerPopup, graphicRaycasterPopup);
+            }
 
             return canvasPopup;
         }
@@ -1126,55 +1074,24 @@ namespace LegendaryTools.Systems.ScreenFlow
 
         private void ProcessBackKey()
         {
-            if (CurrentScreenConfig != null)
+            if (CurrentScreenConfig == null) return;
+            BackKeyBehaviourOverride behaviour = CurrentScreenInstance.BackKeyBehaviourOverride;
+            BackKeyBehaviour configBehaviour = CurrentScreenConfig.BackKeyBehaviour;
+            BackKeyBehaviour effectiveBehaviour = behaviour == BackKeyBehaviourOverride.Inherit ? configBehaviour : (BackKeyBehaviour)behaviour;
+            HandleBackKey(effectiveBehaviour);
+        }
+
+        private void HandleBackKey(BackKeyBehaviour behaviour)
+        {
+            switch (behaviour)
             {
-                //check if the screen is overriding config back key behaviour
-                if (CurrentScreenInstance.BackKeyBehaviourOverride == BackKeyBehaviourOverride.Inherit)
-                {
-                    switch (CurrentScreenConfig.BackKeyBehaviour)
-                    {
-                        case BackKeyBehaviour.NotAllowed: return;
-                        case BackKeyBehaviour.ScreenMoveBack:
-                            MoveBack();
-                            break;
-                        case BackKeyBehaviour.CloseFirstPopup:
-                        {
-                            if (CurrentPopupInstance != null)
-                            {
-                                CloseForegroundPopup();
-                            }
-                            else
-                            {
-                                MoveBack();
-                            }
-
-                            break;
-                        }
-                    }
-                }
-                else
-                {
-                    switch (CurrentScreenInstance.BackKeyBehaviourOverride)
-                    {
-                        case BackKeyBehaviourOverride.NotAllowed: return;
-                        case BackKeyBehaviourOverride.ScreenMoveBack:
-                            MoveBack();
-                            break;
-                        case BackKeyBehaviourOverride.CloseFirstPopup:
-                        {
-                            if (CurrentPopupInstance != null)
-                            {
-                                CloseForegroundPopup();
-                            }
-                            else
-                            {
-                                MoveBack();
-                            }
-
-                            break;
-                        }
-                    }
-                }
+                case BackKeyBehaviour.NotAllowed: break;
+                case BackKeyBehaviour.ScreenMoveBack: MoveBack(); break;
+                case BackKeyBehaviour.CloseFirstPopup:
+                    if (CurrentPopupInstance != null) 
+                        CloseForegroundPopup();
+                    else MoveBack();
+                break;
             }
         }
 
