@@ -5,7 +5,28 @@ using UnityEngine;
 using Object = UnityEngine.Object;
 
 namespace LegendaryTools.Systems.AssetProvider
-{ 
+{
+    public class HardRefLoadedAsset : ILoadOperation
+    {
+        public bool IsDone => true;
+        public object Result { get; private set; }
+        public float Progress => 1;
+        public event Action<object> OnCompleted;
+        public void Release()
+        {
+        }
+
+        public async Task<T> Await<T>() where T : Object
+        {
+            return Result as T;
+        }
+
+        public HardRefLoadedAsset(object result)
+        {
+            Result = result;
+        }
+    }
+    
     [CreateAssetMenu(menuName = "Tools/AssetProvider/HardRefAssetLoaderConfig", fileName = "HardRefAssetLoaderConfig", order = 0)]
     public class HardRefAssetLoaderConfig : AssetLoaderConfig
     {
@@ -16,27 +37,9 @@ namespace LegendaryTools.Systems.AssetProvider
             return HardReference as T;
         }
 
-        public override Task<ILoadOperation> LoadAsync<T>(Action<T> onComplete = null)
+        public override async Task<ILoadOperation> LoadAsync<T>()
         {
-            onComplete?.Invoke(HardReference as T);
-            return null;
-        }
-
-        public override ILoadOperation PrepareLoadRoutine<T>(Action<T> onComplete = null)
-        {
-            onComplete?.Invoke(HardReference as T);
-            return null;
-        }
-
-        public override IEnumerator WaitLoadRoutine()
-        {
-            yield return null;
-        }
-
-        public override ILoadOperation LoadWithCoroutines<T>(Action<T> onComplete)
-        {
-            onComplete?.Invoke(HardReference as T);
-            return null;
+            return new HardRefLoadedAsset(HardReference);
         }
 
         public override void Unload()
@@ -54,27 +57,9 @@ namespace LegendaryTools.Systems.AssetProvider
             return HardReference as T1;
         }
 
-        public override Task<ILoadOperation> LoadAsync<T1>(Action<T1> onComplete = null)
+        public override async Task<ILoadOperation> LoadAsync<T1>()
         {
-            onComplete?.Invoke(HardReference as T1);
-            return null;
-        }
-
-        public override ILoadOperation PrepareLoadRoutine<T1>(Action<T1> onComplete = null)
-        {
-            onComplete?.Invoke(HardReference as T1);
-            return null;
-        }
-
-        public override IEnumerator WaitLoadRoutine()
-        {
-            yield return null;
-        }
-
-        public override ILoadOperation LoadWithCoroutines<T1>(Action<T1> onComplete)
-        {
-            onComplete?.Invoke(HardReference as T1);
-            return null;
+            return new HardRefLoadedAsset(HardReference);
         }
 
         public override void Unload()

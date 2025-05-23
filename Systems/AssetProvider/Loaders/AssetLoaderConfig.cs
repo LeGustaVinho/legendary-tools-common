@@ -61,13 +61,7 @@ namespace LegendaryTools.Systems.AssetProvider
 
         public abstract T Load<T>() where T : UnityEngine.Object;
 
-        public abstract Task<ILoadOperation> LoadAsync<T>(Action<T> onComplete = null) where T : UnityEngine.Object;
-
-        public abstract ILoadOperation PrepareLoadRoutine<T>(Action<T> onComplete = null) where T : UnityEngine.Object;
-
-        public abstract IEnumerator WaitLoadRoutine();
-
-        public abstract ILoadOperation LoadWithCoroutines<T>(Action<T> onComplete) where T : UnityEngine.Object;
+        public abstract Task<ILoadOperation> LoadAsync<T>() where T : UnityEngine.Object;
 
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]

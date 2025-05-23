@@ -13,12 +13,8 @@ namespace LegendaryTools.Systems.AssetProvider
         bool IsLoaded { get; }
         bool IsLoading { get; }
         T Load<T>() where T : UnityEngine.Object;
-        Task<ILoadOperation> LoadAsync<T>(Action<T> onComplete = null)
+        Task<ILoadOperation> LoadAsync<T>()
             where T : UnityEngine.Object;
-        ILoadOperation PrepareLoadRoutine<T>(Action<T> onComplete = null)
-            where T : UnityEngine.Object;
-        IEnumerator WaitLoadRoutine();
-        ILoadOperation LoadWithCoroutines<T>(Action<T> onComplete) where T : UnityEngine.Object;
         void Unload();
         void SetAsSceneAsset(UnityEngine.Object sceneInstanceInScene);
         void ClearLoadedAssetRef();

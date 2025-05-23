@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Threading.Tasks;
+using LegendaryTools.Concurrency;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
@@ -12,6 +14,7 @@ namespace LegendaryTools.Systems.AssetProvider
         float Progress { get; }
         event Action<object> OnCompleted;
         void Release();
+        Task<T> Await<T>() where T : UnityEngine.Object;
     }
 
     public class LoadOperation : ILoadOperation
@@ -91,6 +94,36 @@ namespace LegendaryTools.Systems.AssetProvider
             assetBundleRequest = operation;
             operationType = OperationType.AssetBundle;
             assetBundleRequest.completed += OnAssetBundleLoadCompleted;
+        }
+
+        public async Task<T> Await<T>()
+            where T : UnityEngine.Object
+        {
+            switch (operationType)
+            {
+                case OperationType.Addressable:
+                    //await addressableOperation.Task;
+                    await AsyncWait.ForAsync(AsyncAction, AsyncWaitBackend.NativeAsyncWait);
+                    return addressableOperation.Result as T;
+
+                case OperationType.AssetBundle:
+                    await assetBundleRequest;
+                    await AsyncWait.ForAsyncOperation(assetBundleRequest, AsyncWaitBackend.NativeAsyncWait);
+                    return assetBundleRequest.asset as T;
+
+                case OperationType.Resource:
+                    await resourceOperation;
+                    await AsyncWait.ForAsyncOperation(resourceOperation, AsyncWaitBackend.NativeAsyncWait);
+                    return resourceOperation.asset as T;
+
+                default:
+                    throw new InvalidOperationException("Unknown operation type.");
+            }
+        }
+
+        private Task<object> AsyncAction(AsyncWaitTaskContext context)
+        {
+            return addressableOperation.Task;
         }
 
         public void Release()

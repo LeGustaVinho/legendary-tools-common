@@ -55,13 +55,7 @@ public class AsyncWaitExample : MonoBehaviour
 
             // Demonstrate ForAsync (no parameters, no return)
             Debug.Log($"[{Time.time}] Running async action...");
-            await AsyncWait.ForAsync(async context =>
-            {
-                Debug.Log($"[{Time.time}] Inside async action.");
-                context.Progress?.Report(0.5f);
-                await Task.Delay(1000);
-                context.Progress?.Report(1f);
-            }, Backend, cts.Token, new Progress<float>(p => Debug.Log($"[{Time.time}] Progress: {p}")));
+            await AsyncWait.ForAsync(AsyncAction, Backend, cts.Token, new Progress<float>(p => Debug.Log($"[{Time.time}] Progress: {p}")));
             Debug.Log($"[{Time.time}] Async action completed.");
 
             // Demonstrate ForAsync with return value
@@ -186,6 +180,14 @@ public class AsyncWaitExample : MonoBehaviour
         {
             Debug.LogError($"Error: {ex.Message}");
         }
+    }
+
+    private async Task AsyncAction(AsyncWaitTaskContext context)
+    {
+        Debug.Log($"[{Time.time}] Inside async action.");
+        context.Progress?.Report(0.5f);
+        await Task.Delay(1000);
+        context.Progress?.Report(1f);
     }
 
     private void Update()

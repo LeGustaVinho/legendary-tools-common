@@ -24,20 +24,16 @@ namespace LegendaryTools.Systems.AssetProvider
             return null;
         }
 
-        public override async Task<ILoadOperation> LoadAsync<T>(Action<T> onComplete = null)
+        public override async Task<ILoadOperation> LoadAsync<T>()
         {
             if (IsLoaded || IsInScene)
-            {
-                onComplete?.Invoke(loadedAsset as T);
                 return handle;
-            }
             
             if (ResourcePathReference.resourcePath.Length > 0)
             {
                 IsLoading = true;
                 ResourceRequest resourcesRequest = Resources.LoadAsync<T>(ResourcePathReference.resourcePath);
                 handle = new LoadOperation(resourcesRequest);
-                if(onComplete != null) handle.OnCompleted += OnResourceLoadCompleted;
 
                 while (!handle.IsDone)
                 {
@@ -50,52 +46,6 @@ namespace LegendaryTools.Systems.AssetProvider
             }
 
             return null;
-            void OnResourceLoadCompleted(object obj)
-            {
-                onComplete?.Invoke(obj as T);
-            }
-        }
-
-        public override ILoadOperation PrepareLoadRoutine<T>(Action<T> onComplete = null)
-        {
-            if (IsLoaded || IsInScene)
-            {
-                onComplete?.Invoke(loadedAsset as T);
-                return handle;
-            }
-            
-            IsLoading = true;
-            ResourceRequest resourcesRequest = Resources.LoadAsync<T>(ResourcePathReference.resourcePath);
-            handle = new LoadOperation(resourcesRequest);
-            handle.OnCompleted += OnResourceLoadCompleted;
-            return handle;
-            void OnResourceLoadCompleted(object obj)
-            {
-                loadedAsset = handle.Result;
-                IsLoading = false;
-                onComplete?.Invoke(obj as T);
-            }
-        }
-
-        public override IEnumerator WaitLoadRoutine()
-        {
-            if (handle == null)
-            {
-                Debug.LogError($"[{nameof(ResourcesAssetLoaderConfig)}:{nameof(WaitLoadRoutine)}] Handle is null, did you forget to call {nameof(PrepareLoadRoutine)}() ?");
-                yield return null;
-            }
-            
-            while (!handle.IsDone)
-            {
-                yield return null;
-            }
-        }
-
-        public override ILoadOperation LoadWithCoroutines<T>(Action<T> onComplete)
-        {
-            ILoadOperation loadOperation = PrepareLoadRoutine<T>(onComplete);
-            UnityHub.Instance.StartRoutine(WaitLoadRoutine());
-            return loadOperation;
         }
 
         public override void Unload()
