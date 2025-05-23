@@ -1,13 +1,11 @@
 {
-    "name": "LegendaryTools.Systems.ScreenFlow.Editor",
+    "name": "LegendaryTools.Actor",
     "rootNamespace": "",
     "references": [
         "GUID:2247f345c1389cb428906dc038800b93",
-        "GUID:549a8a1fb00083d469fea7aba884d912"
+        "GUID:57e4ccb1ab9be0f48b58a61d57f7b27b"
     ],
-    "includePlatforms": [
-        "Editor"
-    ],
+    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,

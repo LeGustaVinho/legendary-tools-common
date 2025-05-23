@@ -1,13 +1,13 @@
 {
-    "name": "LegendaryTools.Systems.ScreenFlow.Editor",
+    "name": "LegendaryTools.AssetProvider",
     "rootNamespace": "",
     "references": [
+        "GUID:9e24947de15b9834991c9d8411ea37cf",
+        "GUID:84651a3751eca9349aac36a66bba901b",
         "GUID:2247f345c1389cb428906dc038800b93",
-        "GUID:549a8a1fb00083d469fea7aba884d912"
+        "GUID:c65805a8bbc03014bb8db3f66d348f78"
     ],
-    "includePlatforms": [
-        "Editor"
-    ],
+    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
