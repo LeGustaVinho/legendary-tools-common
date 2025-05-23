@@ -9,6 +9,7 @@ namespace LegendaryTools.Systems.ScreenFlow
         GameObject GameObject { get; }
         T GetComponent<T>();
         T GetComponentInParent<T>();
+        T GetComponentInChildren<T>();
         BackKeyBehaviourOverride BackKeyBehaviourOverride { get; set; }
         event Action<IScreenBase> OnHideRequest;
         event Action<IScreenBase> OnHideCompleted;
