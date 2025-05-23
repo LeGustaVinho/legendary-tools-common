@@ -785,7 +785,7 @@ namespace LegendaryTools.Concurrency
             }
         }
 
-        private static async Task<T> RunCoroutineWithResult<T>(System.Collections.IEnumerator coroutine, CancellationToken cancellationToken)
+        public static async Task<T> RunCoroutineWithResult<T>(System.Collections.IEnumerator coroutine, CancellationToken cancellationToken)
         {
             TaskCompletionSource<T> tcs = new();
             Coroutine startedCoroutine =
