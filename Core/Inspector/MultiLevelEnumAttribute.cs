@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
 
-namespace LegendaryTools.Editor.Attributes
+namespace LegendaryTools.Inspector
 {
     public class MultiLevelEnumAttribute : PropertyAttribute
     {
