@@ -9,6 +9,8 @@ using System.Text.RegularExpressions;
 using System;
 using System.Reflection;
 using Newtonsoft.Json;
+using UnityEditor.SceneManagement;
+
 
 namespace LegendaryTools.Editor
 {
@@ -18,19 +20,20 @@ namespace LegendaryTools.Editor
         private string namespaceName = "MyNamespace";
         private string className = "MyUIClass";
         private Vector2 scrollPosition;
-        private Dictionary<string, List<ComponentInfo>> componentGroups = new Dictionary<string, List<ComponentInfo>>();
-        private Dictionary<string, bool> foldoutStates = new Dictionary<string, bool>();
+        private Dictionary<string, List<ComponentInfo>> componentGroups = new();
+        private Dictionary<string, bool> foldoutStates = new();
         private bool expandAllGroups = true;
         private int filterTypeIndex = 0;
         private string gameObjectFilter = "";
         private bool useSerializeField = true;
         private bool useBackingFields = false;
+        private HashSet<string> usedFieldNames = new();
 
         private static readonly Type[] supportedTypes = new Type[]
         {
-            typeof(Text), typeof(TMP_Text), typeof(Image), typeof(Button), typeof(Toggle),
+            typeof(Text), typeof(TextMeshProUGUI), typeof(TMP_Text), typeof(Image), typeof(Button), typeof(Toggle),
             typeof(Slider), typeof(Scrollbar), typeof(Dropdown), typeof(InputField),
-            typeof(RawImage), typeof(Mask), typeof(ScrollRect), typeof(TMP_InputField),
+            typeof(RawImage), typeof(Mask), typeof(ScrollRect), typeof(TMP_InputField)
         };
 
         private static readonly string s_isWaitingRecompile = "UIComponentFieldGenerator_WaitingRecompile";
@@ -40,24 +43,33 @@ namespace LegendaryTools.Editor
             "UIComponentFieldGenerator_PendingTargetRectTransformPath";
 
         private static readonly string s_pendingFieldAssignments = "UIComponentFieldGenerator_PendingFieldAssignments";
+        private static readonly string s_windowStatePath = "Library/UIComponentFieldGenerator_State.json";
 
         [Serializable]
         private class ComponentInfo
         {
-            public Component component;
+            [JsonIgnore] public Component component;
+            public string componentType;
             public bool isSelected;
             public string gameObjectName;
+            public string gameObjectPath;
             public string parentName;
             public string fieldName;
             public string fieldNameInput;
             public List<int> selectedPropertyIndices;
             public List<int> selectedEventIndices;
 
-            public ComponentInfo(Component comp, string goName, string pName, string fName)
+            public ComponentInfo()
+            {
+            }
+
+            public ComponentInfo(Component comp, string goName, string goPath, string pName, string fName)
             {
                 component = comp;
+                componentType = comp.GetType().ToString();
                 isSelected = false;
                 gameObjectName = goName;
+                gameObjectPath = goPath;
                 parentName = pName;
                 fieldName = fName;
                 fieldNameInput = fName;
@@ -77,14 +89,50 @@ namespace LegendaryTools.Editor
             public string gameObjectName;
         }
 
+        [Serializable]
+        private class WindowState
+        {
+            public string targetRectTransformPath;
+            public string namespaceName;
+            public string className;
+            public Dictionary<string, List<ComponentInfo>> componentGroups;
+            public Dictionary<string, bool> foldoutStates;
+            public bool expandAllGroups;
+            public int filterTypeIndex;
+            public string gameObjectFilter;
+            public bool useSerializeField;
+            public bool useBackingFields;
+            public HashSet<string> usedFieldNames;
+        }
+
         private static readonly Dictionary<Type, List<(string propertyName, string propertyType)>> ComponentProperties =
-            new Dictionary<Type, List<(string, string)>>
+            new()
             {
-                { typeof(Text), new List<(string, string)> { ("text", "string"), ("color", "Color") } },
-                { typeof(TMP_Text), new List<(string, string)> { ("text", "string"), ("color", "Color") } },
-                { typeof(TMP_InputField), new List<(string, string)> { ("text", "string"), ("color", "Color") } },
-                { typeof(Image), new List<(string, string)> { ("color", "Color"), ("sprite", "Sprite") } },
-                { typeof(RawImage), new List<(string, string)> { ("color", "Color"), ("texture", "Texture") } },
+                {
+                    typeof(Text),
+                    new List<(string, string)> { ("text", "string"), ("color", "Color"), ("enabled", "bool") }
+                },
+                {
+                    typeof(TextMeshProUGUI),
+                    new List<(string, string)> { ("text", "string"), ("color", "Color"), ("enabled", "bool") }
+                },
+                {
+                    typeof(TMP_Text),
+                    new List<(string, string)> { ("text", "string"), ("color", "Color"), ("enabled", "bool") }
+                },
+                {
+                    typeof(TMP_InputField),
+                    new List<(string, string)> { ("text", "string"), ("color", "Color"), ("enabled", "bool") }
+                },
+                {
+                    typeof(Image),
+                    new List<(string, string)>
+                        { ("color", "Color"), ("sprite", "Sprite"), ("fillAmount", "float"), ("enabled", "bool") }
+                },
+                {
+                    typeof(RawImage),
+                    new List<(string, string)> { ("color", "Color"), ("texture", "Texture"), ("enabled", "bool") }
+                },
                 { typeof(Button), new List<(string, string)> { ("interactable", "bool") } },
                 { typeof(Toggle), new List<(string, string)> { ("isOn", "bool") } },
                 { typeof(Slider), new List<(string, string)> { ("value", "float") } },
@@ -96,7 +144,7 @@ namespace LegendaryTools.Editor
             };
 
         private static readonly Dictionary<Type, List<(string eventName, string eventType, string handlerSignature)>>
-            ComponentEvents = new Dictionary<Type, List<(string, string, string)>>
+            ComponentEvents = new()
             {
                 { typeof(Button), new List<(string, string, string)> { ("onClick", "UnityEvent", "()") } },
                 {
@@ -120,7 +168,7 @@ namespace LegendaryTools.Editor
                     {
                         ("onValueChanged", "UnityEvent<string>", "(string value)"),
                         ("onEndEdit", "UnityEvent<string>", "(string value)"),
-                        ("onSubmit", "UnityEvent<string>", "(string value)"),
+                        ("onSubmit", "UnityEvent<string>", "(string value)")
                     }
                 },
                 {
@@ -128,7 +176,7 @@ namespace LegendaryTools.Editor
                     {
                         ("onValueChanged", "UnityEvent<string>", "(string value)"),
                         ("onEndEdit", "UnityEvent<string>", "(string value)"),
-                        ("onSubmit", "UnityEvent<string>", "(string value)"),
+                        ("onSubmit", "UnityEvent<string>", "(string value)")
                     }
                 },
                 {
@@ -136,13 +184,14 @@ namespace LegendaryTools.Editor
                     new List<(string, string, string)> { ("onValueChanged", "UnityEvent<Vector2>", "(Vector2 value)") }
                 },
                 { typeof(Text), new List<(string, string, string)> { } },
+                { typeof(TextMeshProUGUI), new List<(string, string, string)> { } },
                 { typeof(TMP_Text), new List<(string, string, string)> { } },
                 { typeof(Image), new List<(string, string, string)> { } },
                 { typeof(RawImage), new List<(string, string, string)> { } },
                 { typeof(Mask), new List<(string, string, string)> { } }
             };
 
-        [MenuItem("Tools/LegendaryTools/Automation/UI Component Field Generator")]
+        [MenuItem("Tools/UI Component Field Generator")]
         public static void ShowWindow()
         {
             GetWindow<UIComponentFieldGenerator>("UI Field Generator");
@@ -175,7 +224,7 @@ namespace LegendaryTools.Editor
         private static string GetGameObjectPath(GameObject go)
         {
             if (go == null) return "";
-            List<string> pathSegments = new List<string>();
+            List<string> pathSegments = new();
             Transform current = go.transform;
             while (current != null)
             {
@@ -194,20 +243,29 @@ namespace LegendaryTools.Editor
             string[] pathSegments = path.Split('/');
             GameObject current = null;
 
-            // Find root objects
-            GameObject[] rootObjects = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
-            foreach (GameObject root in rootObjects)
+            PrefabStage prefabStage = PrefabStageUtility.GetCurrentPrefabStage();
+            if (prefabStage != null)
             {
-                if (root.name == pathSegments[0])
+                GameObject prefabRoot = prefabStage.prefabContentsRoot;
+                if (prefabRoot.name == pathSegments[0]) current = prefabRoot;
+            }
+            else
+            {
+                GameObject[] rootObjects =
+                    UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
+                foreach (GameObject root in rootObjects)
                 {
-                    current = root;
-                    break;
+                    if (root.name == pathSegments[0])
+                    {
+                        current = root;
+                        break;
+                    }
                 }
             }
 
             if (current == null) return null;
 
-            // Traverse hierarchy
+            // Traversar a hierarquia
             for (int i = 1; i < pathSegments.Length; i++)
             {
                 Transform child = null;
@@ -231,6 +289,18 @@ namespace LegendaryTools.Editor
         private static void OnAfterAssemblyReload()
         {
             if (EditorPrefs.GetBool(s_isWaitingRecompile)) EditorApplication.delayCall += OnInspectorReloadComplete;
+
+            if (File.Exists(s_windowStatePath))
+                EditorApplication.delayCall += () =>
+                {
+                    UIComponentFieldGenerator window = GetWindow<UIComponentFieldGenerator>("UI Field Generator");
+                    window.RestoreWindowState();
+                };
+        }
+
+        private void OnDestroy()
+        {
+            if (File.Exists(s_windowStatePath)) File.Delete(s_windowStatePath);
         }
 
         private static void OnInspectorReloadComplete()
@@ -298,21 +368,15 @@ namespace LegendaryTools.Editor
 
             foreach (FieldAssignment assignment in fieldAssignments)
             {
+                GameObject targetGameObject = FindGameObjectByPath(assignment.gameObjectName);
                 Component targetComponent = null;
-                foreach (RectTransform rt in targetRectTransform.GetComponentsInChildren<RectTransform>(true))
-                {
-                    if (rt.gameObject.name == assignment.gameObjectName)
-                    {
-                        targetComponent = rt.GetComponent(assignment.componentType);
-                        if (targetComponent != null)
-                            break;
-                    }
-                }
+
+                if (targetGameObject != null) targetComponent = targetGameObject.GetComponent(assignment.componentType);
 
                 if (targetComponent == null)
                 {
                     Debug.LogWarning(
-                        $"UIComponentFieldGenerator: Could not find component '{assignment.componentType}' on GameObject '{assignment.gameObjectName}' for field '{assignment.fieldName}'.");
+                        $"UIComponentFieldGenerator: Could not find component '{assignment.componentType}' on GameObject at path '{assignment.gameObjectName}' for field '{assignment.fieldName}'.");
                     continue;
                 }
 
@@ -341,7 +405,7 @@ namespace LegendaryTools.Editor
             className = EditorGUILayout.TextField("Class Name", className);
 
             EditorGUILayout.BeginHorizontal();
-            List<string> typeOptions = new List<string> { "All" };
+            List<string> typeOptions = new() { "All" };
             typeOptions.AddRange(supportedTypes.Select(t => t.Name));
             filterTypeIndex =
                 EditorGUILayout.Popup("Filter Type", filterTypeIndex, typeOptions.ToArray(), GUILayout.Width(200));
@@ -409,6 +473,7 @@ namespace LegendaryTools.Editor
 
             scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
 
+            usedFieldNames.Clear();
             foreach (KeyValuePair<string, List<ComponentInfo>> group in componentGroups)
             {
                 string parentName = group.Key;
@@ -432,7 +497,7 @@ namespace LegendaryTools.Editor
                     EditorGUILayout.LabelField("Selected", EditorStyles.boldLabel, GUILayout.Width(60));
                     EditorGUILayout.LabelField("GameObject", EditorStyles.boldLabel, GUILayout.Width(150));
                     EditorGUILayout.LabelField("Field", EditorStyles.boldLabel, GUILayout.Width(120));
-                    EditorGUILayout.LabelField("Type", EditorStyles.boldLabel, GUILayout.Width(80));
+                    EditorGUILayout.LabelField("Type", EditorStyles.boldLabel, GUILayout.Width(120));
                     EditorGUILayout.LabelField("Properties", EditorStyles.boldLabel, GUILayout.Width(120));
                     EditorGUILayout.LabelField("Events", EditorStyles.boldLabel, GUILayout.Width(120));
                     EditorGUILayout.EndHorizontal();
@@ -442,13 +507,31 @@ namespace LegendaryTools.Editor
                         EditorGUILayout.BeginHorizontal();
                         comp.isSelected = EditorGUILayout.Toggle(comp.isSelected, GUILayout.Width(60));
 
-                        GUIStyle buttonStyle = new GUIStyle(GUI.skin.label)
+                        GUIStyle buttonStyle = new(GUI.skin.label)
                             { normal = { textColor = GUI.skin.label.normal.textColor } };
                         if (GUI.Button(EditorGUILayout.GetControlRect(GUILayout.Width(150)), comp.gameObjectName,
                                 buttonStyle)) Selection.activeObject = comp.component.gameObject;
 
+                        string originalFieldName = comp.fieldNameInput;
+                        string newFieldName = originalFieldName;
+                        int suffix = 0;
+
+                        int maxTries = 20;
+                        int currentTry = 0;
+                        while (usedFieldNames.Contains(newFieldName) ||
+                               (!IsValidCSharpIdentifier(newFieldName) && currentTry < maxTries))
+                        {
+                            suffix++;
+                            newFieldName = $"{originalFieldName}{suffix}";
+                            currentTry++;
+                        }
+
+                        if (newFieldName != originalFieldName) comp.fieldNameInput = newFieldName;
+
+                        usedFieldNames.Add(comp.fieldNameInput);
+
                         comp.fieldNameInput = EditorGUILayout.TextField(comp.fieldNameInput, GUILayout.Width(120));
-                        EditorGUILayout.LabelField(comp.component.GetType().Name, GUILayout.Width(80));
+                        EditorGUILayout.LabelField(comp.component.GetType().Name, GUILayout.Width(120));
 
                         Type compType = comp.component.GetType();
                         if (ComponentProperties.ContainsKey(compType) && ComponentProperties[compType].Count > 0)
@@ -517,6 +600,7 @@ namespace LegendaryTools.Editor
                     return;
                 }
 
+                SaveWindowState();
                 GenerateClassFile();
             }
         }
@@ -525,7 +609,10 @@ namespace LegendaryTools.Editor
         {
             componentGroups.Clear();
             foldoutStates.Clear();
+            usedFieldNames.Clear();
             if (targetRectTransform == null) return;
+
+            Dictionary<string, int> fieldNameCounts = new();
 
             foreach (RectTransform rt in targetRectTransform.GetComponentsInChildren<RectTransform>(true))
             {
@@ -535,12 +622,26 @@ namespace LegendaryTools.Editor
                     {
                         string goName = comp.gameObject.name;
                         string parentName = rt.parent != null ? rt.parent.name : "Root";
-                        string fieldName = ConvertToValidFieldName(goName);
+                        string baseFieldName = ConvertToValidFieldName(goName);
+                        string fieldName = baseFieldName;
+
+                        // Garante que o nome do campo seja único
+                        if (fieldNameCounts.ContainsKey(baseFieldName))
+                        {
+                            fieldNameCounts[baseFieldName]++;
+                            fieldName = $"{baseFieldName}{fieldNameCounts[baseFieldName]}";
+                        }
+                        else
+                        {
+                            fieldNameCounts[baseFieldName] = 0;
+                        }
 
                         if (!componentGroups.ContainsKey(parentName))
                             componentGroups[parentName] = new List<ComponentInfo>();
 
-                        componentGroups[parentName].Add(new ComponentInfo(comp, goName, parentName, fieldName));
+                        componentGroups[parentName].Add(new ComponentInfo(comp, comp.gameObject.name,
+                            GetGameObjectPath(comp.gameObject), parentName, fieldName));
+                        usedFieldNames.Add(fieldName);
                     }
                 }
             }
@@ -599,9 +700,9 @@ namespace LegendaryTools.Editor
                 return;
             }
 
-            Dictionary<string, int> fieldNameCounts = new Dictionary<string, int>();
-            Dictionary<ComponentInfo, string> uniqueFieldNames = new Dictionary<ComponentInfo, string>();
-            List<FieldAssignment> fieldAssignments = new List<FieldAssignment>();
+            Dictionary<string, int> fieldNameCounts = new();
+            Dictionary<ComponentInfo, string> uniqueFieldNames = new();
+            List<FieldAssignment> fieldAssignments = new();
             foreach (ComponentInfo comp in selectedComponents)
             {
                 string baseName = comp.fieldNameInput;
@@ -630,13 +731,15 @@ namespace LegendaryTools.Editor
                 {
                     fieldName = uniqueFieldNames[comp],
                     componentType = comp.component.GetType().Name,
-                    gameObjectName = comp.gameObjectName
+                    gameObjectName = GetGameObjectPath(comp.component.gameObject)
                 });
             }
 
             string classContent = "";
-            List<string> usingStatements = new List<string> { "UnityEngine", "UnityEngine.UI" };
-            if (selectedComponents.Any(c => c.component.GetType() == typeof(TMP_Text)))
+            List<string> usingStatements = new() { "UnityEngine", "UnityEngine.UI" };
+            if (selectedComponents.Any(c => c.component.GetType() == typeof(TMP_Text) ||
+                                            c.component.GetType() == typeof(TextMeshProUGUI) ||
+                                            c.component.GetType() == typeof(TMP_InputField)))
                 usingStatements.Add("TMPro");
             if (selectedComponents.Any(c => c.selectedEventIndices.Any()))
                 usingStatements.Add("UnityEngine.Events");
@@ -769,6 +872,85 @@ namespace LegendaryTools.Editor
                     GetGameObjectPath(targetRectTransform.gameObject));
                 EditorPrefs.SetString(s_pendingFieldAssignments, JsonConvert.SerializeObject(fieldAssignments));
                 AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            }
+        }
+
+        private void SaveWindowState()
+        {
+            WindowState state = new()
+            {
+                targetRectTransformPath =
+                    targetRectTransform != null ? GetGameObjectPath(targetRectTransform.gameObject) : "",
+                namespaceName = namespaceName,
+                className = className,
+                componentGroups = componentGroups,
+                foldoutStates = foldoutStates,
+                expandAllGroups = expandAllGroups,
+                filterTypeIndex = filterTypeIndex,
+                gameObjectFilter = gameObjectFilter,
+                useSerializeField = useSerializeField,
+                useBackingFields = useBackingFields,
+                usedFieldNames = usedFieldNames
+            };
+
+            JsonSerializerSettings settings = new()
+            {
+                Formatting = Formatting.Indented
+            };
+            string json = JsonConvert.SerializeObject(state, Formatting.Indented, settings);
+            File.WriteAllText(s_windowStatePath, json);
+        }
+
+        private void RestoreWindowState()
+        {
+            if (!File.Exists(s_windowStatePath))
+                return;
+
+            try
+            {
+                string json = File.ReadAllText(s_windowStatePath);
+                WindowState state = JsonConvert.DeserializeObject<WindowState>(json);
+
+                // Restaurar targetRectTransform
+                GameObject targetGO = FindGameObjectByPath(state.targetRectTransformPath);
+                targetRectTransform = targetGO != null ? targetGO.GetComponent<RectTransform>() : null;
+
+                namespaceName = state.namespaceName;
+                className = state.className;
+                componentGroups = state.componentGroups ?? new Dictionary<string, List<ComponentInfo>>();
+                foldoutStates = state.foldoutStates ?? new Dictionary<string, bool>();
+                expandAllGroups = state.expandAllGroups;
+                filterTypeIndex = state.filterTypeIndex;
+                gameObjectFilter = state.gameObjectFilter;
+                useSerializeField = state.useSerializeField;
+                useBackingFields = state.useBackingFields;
+                usedFieldNames = state.usedFieldNames ?? new HashSet<string>();
+
+                // Reassociar componentes, pois as referências podem ter sido perdidas
+                foreach (KeyValuePair<string, List<ComponentInfo>> group in componentGroups)
+                {
+                    foreach (ComponentInfo compInfo in group.Value)
+                    {
+                        GameObject go = FindGameObjectByPath(compInfo.gameObjectPath);
+                        if (go != null)
+                            compInfo.component = go.GetComponent(compInfo.componentType);
+                        else
+                            compInfo.component = null; // Marca como nulo se o GameObject não for encontrado
+                    }
+                }
+
+                // Remover grupos com componentes nulos
+                foreach (string groupKey in componentGroups.Keys.ToList())
+                {
+                    componentGroups[groupKey].RemoveAll(c => c.component == null);
+                    if (componentGroups[groupKey].Count == 0)
+                        componentGroups.Remove(groupKey);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"UIComponentFieldGenerator: Failed to restore window state: {ex.Message}");
+                File.Delete(s_windowStatePath); // Limpar o arquivo em caso de erro
             }
         }
     }
