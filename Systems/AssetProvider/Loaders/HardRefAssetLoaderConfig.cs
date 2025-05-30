@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using Object = UnityEngine.Object;
+#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
 
 namespace LegendaryTools.Systems.AssetProvider
 {
@@ -37,7 +39,7 @@ namespace LegendaryTools.Systems.AssetProvider
             return HardReference as T;
         }
 
-        public override async Task<ILoadOperation> LoadAsync<T>()
+        public override async Task<ILoadOperation> LoadAsync<T>(CancellationToken cancellationToken = default)
         {
             return new HardRefLoadedAsset(HardReference);
         }
@@ -57,7 +59,7 @@ namespace LegendaryTools.Systems.AssetProvider
             return HardReference as T1;
         }
 
-        public override async Task<ILoadOperation> LoadAsync<T1>()
+        public override async Task<ILoadOperation> LoadAsync<T1>(CancellationToken cancellationToken = default)
         {
             return new HardRefLoadedAsset(HardReference);
         }
@@ -67,3 +69,4 @@ namespace LegendaryTools.Systems.AssetProvider
         }
     }
 }
+#pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously

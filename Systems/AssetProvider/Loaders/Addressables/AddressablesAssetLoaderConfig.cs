@@ -1,10 +1,9 @@
 ﻿using UnityEngine;
 using UnityEngine.AddressableAssets;
 using System;
-using System.Collections;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine.ResourceManagement.AsyncOperations;
-using LegendaryTools.Concurrency;
 
 namespace LegendaryTools.Systems.AssetProvider
 {
@@ -18,14 +17,14 @@ namespace LegendaryTools.Systems.AssetProvider
             throw new NotSupportedException();
         }
 
-        public override async Task<ILoadOperation> LoadAsync<T>()
+        public override async Task<ILoadOperation> LoadAsync<T>(CancellationToken cancellationToken = default)
         {
             if (IsLoaded || IsInScene)
                 return handle;
             
             IsLoading = true;
             AsyncOperationHandle<T> request = assetReference.LoadAssetAsync<T>();
-            handle = new LoadOperation(request);
+            handle = new LoadOperation(request, asyncWaitBackend, cancellationToken);
             await handle.Await<T>();
             loadedAsset = handle.Result;
             IsLoading = false;
@@ -49,14 +48,14 @@ namespace LegendaryTools.Systems.AssetProvider
     {
         [SerializeField] protected AssetReferenceT<T> assetReference;
 
-        public override async Task<ILoadOperation> LoadAsync<T1>()
+        public override async Task<ILoadOperation> LoadAsync<T1>(CancellationToken cancellationToken = default)
         {
             if (IsLoaded || IsInScene)
                 return handle;
             
             IsLoading = true;
             AsyncOperationHandle<T> request = assetReference.LoadAssetAsync<T>();
-            handle = new LoadOperation(request);
+            handle = new LoadOperation(request, asyncWaitBackend);
             await handle.Await<T>();
             loadedAsset = handle.Result;
             IsLoading = false;

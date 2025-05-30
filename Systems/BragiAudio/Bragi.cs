@@ -1,9 +1,11 @@
+using LegendaryTools.Concurrency;
 using UnityEngine;
 
 namespace LegendaryTools.Bragi
 {
     public class Bragi : Singleton<Bragi>
     {
+        public AsyncWaitBackend AsyncWaitBackend = AsyncWaitBackend.UnityCoroutine;
         private readonly AudioHandler audioHandlerPrefab;
 
         public Bragi()

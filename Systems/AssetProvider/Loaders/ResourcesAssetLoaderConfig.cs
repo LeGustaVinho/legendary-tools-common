@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -24,28 +25,18 @@ namespace LegendaryTools.Systems.AssetProvider
             return null;
         }
 
-        public override async Task<ILoadOperation> LoadAsync<T>()
+        public override async Task<ILoadOperation> LoadAsync<T>(CancellationToken cancellationToken = default)
         {
             if (IsLoaded || IsInScene)
                 return handle;
             
-            if (ResourcePathReference.resourcePath.Length > 0)
-            {
-                IsLoading = true;
-                ResourceRequest resourcesRequest = Resources.LoadAsync<T>(ResourcePathReference.resourcePath);
-                handle = new LoadOperation(resourcesRequest);
-
-                while (!handle.IsDone)
-                {
-                    await Task.Delay(25);
-                }
-
-                loadedAsset = handle.Result;
-                IsLoading = false;
-                return handle;
-            }
-
-            return null;
+            IsLoading = true;
+            ResourceRequest resourcesRequest = Resources.LoadAsync<T>(ResourcePathReference.resourcePath);
+            handle = new LoadOperation(resourcesRequest, asyncWaitBackend, cancellationToken);
+            await handle.Await<T>();
+            loadedAsset = handle.Result;
+            IsLoading = false;
+            return handle;
         }
 
         public override void Unload()

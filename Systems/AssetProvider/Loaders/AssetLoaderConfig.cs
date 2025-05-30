@@ -1,15 +1,27 @@
 using System;
 using System.Collections;
+using System.Threading;
 using System.Threading.Tasks;
+using LegendaryTools.Concurrency;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
 namespace LegendaryTools.Systems.AssetProvider
 {
-    public abstract class AssetLoaderConfig : ScriptableObject, IAssetLoaderConfig
+    public abstract class AssetLoaderConfig : UnityObject, IAssetLoaderConfig
     {
         [SerializeField] protected bool preload;
         [SerializeField] protected bool dontUnloadAfterLoad;
+        [SerializeField] protected AsyncWaitBackend asyncWaitBackend;
+        
+        protected object loadedAsset;
+        
+#if ODIN_INSPECTOR
+        [Sirenix.OdinInspector.ShowInInspector]
+        [Sirenix.OdinInspector.HideInEditorMode]
+        [Sirenix.OdinInspector.ReadOnly]
+#endif
+        protected ILoadOperation handle;
         
         public virtual bool PreLoad
         {
@@ -22,6 +34,15 @@ namespace LegendaryTools.Systems.AssetProvider
             set => dontUnloadAfterLoad = value;
         }
         
+#if ODIN_INSPECTOR
+        [Sirenix.OdinInspector.ShowInInspector]
+#endif
+        public AsyncWaitBackend AsyncWaitBackend
+        {
+            get => asyncWaitBackend;
+            set => asyncWaitBackend = value;
+        }
+
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
         [Sirenix.OdinInspector.HideInEditorMode]
@@ -49,19 +70,10 @@ namespace LegendaryTools.Systems.AssetProvider
         [Sirenix.OdinInspector.ReadOnly]
 #endif
         public virtual bool IsLoading { protected set; get; } = false;
-
-        protected object loadedAsset;
         
-#if ODIN_INSPECTOR
-        [Sirenix.OdinInspector.ShowInInspector]
-        [Sirenix.OdinInspector.HideInEditorMode]
-        [Sirenix.OdinInspector.ReadOnly]
-#endif
-        protected ILoadOperation handle;
-
         public abstract T Load<T>() where T : UnityEngine.Object;
 
-        public abstract Task<ILoadOperation> LoadAsync<T>() where T : UnityEngine.Object;
+        public abstract Task<ILoadOperation> LoadAsync<T>(CancellationToken cancellationToken = default) where T : UnityEngine.Object;
 
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]

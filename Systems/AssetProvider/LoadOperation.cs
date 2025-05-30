@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading;
 using System.Threading.Tasks;
 using LegendaryTools.Concurrency;
 using UnityEngine;
@@ -74,25 +75,36 @@ namespace LegendaryTools.Systems.AssetProvider
         private AsyncOperationHandle addressableOperation;
         private readonly ResourceRequest resourceOperation;
         private readonly AssetBundleRequest assetBundleRequest;
+        private readonly AsyncWaitBackend asyncWaitBackend;
+        private readonly CancellationToken cancellationToken;
 
-        public LoadOperation(AsyncOperationHandle operation)
+        public LoadOperation(AsyncOperationHandle operation, AsyncWaitBackend asyncWaitBackend, 
+            CancellationToken cancellationToken = default)
         {
             addressableOperation = operation;
             operationType = OperationType.Addressable;
+            this.asyncWaitBackend = asyncWaitBackend;
+            this.cancellationToken = cancellationToken;
             addressableOperation.Completed += OnAddressableLoadCompleted;
         }
 
-        public LoadOperation(ResourceRequest operation)
+        public LoadOperation(ResourceRequest operation, AsyncWaitBackend asyncWaitBackend, 
+            CancellationToken cancellationToken = default)
         {
             resourceOperation = operation;
             operationType = OperationType.Resource;
+            this.asyncWaitBackend = asyncWaitBackend;
+            this.cancellationToken = cancellationToken;
             resourceOperation.completed += OnResourceLoadCompleted;
         }
         
-        public LoadOperation(AssetBundleRequest operation)
+        public LoadOperation(AssetBundleRequest operation, AsyncWaitBackend asyncWaitBackend, 
+            CancellationToken cancellationToken = default)
         {
             assetBundleRequest = operation;
             operationType = OperationType.AssetBundle;
+            this.asyncWaitBackend = asyncWaitBackend;
+            this.cancellationToken = cancellationToken;
             assetBundleRequest.completed += OnAssetBundleLoadCompleted;
         }
 
@@ -102,18 +114,17 @@ namespace LegendaryTools.Systems.AssetProvider
             switch (operationType)
             {
                 case OperationType.Addressable:
-                    //await addressableOperation.Task;
-                    await AsyncWait.ForAsync(AsyncAction, AsyncWaitBackend.NativeAsyncWait);
+                    await AsyncWait.ForAsync(AsyncAction, asyncWaitBackend, cancellationToken);
                     return addressableOperation.Result as T;
 
                 case OperationType.AssetBundle:
                     await assetBundleRequest;
-                    await AsyncWait.ForAsyncOperation(assetBundleRequest, AsyncWaitBackend.NativeAsyncWait);
+                    await AsyncWait.ForAsyncOperation(assetBundleRequest, asyncWaitBackend, cancellationToken);
                     return assetBundleRequest.asset as T;
 
                 case OperationType.Resource:
                     await resourceOperation;
-                    await AsyncWait.ForAsyncOperation(resourceOperation, AsyncWaitBackend.NativeAsyncWait);
+                    await AsyncWait.ForAsyncOperation(resourceOperation, asyncWaitBackend, cancellationToken);
                     return resourceOperation.asset as T;
 
                 default:
