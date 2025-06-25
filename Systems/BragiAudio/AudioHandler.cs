@@ -211,15 +211,7 @@ namespace LegendaryTools.Bragi
                 }
                 else
                 {
-                    if (!Config.AssetLoadableConfig.IsLoading)
-                    {
-                        await Config.AssetLoadableConfig.LoadAsync<AudioClip>(cancellationToken);
-                    }
-                    else
-                    {
-                        await AsyncWait.Until(() => Config.AssetLoadableConfig.IsLoaded,
-                            Config.AssetLoadableConfig.AsyncWaitBackend, cancellationToken);
-                    }
+                    await Config.AssetLoadableConfig.WaitForLoadingAsync<AudioClip>(cancellationToken);
 
                     OnAudioLoaded();
                 }

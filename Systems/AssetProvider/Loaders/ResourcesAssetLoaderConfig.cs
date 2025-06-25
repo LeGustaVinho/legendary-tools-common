@@ -28,25 +28,25 @@ namespace LegendaryTools.Systems.AssetProvider
         public override async Task<ILoadOperation> LoadAsync<T>(CancellationToken cancellationToken = default)
         {
             if (IsLoaded || IsInScene)
-                return handle;
+                return Handle;
             
             IsLoading = true;
             ResourceRequest resourcesRequest = Resources.LoadAsync<T>(ResourcePathReference.resourcePath);
-            handle = new LoadOperation(resourcesRequest, asyncWaitBackend, cancellationToken);
-            await handle.Await<T>();
-            loadedAsset = handle.Result;
+            Handle = new LoadOperation(resourcesRequest, asyncWaitBackend, cancellationToken);
+            await Handle.Await<T>();
+            loadedAsset = Handle.Result;
             IsLoading = false;
-            return handle;
+            return Handle;
         }
 
         public override void Unload()
         {
             if (IsInScene) return;
-            if (handle == null) return;
+            if (Handle == null) return;
             
             loadedAsset = null;
-            handle?.Release();
-            handle = null;
+            Handle?.Release();
+            Handle = null;
             IsLoading = false;
         }
     }

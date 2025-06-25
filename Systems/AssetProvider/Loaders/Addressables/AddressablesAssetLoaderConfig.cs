@@ -20,25 +20,25 @@ namespace LegendaryTools.Systems.AssetProvider
         public override async Task<ILoadOperation> LoadAsync<T>(CancellationToken cancellationToken = default)
         {
             if (IsLoaded || IsInScene)
-                return handle;
+                return Handle;
             
             IsLoading = true;
             AsyncOperationHandle<T> request = assetReference.LoadAssetAsync<T>();
-            handle = new LoadOperation(request, asyncWaitBackend, cancellationToken);
-            await handle.Await<T>();
-            loadedAsset = handle.Result;
+            Handle = new LoadOperation(request, asyncWaitBackend, cancellationToken);
+            await Handle.Await<T>();
+            loadedAsset = Handle.Result;
             IsLoading = false;
-            return handle;
+            return Handle;
         }
 
         public override void Unload()
         {
             if (IsInScene) return;
-            if (handle == null) return;
+            if (Handle == null) return;
             
-            handle.Release();
+            Handle.Release();
             loadedAsset = null;
-            handle = null;
+            Handle = null;
             IsLoading = false;
         }
     }
@@ -51,25 +51,25 @@ namespace LegendaryTools.Systems.AssetProvider
         public override async Task<ILoadOperation> LoadAsync<T1>(CancellationToken cancellationToken = default)
         {
             if (IsLoaded || IsInScene)
-                return handle;
+                return Handle;
             
             IsLoading = true;
             AsyncOperationHandle<T> request = assetReference.LoadAssetAsync<T>();
-            handle = new LoadOperation(request, asyncWaitBackend);
-            await handle.Await<T>();
-            loadedAsset = handle.Result;
+            Handle = new LoadOperation(request, asyncWaitBackend);
+            await Handle.Await<T>();
+            loadedAsset = Handle.Result;
             IsLoading = false;
-            return handle;
+            return Handle;
         }
 
         public override void Unload()
         {
             if (IsInScene) return;
-            if (handle == null) return;
+            if (Handle == null) return;
             
             loadedAsset = null;
-            handle.Release();
-            handle = null;
+            Handle.Release();
+            Handle = null;
             IsLoading = false;
         }
     }

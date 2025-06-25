@@ -18,6 +18,10 @@ namespace LegendaryTools.Systems.AssetProvider
         T Load<T>() where T : UnityEngine.Object;
         Task<ILoadOperation> LoadAsync<T>(CancellationToken cancellationToken = default)
             where T : UnityEngine.Object;
+
+        Task<ILoadOperation> WaitForLoadingAsync<T>(CancellationToken cancellationToken = default)
+            where T : UnityEngine.Object;
+        
         void Unload();
         void SetAsSceneAsset(UnityEngine.Object sceneInstanceInScene);
         void ClearLoadedAssetRef();
