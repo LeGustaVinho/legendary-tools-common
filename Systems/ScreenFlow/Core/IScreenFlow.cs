@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace LegendaryTools.Systems.ScreenFlow
 {
@@ -18,7 +19,7 @@ namespace LegendaryTools.Systems.ScreenFlow
         event Action<(PopupConfig, IPopupBase), (PopupConfig, IPopupBase)> OnPopupOpen;
         
         int PopupStackCount { get; }
-        void Initialize();
+        Task Initialize();
         void SendTrigger(string name, System.Object args = null, bool enqueue = true, 
             Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null);
 
