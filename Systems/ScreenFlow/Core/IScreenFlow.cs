@@ -20,7 +20,7 @@ namespace LegendaryTools.Systems.ScreenFlow
         
         int PopupStackCount { get; }
         Task Initialize();
-        void SendTrigger(string name, System.Object args = null, bool enqueue = true, 
+        Task SendTrigger(string name, System.Object args = null, bool enqueue = true, 
             Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null);
 
         public void BindController<T>(IScreenViewController<T> controller)
@@ -29,22 +29,22 @@ namespace LegendaryTools.Systems.ScreenFlow
         public void UnBindController<T>(IScreenViewController<T> controller)
             where T : IScreenBase;
         
-        void SendTrigger(UIEntityBaseConfig uiEntity, System.Object args = null, bool enqueue = true, 
+        Task SendTrigger(UIEntityBaseConfig uiEntity, System.Object args = null, bool enqueue = true, 
             Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null);
 
-        void SendTriggerT<TConfig, TShow>(TConfig uiEntity, TShow args = null, bool enqueue = true,
+        Task SendTriggerT<TConfig, TShow>(TConfig uiEntity, TShow args = null, bool enqueue = true,
             Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
             where TConfig : UIEntityBaseConfig
             where TShow : class;
 
-        public void SendTriggerT<TConfig, TShow, THide>(TConfig uiEntity, TShow args = null, bool enqueue = true,
+        public Task SendTriggerT<TConfig, TShow, THide>(TConfig uiEntity, TShow args = null, bool enqueue = true,
             Action<ScreenBaseT<TConfig, TShow, THide>> requestedScreenOnShow = null,
             Action<IScreenBase> previousScreenOnHide = null)
             where TConfig : UIEntityBaseConfig
             where TShow : class
             where THide : class;
 
-        void MoveBack(System.Object args = null, bool enqueue = false, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null);
+        Task MoveBack(System.Object args = null, bool enqueue = false, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null);
         void CloseForegroundPopup(System.Object args = null, bool enqueue = false, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null);
         void ClosePopup(IPopupBase popupBase, System.Object args = null, bool enqueue = false, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null);
     }

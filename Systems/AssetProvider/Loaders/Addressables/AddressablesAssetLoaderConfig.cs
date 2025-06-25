@@ -46,8 +46,6 @@ namespace LegendaryTools.Systems.AssetProvider
     public class AddressablesAssetLoaderConfig<T> : AddressablesAssetLoaderConfig
         where T : UnityEngine.Object
     {
-        [SerializeField] protected AssetReferenceT<T> assetReference;
-
         public override async Task<ILoadOperation> LoadAsync<T1>(CancellationToken cancellationToken = default)
         {
             if (IsLoaded || IsInScene)

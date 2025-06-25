@@ -1,5 +1,4 @@
 ﻿using LegendaryTools.Inspector;
-using LegendaryTools.Inspector;
 using UnityEditor;
 using UnityEngine;
 

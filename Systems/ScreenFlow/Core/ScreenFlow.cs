@@ -14,7 +14,6 @@ namespace LegendaryTools.Systems.ScreenFlow
     [RequireComponent(typeof(Canvas))]
     [RequireComponent(typeof(CanvasScaler))]
     public class ScreenFlow : 
-        
 #if SCREEN_FLOW_SINGLETON
         SingletonBehaviour<ScreenFlow>
 #else
@@ -31,9 +30,7 @@ namespace LegendaryTools.Systems.ScreenFlow
         public List<ScreenInScene> ScreensInScene = new List<ScreenInScene>();
         public List<PopupInScene> PopupsInScene = new List<PopupInScene>();
 
-        public bool IsTransiting => screenTransitionRoutine != null || 
-                                    popupTransitionRoutine != null || 
-                                    transitionRoutine != null;
+        public bool IsTransiting => transitionRoutine != null;
 
         public bool IsPreloading => preloadRoutine != null;
 
@@ -71,8 +68,6 @@ namespace LegendaryTools.Systems.ScreenFlow
             new Dictionary<string, UIEntityBaseConfig>();
 
         private Task preloadRoutine;
-        private Task screenTransitionRoutine;
-        private Task popupTransitionRoutine;
         private Task nextScreenLoading;
         private Task newPopupLoading;
         private Task hideScreenRoutine;
@@ -84,123 +79,125 @@ namespace LegendaryTools.Systems.ScreenFlow
         private RectTransform rectTransform;
         private PopupCanvasManager popupCanvasManager;
 
+        // Binds a view controller to a specific screen type, allowing it to receive lifecycle events (e.g., OnShow, OnHide).
         public void BindController<T>(IScreenViewController<T> controller)
             where T : IScreenBase
         {
+            // Get the type of the screen the controller is associated with.
             Type viewType = typeof(T);
             
+            // Initialize the list of controllers for this screen type if it doesn't exist.
             if (!viewControllers.ContainsKey(viewType))
                 viewControllers.Add(viewType, new List<IScreenViewController>());
             
+            // Add the controller to the list if it's not already present.
             if(!viewControllers[viewType].Contains(controller))
                 viewControllers[viewType].Add(controller);
         }
         
+        // Unbinds a view controller from a specific screen type, stopping it from receiving lifecycle events.
         public void UnBindController<T>(IScreenViewController<T> controller)
             where T : IScreenBase
         {
+            // Get the type of the screen the controller is associated with.
             Type viewType = typeof(T);
             
-            if (!viewControllers.TryGetValue(viewType, out List<IScreenViewController> controllers))
+            // Remove the controller from the list if it exists.
+            if (viewControllers.TryGetValue(viewType, out List<IScreenViewController> controllers))
             {
                 if (controllers.Contains(controller))
                     controllers.Remove(controller);
             }
         }
         
-        public void SendTrigger(string name, System.Object args = null, bool enqueue = true, 
+        // Sends a trigger to transition to a UI entity (screen or popup) by its name.
+        public async Task SendTrigger(string name, System.Object args = null, bool enqueue = true, 
             Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
         {
+            // Look up the UI entity by name in the lookup dictionary.
             if (uiEntitiesLookup.TryGetValue(name, out UIEntityBaseConfig uiEntityBaseConfig))
             {
-                SendTrigger(uiEntityBaseConfig, args, enqueue, requestedScreenOnShow, previousScreenOnHide);
+                // Process the trigger for the found UI entity.
+                await SendTrigger(uiEntityBaseConfig, args, enqueue, requestedScreenOnShow, previousScreenOnHide);
             }
         }
 
-        public void SendTrigger(UIEntityBaseConfig uiEntity, System.Object args = null, bool enqueue = true, 
+        // Sends a trigger to transition to a specific UI entity (screen or popup).
+        public async Task SendTrigger(UIEntityBaseConfig uiEntity, System.Object args = null, bool enqueue = true, 
             Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
         {
+            // Create a command to trigger the transition to the specified UI entity.
             ScreenFlowCommand command = new ScreenFlowCommand(ScreenFlowCommandType.Trigger, uiEntity, args, requestedScreenOnShow, previousScreenOnHide);
-            if (!IsTransiting)
-            {
-                commandQueue.Add(command);
-                transitionRoutine ??= ProcessCommandQueue();
-            }
-            else
-            {
-                if (enqueue)
-                {
-                    commandQueue.Add(command);
-                }
-            }
+            // Process the command, either immediately or by enqueuing it.
+            await ProcessCommand(command, enqueue);
         }
 
-        public void SendTriggerT<TConfig, TShow>(TConfig uiEntity, TShow args = null, bool enqueue = true,
+        // Generic version of SendTrigger with type-safe arguments for the UI entity and show args.
+        public async Task SendTriggerT<TConfig, TShow>(TConfig uiEntity, TShow args = null, bool enqueue = true,
             Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
             where TConfig : UIEntityBaseConfig
             where TShow : class
         {
-            SendTrigger(uiEntity, args , enqueue, requestedScreenOnShow, previousScreenOnHide);
+            // Delegate to the non-generic SendTrigger method.
+            await SendTrigger(uiEntity, args, enqueue, requestedScreenOnShow, previousScreenOnHide);
         }
         
-        public void SendTriggerT<TConfig, TShow, THide>(TConfig uiEntity, TShow args = null, bool enqueue = true,
+        // Generic version of SendTrigger with type-safe arguments for UI entity, show, and hide args.
+        public async Task SendTriggerT<TConfig, TShow, THide>(TConfig uiEntity, TShow args = null, bool enqueue = true,
             Action<ScreenBaseT<TConfig, TShow, THide>> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
             where TConfig : UIEntityBaseConfig
             where TShow : class
             where THide : class
         {
+            // Wrap the typed onShow callback to match the non-generic signature.
             void RequestedScreenTOnShow(IScreenBase screenBase)
             {
                 if (screenBase is ScreenBaseT<TConfig, TShow, THide> screenBaseT)
-                {
                     requestedScreenOnShow?.Invoke(screenBaseT);
-                }
             }
             
-            SendTrigger(uiEntity, args , enqueue, RequestedScreenTOnShow, previousScreenOnHide);
+            // Delegate to the non-generic SendTrigger method.
+            await SendTrigger(uiEntity, args, enqueue, RequestedScreenTOnShow, previousScreenOnHide);
         }
 
-        public void MoveBack(System.Object args = null, bool enqueue = true, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
+        // Navigates back to the previous screen in the history stack.
+        public async Task MoveBack(System.Object args = null, bool enqueue = true, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
         {
+            // Create a command to move back to the previous screen.
             ScreenFlowCommand command = new ScreenFlowCommand(ScreenFlowCommandType.MoveBack, null, args, onShow, onHide);
-            if (!IsTransiting)
-            {
-                commandQueue.Add(command);
-                transitionRoutine ??= ProcessCommandQueue();
-            }
-            else
-            {
-                if (enqueue)
-                {
-                    commandQueue.Add(command);
-                }
-            }
+            // Process the command, either immediately or by enqueuing it.
+            await ProcessCommand(command, enqueue);
         }
 
+        // Closes the topmost popup in the stack.
         public void CloseForegroundPopup(System.Object args = null, bool enqueue = true, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
         {
+            // Check if there is an active popup to close.
             if (CurrentPopupInstance != null)
             {
+                // Delegate to the ClosePopup method for the current popup.
                 ClosePopup(CurrentPopupInstance, args, enqueue, onShow, onHide);
             }
         }
 
+        // Closes a specific popup instance.
         public void ClosePopup(IPopupBase popupBase, System.Object args = null, bool enqueue = true, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
         {
-            var command = new ScreenFlowCommand(ScreenFlowCommandType.ClosePopup, popupBase, args, onShow, onHide);
+            // Create a command to close the specified popup.
+            ScreenFlowCommand command = new ScreenFlowCommand(ScreenFlowCommandType.ClosePopup, popupBase, args, onShow, onHide);
+            // If no transition is in progress, process the command immediately.
             if (!IsTransiting)
             {
                 commandQueue.Add(command);
-                transitionRoutine ??= ProcessCommandQueue();
+                transitionRoutine = ProcessCommandQueue();
             }
-            else
+            // Otherwise, enqueue the command if requested.
+            else if (enqueue)
             {
-                if (enqueue)
-                {
-                    commandQueue.Add(command);
-                }
+                commandQueue.Add(command);
             }
         }
+        
 #if SCREEN_FLOW_SINGLETON
         protected override void Awake()
         {
@@ -229,7 +226,6 @@ namespace LegendaryTools.Systems.ScreenFlow
                 await Initialize();
         }
 #endif
-
         protected virtual void Update()
         {
             #if ENABLE_LEGACY_INPUT_MANAGER
@@ -240,26 +236,35 @@ namespace LegendaryTools.Systems.ScreenFlow
             #endif
         }
         
+        // Initializes the screen flow system, setting up configurations and loading the start screen.
         public async Task Initialize()
         {
+            // Validate the configuration before proceeding.
             if (!ValidateConfig()) return;
             
+            // Initialize the popup canvas manager to handle popup canvas allocation.
             popupCanvasManager = new PopupCanvasManager(Config, GetComponent<Canvas>(), GetComponent<CanvasScaler>(),
                 GetComponent<GraphicRaycaster>());
             
+            // Populate the UI entities lookup dictionary for quick access by name.
             PopulateUIEntitiesLookup();
+            // Process any screens and popups already present in the scene.
             ProcessInSceneEntities();
             
+            // If a start screen is specified, trigger its display.
             if (StartScreen != null)
             {
-                SendTrigger(StartScreen);
+                await SendTrigger(StartScreen);
             }
             
+            // Preload any assets marked for preloading.
             await Preload();
         }
 
+        // Validates the screen flow configuration.
         private bool ValidateConfig()
         {
+            // Check if the Config is assigned; log an error and return false if not.
             if (Config == null)
             {
                 Debug.LogError("[ScreenFlow:Start] -> Config is null");
@@ -268,19 +273,25 @@ namespace LegendaryTools.Systems.ScreenFlow
             return true;
         }
 
+        // Populates the UI entities lookup dictionary with screens and popups from the config.
         private void PopulateUIEntitiesLookup()
         {
+            // Clear the existing lookup dictionary.
             uiEntitiesLookup.Clear();
             
+            // Add screens and popups to the lookup, logging errors for duplicates.
             AddUIEntitiesToLookup(Config.Screens, "[ScreenFlow:Start()] -> UI Entity {0} already exists in ScreenFlow");
             AddUIEntitiesToLookup(Config.Popups, "[ScreenFlow:Start()] -> UI Entity {0} already exists in ScreenFlow");
         }
 
+        // Adds UI entities to the lookup dictionary, checking for duplicates.
         private void AddUIEntitiesToLookup<T>(IEnumerable<T> entities, string errorMessage) 
             where T : UIEntityBaseConfig
         {
+            // Iterate through the entities and add them to the lookup.
             foreach (T entity in entities)
             {
+                // Add the entity if it doesn't already exist; otherwise, log an error.
                 if (!uiEntitiesLookup.ContainsKey(entity.name))
                 {
                     uiEntitiesLookup.Add(entity.name, entity);
@@ -292,19 +303,25 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
         }
 
+        // Processes screens and popups already present in the scene.
         private void ProcessInSceneEntities()
         {
+            // Process screens and popups in the scene.
             ProcessInSceneScreens();
             ProcessInScenePopups();
         }
 
+        // Processes screens present in the scene, adding them to the lookup.
         private void ProcessInSceneScreens()
         {
+            // Iterate through screens in the scene.
             foreach (ScreenInScene screenInScene in ScreensInScene)
             {
+                // Add the screen to the lookup if it doesn't already exist.
                 if (!uiEntitiesLookup.ContainsKey(screenInScene.Config.name))
                 {
                     uiEntitiesLookup.Add(screenInScene.Config.name, screenInScene.Config);
+                    // Mark the screen as a scene asset.
                     screenInScene.Config.AssetLoaderConfig.SetAsSceneAsset(screenInScene.ScreenInstance);
                 }
                 else
@@ -314,13 +331,17 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
         }
 
+        // Processes popups present in the scene, adding them to the lookup.
         private void ProcessInScenePopups()
         {
+            // Iterate through popups in the scene.
             foreach (PopupInScene popupInScene in PopupsInScene)
             {
+                // Add the popup to the lookup if it doesn't already exist.
                 if (!uiEntitiesLookup.ContainsKey(popupInScene.Config.name))
                 {
                     uiEntitiesLookup.Add(popupInScene.Config.name, popupInScene.Config);
+                    // Mark the popup as a scene asset.
                     popupInScene.Config.AssetLoaderConfig.SetAsSceneAsset(popupInScene.PopupInstance);
                 }
                 else
@@ -330,75 +351,129 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
         }
 
+        // Processes a screen flow command, either immediately or by enqueuing it.
+        private async Task ProcessCommand(ScreenFlowCommand command, bool enqueue)
+        {
+            // If no transition is in progress, process the command immediately.
+            if (!IsTransiting)
+            {
+                commandQueue.Add(command);
+                transitionRoutine = ProcessCommandQueue();
+                await transitionRoutine;
+            }
+            // Otherwise, handle based on enqueue flag.
+            else
+            {
+                if (enqueue)
+                {
+                    // Enqueue the command and wait for it to be processed.
+                    commandQueue.Add(command);
+                    await WaitForCommandProcessing(command);
+                }
+                else
+                {
+                    // Wait for the current transition to complete, then process the command.
+                    await transitionRoutine;
+                    commandQueue.Add(command);
+                    transitionRoutine = ProcessCommandQueue();
+                    await transitionRoutine;
+                }
+            }
+        }
+
+        // Waits for a specific command to be processed from the queue.
+        private async Task WaitForCommandProcessing(ScreenFlowCommand command)
+        {
+            // Yield until the command is removed from the queue (i.e., processed).
+            while (commandQueue.Contains(command))
+            {
+                await Task.Yield();
+            }
+        }
+
+        // Processes the command queue, executing commands in order.
         private async Task ProcessCommandQueue()
         {
+            // Continue processing while there are commands in the queue.
             while (commandQueue.Count > 0)
             {
+                // Get and remove the next command from the queue.
                 ScreenFlowCommand next = commandQueue[0];
                 commandQueue.RemoveAt(0);
 
+                // Process the command based on its type.
                 switch (next.Type)
                 {
                     case ScreenFlowCommandType.Trigger:
                     {
-                        if (next.Object is ScreenConfig screenConfig)
+                        switch (next.Object)
                         {
-                            await ScreenTransitTo(screenConfig, false, next.Args, next.OnShow, next.OnHide);
-                        }
-                        else if (next.Object is PopupConfig popupConfig)
-                        {
-                            if (CurrentScreenConfig != null)
+                            case ScreenConfig screenConfig:
+                                // Trigger a transition to a new screen.
+                                await ScreenTransitTo(screenConfig, false, next.Args, next.OnShow, next.OnHide);
+                                break;
+                            case PopupConfig popupConfig:
                             {
-                                if (CurrentScreenConfig.AllowPopups)
-                                {
+                                // Trigger a transition to a new popup if the current screen allows it.
+                                if (CurrentScreenConfig != null && CurrentScreenConfig.AllowPopups)
                                     await PopupTransitTo(popupConfig, next.Args, next.OnShow, next.OnHide);
-                                }
+                                break;
                             }
                         }
                         break;
                     }
                     case ScreenFlowCommandType.MoveBack:
                     {
+                        // Navigate back to the previous screen.
                         await MoveBackOp(next.Args, next.OnShow, next.OnHide);
                         break;
                     }
                     case ScreenFlowCommandType.ClosePopup:
                     {
+                        // Close the specified popup.
                         await ClosePopupOp(next.Object as IPopupBase, next.Args, next.OnShow, next.OnHide);
                         break;
                     }
                 }
             }
 
+            // Clear the transition routine when the queue is empty.
             transitionRoutine = null;
         }
 
+        // Handles navigation to the previous screen in the history stack.
         private async Task MoveBackOp(System.Object args, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
         {
+            // Get the previous screen configuration from the history stack.
             EntityArgPair<ScreenConfig> previousScreenConfig = ScreensHistory.Count > 1 ? ScreensHistory[ScreensHistory.Count - 2] : null;
             if (previousScreenConfig != null)
             {
+                // Check if navigation back is allowed from the current screen and to the previous screen.
                 if (CurrentScreenConfig.CanMoveBackFromHere && previousScreenConfig.Entity.CanMoveBackToHere)
                 {
+                    // Transition to the previous screen, reusing its arguments if none provided.
                     await ScreenTransitTo(previousScreenConfig.Entity, 
                         true, args ?? previousScreenConfig.Args, onShow, onHide);
                 }
             }
         }
         
+        // Closes a specific popup instance from the stack.
         private async Task ClosePopupOp(IPopupBase popupBase, System.Object args, Action<IScreenBase> onShow = null, 
             Action<IScreenBase> onHide = null)
         {
+            // Find the index of the popup in the stack.
             int stackIndex = PopupInstancesStack.FindIndex(item => item == popupBase);
 
             if (stackIndex >= 0)
             {
+                // Determine if the popup is at the top of the stack.
                 bool isTopOfStack = stackIndex == PopupInstancesStack.Count - 1;
                 PopupConfig popupConfig = PopupConfigsStack[stackIndex];
 
+                // Get the popup behind the current one, if any.
                 PopupConfig behindPopupConfig = null;
                 IPopupBase behindPopupInstance = null;
-
                 if (stackIndex - 1 >= 0)
                 {
                     behindPopupConfig = PopupConfigsStack[stackIndex - 1];
@@ -407,12 +482,13 @@ namespace LegendaryTools.Systems.ScreenFlow
 
                 if (isTopOfStack)
                 {
+                    // Handle popup hiding based on its animation type.
                     switch (popupConfig.AnimationType)
                     {
                         case AnimationType.NoAnimation:
                         case AnimationType.Wait:
                         {
-                            //Wait for hide's animation to complete
+                            // Hide the popup and dispose of it.
                             await popupBase.RequestHide(args);
                             onHide?.Invoke(CurrentPopupInstance);
                             CallOnHideForController(popupBase);
@@ -421,11 +497,13 @@ namespace LegendaryTools.Systems.ScreenFlow
                         }
                         case AnimationType.Intersection:
                         {
+                            // Start hiding the popup asynchronously.
                             hidePopupRoutine = popupBase.RequestHide(args);
                             break;
                         }
                     }
 
+                    // Show the behind popup if it exists and needs to be shown.
                     if (behindPopupInstance != null && 
                         (behindPopupConfig.GoingBackgroundBehaviour == PopupGoingBackgroundBehaviour.JustHide ||
                          behindPopupConfig.GoingBackgroundBehaviour == PopupGoingBackgroundBehaviour.HideAndDestroy))
@@ -435,135 +513,164 @@ namespace LegendaryTools.Systems.ScreenFlow
                             case AnimationType.NoAnimation:
                             case AnimationType.Wait:
                             {
-                                //Wait for shows's animation to complete
                                 await behindPopupInstance.Show(args);
                                 break;
                             }
                             case AnimationType.Intersection:
                             {
-                                //Show animation starts playing (may be playing in parallel with hide's animation)
                                 showPopupRoutine = behindPopupInstance.Show(args);
                                 break;
                             }
                         }
                     }
 
-                    if (hidePopupRoutine != null) //If we were waiting for hide's animation
+                    // Wait for the hide routine to complete if it was started.
+                    if (hidePopupRoutine != null)
                     {
-                        await hidePopupRoutine; //Wait for hide's animation to complete
+                        await hidePopupRoutine;
                         onHide?.Invoke(CurrentPopupInstance);
                         CallOnHideForController(popupBase);
                         DisposePopupFromHide(CurrentPopupConfig, CurrentPopupInstance);
                         hidePopupRoutine = null;
                     }
 
-                    if (showPopupRoutine != null) //If we were waiting for show's animation
+                    // Wait for the show routine to complete if it was started.
+                    if (showPopupRoutine != null)
                     {
-                        await showPopupRoutine; //Wait for show's animation to complete
+                        await showPopupRoutine;
                         showPopupRoutine = null;
                     }
                 }
                 else
                 {
+                    // For non-top popups, simply dispose of them.
                     onHide?.Invoke(popupBase);
                     DisposePopupFromHide(popupConfig, popupBase);
                 }
                 
+                // Invoke the onShow callback for the behind popup.
                 onShow?.Invoke(behindPopupInstance);
             }
-
-            popupTransitionRoutine = null;
         }
 
+        // Preloads assets marked for preloading in the configuration.
         private async Task Preload()
         {
+            // Clear the preload queue.
             PreloadQueue.Clear();
             
+            // Add screens marked for preloading to the queue.
             ScreenConfig[] screens = Array.FindAll(Config.Screens, item => item.AssetLoaderConfig.PreLoad);
-            
             if(screens.Length > 0)
                 PreloadQueue.AddRange(screens);
 
+            // Add popups marked for preloading to the queue.
             PopupConfig[] popups = Array.FindAll(Config.Popups, item => item.AssetLoaderConfig.PreLoad);
-            
             if(popups.Length > 0)
                 PreloadQueue.AddRange(Array.FindAll(Config.Popups, item => item.AssetLoaderConfig.PreLoad));
 
+            // Start preloading the queued assets.
             await PreloadingAssets();
         }
 
+        // Preloads all assets in the preload queue.
         private async Task PreloadingAssets()
         {
+            // Iterate through the preload queue and wait for each asset to load.
             foreach (UIEntityBaseConfig uiEntityBaseConfig in PreloadQueue)
             {
                 await uiEntityBaseConfig.AssetLoaderConfig.WaitForLoadingAsync<GameObject>();
             }
         }
 
+        // Transitions to a new screen, handling hiding of the current screen and showing the new one.
         private async Task ScreenTransitTo(ScreenConfig screenConfig, bool isMoveBack = false,
             System.Object args = null, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
         {
+            // Start the screen transition process.
             await StartScreenTransition(screenConfig, args);
             
+            // Cache the current screen config and instance.
             ScreenConfig oldScreenConfig = CurrentScreenConfig;
             IScreenBase oldScreenInstance = CurrentScreenInstance;
             
+            // Hide the current screen if it exists.
             await HideCurrentScreen(oldScreenConfig, oldScreenInstance, args, onHide);
             
+            // Load and instantiate the new screen.
             ScreenBase newScreenInstance = null;
             await LoadAndInstantiateScreen(screenConfig, instance => newScreenInstance = instance);
             if (newScreenInstance == null) return;
             
+            // Show the new screen.
             await ShowNewScreen(screenConfig, newScreenInstance, args);
             
+            // Update the screen state (history and current instance).
             UpdateScreenState(screenConfig, newScreenInstance, isMoveBack, args);
+            // Notify listeners of the screen change.
             NotifyScreenChange(oldScreenConfig, oldScreenInstance, screenConfig, newScreenInstance, onShow);
         }
 
+        // Starts the transition to a new screen, initiating asset loading if necessary.
         private async Task StartScreenTransition(ScreenConfig screenConfig, System.Object args)
         {
+            // Check if the screen asset needs to be loaded.
             if (!screenConfig.AssetLoaderConfig.IsLoaded && !screenConfig.AssetLoaderConfig.IsLoading)
             {
+                // Remove from preload queue if present.
                 if (PreloadQueue.Contains(screenConfig))
                 {
                     PreloadQueue.Remove(screenConfig);
                 }
+                // Start loading the screen asset.
                 nextScreenLoading = screenConfig.AssetLoaderConfig.WaitForLoadingAsync<GameObject>();
             }
             
+            // Handle any popups during the screen transition.
             await HandlePopupsOnScreenTransit(args);
         }
 
+        // Hides the current screen based on its animation type.
         private async Task HideCurrentScreen(ScreenConfig oldScreenConfig, IScreenBase oldScreenInstance, 
             System.Object args, Action<IScreenBase> onHide)
         {
+            // Return if there is no current screen to hide.
             if (oldScreenConfig == null || oldScreenInstance == null) return;
 
+            // Handle hiding based on the screen's animation type.
             switch (oldScreenConfig.AnimationType)
             {
                 case AnimationType.NoAnimation:
                 case AnimationType.Wait:
+                    // Hide the screen and handle completion immediately.
                     await oldScreenInstance.RequestHide(args);
                     HandleScreenHideCompletion(oldScreenConfig, oldScreenInstance, onHide);
                     break;
                 case AnimationType.Intersection:
+                    // Start hiding the screen asynchronously.
                     hideScreenRoutine = oldScreenInstance.RequestHide(args);
                     break;
             }
         }
 
+        // Handles the completion of a screen hide operation, disposing of the screen if necessary.
         private void HandleScreenHideCompletion(ScreenConfig screenConfig, IScreenBase screenInstance, 
             Action<IScreenBase> onHide)
         {
+            // Invoke the onHide callback.
             onHide?.Invoke(screenInstance);
+            // Notify controllers of the hide event.
             CallOnHideForController(screenInstance);
 
+            // Handle disposal based on whether the screen is in the scene.
             if (screenConfig.AssetLoaderConfig.IsInScene)
             {
+                // Deactivate scene screens instead of destroying them.
                 screenInstance.GameObject.SetActive(false);
             }
             else
             {
+                // Destroy non-scene screens and unload their assets if configured.
                 Destroy(screenInstance.GameObject);
                 if (!screenConfig.AssetLoaderConfig.DontUnloadAfterLoad)
                 {
@@ -572,13 +679,16 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
         }
 
+        // Loads and instantiates a new screen instance.
         private async Task LoadAndInstantiateScreen(ScreenConfig screenConfig, Action<ScreenBase> onInstanceCreated)
         {
+            // Wait for the screen asset to load if it was initiated.
             if (nextScreenLoading != null)
             {
                 await nextScreenLoading;
                 nextScreenLoading = null;
             }
+            // Wait until the asset is loaded if it wasn't preloaded.
             else if (!screenConfig.AssetLoaderConfig.IsLoaded)
             {
                 while (!screenConfig.AssetLoaderConfig.IsLoaded)
@@ -587,18 +697,19 @@ namespace LegendaryTools.Systems.ScreenFlow
                 }
             }
 
+            // Check if the asset was loaded successfully.
             if (screenConfig.AssetLoaderConfig.LoadedAsset == null)
             {
-                Debug.LogError($"[ScreenFlow:ScreenTransitTo()] -> Failed to load {screenConfig.AssetLoaderConfig.name}", 
+                Debug.LogError($"[ScreenFlow:ScreenTransitTo] -> Failed to load {screenConfig.AssetLoaderConfig.name}", 
                     screenConfig);
                 return;
             }
 
+            // Get the screen prefab from the loaded asset.
             ScreenBase newScreenPrefab = GetScreenPrefab(screenConfig);
             if (newScreenPrefab == null)
             {
-                Debug.LogError(
-                    $"[ScreenFlow:ScreenTransitTo()] -> {screenConfig.AssetLoaderConfig.LoadedAsset.GetType()} doesn't have any component that inherits from ScreenBase class", 
+                Debug.LogError($"[ScreenFlow:ScreenTransitTo] -> {screenConfig.AssetLoaderConfig.LoadedAsset.GetType()} doesn't have any component that inherits from ScreenBase class", 
                     screenConfig);
                 return;
             }
@@ -606,20 +717,25 @@ namespace LegendaryTools.Systems.ScreenFlow
             ScreenBase newScreenInstance;
             if (screenConfig.AssetLoaderConfig.IsInScene)
             {
+                // Use the scene instance and activate it.
                 newScreenInstance = newScreenPrefab;
                 newScreenInstance.gameObject.SetActive(true);
             }
             else
             {
-                newScreenInstance = InstantiateUIElement<ScreenBase>(newScreenPrefab, rectTransform, 
+                // Instantiate a new instance for non-scene screens.
+                newScreenInstance = InstantiateUIElement(newScreenPrefab, rectTransform, 
                     out RectTransform instanceRT, out RectTransform prefabRT);
             }
 
+            // Invoke the created callback with the new screen instance.
             onInstanceCreated?.Invoke(newScreenInstance);
         }
 
+        // Retrieves the ScreenBase component from the loaded asset.
         private ScreenBase GetScreenPrefab(ScreenConfig screenConfig)
         {
+            // Handle different types of loaded assets.
             switch (screenConfig.AssetLoaderConfig.LoadedAsset)
             {
                 case GameObject screenGameObject:
@@ -633,17 +749,21 @@ namespace LegendaryTools.Systems.ScreenFlow
 
         private async Task ShowNewScreen(ScreenConfig screenConfig, ScreenBase newScreenInstance, System.Object args)
         {
+            // Handle showing the screen based on its animation type.
             switch (screenConfig.AnimationType)
             {
                 case AnimationType.NoAnimation:
                 case AnimationType.Wait:
+                    // Show the screen and wait for completion.
                     await newScreenInstance.Show(args);
                     break;
                 case AnimationType.Intersection:
+                    // Start showing the screen asynchronously.
                     showScreenRoutine = newScreenInstance.Show(args);
                     break;
             }
 
+            // Wait for the hide routine to complete if it was started.
             if (hideScreenRoutine != null)
             {
                 await hideScreenRoutine;
@@ -651,6 +771,7 @@ namespace LegendaryTools.Systems.ScreenFlow
                 hideScreenRoutine = null;
             }
 
+            // Wait for the show routine to complete if it was started.
             if (showScreenRoutine != null)
             {
                 await showScreenRoutine;
@@ -676,8 +797,6 @@ namespace LegendaryTools.Systems.ScreenFlow
             {
                 popup.ParentScreen = CurrentScreenInstance;
             }
-
-            screenTransitionRoutine = null;
         }
 
         private void NotifyScreenChange(ScreenConfig oldScreenConfig, IScreenBase oldScreenInstance, 
@@ -741,7 +860,7 @@ namespace LegendaryTools.Systems.ScreenFlow
             
             IPopupBase newPopupInstance = null;
             Canvas canvasPopup = null;
-            await LoadAndInstantiatePopup(popupConfig, instance => newPopupInstance = instance, canvas => canvasPopup = canvas);
+            LoadAndInstantiatePopup(popupConfig, instance => newPopupInstance = instance, canvas => canvasPopup = canvas);
             if (newPopupInstance == null) return;
             
             await ShowNewPopup(popupConfig, newPopupInstance, canvasPopup, args);
@@ -797,7 +916,7 @@ namespace LegendaryTools.Systems.ScreenFlow
                         CallOnGoingToBackgroundForController(oldPopupInstance);
                         if (oldPopupConfig.GoingBackgroundBehaviour != PopupGoingBackgroundBehaviour.DontHide)
                         {
-                            hidePopupRoutine =oldPopupInstance.RequestHide(args);
+                            hidePopupRoutine = oldPopupInstance.RequestHide(args);
                         }
                     }
                     else
@@ -808,7 +927,7 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
         }
 
-        private async Task LoadAndInstantiatePopup(PopupConfig popupConfig, Action<IPopupBase> onInstanceCreated, 
+        private void LoadAndInstantiatePopup(PopupConfig popupConfig, Action<IPopupBase> onInstanceCreated, 
             Action<Canvas> onCanvasAssigned)
         {
             if (popupConfig.AssetLoaderConfig.LoadedAsset == null)
@@ -906,7 +1025,6 @@ namespace LegendaryTools.Systems.ScreenFlow
             newPopupInstance.OnClosePopupRequest += OnClosePopupRequest;
             PopupConfigsStack.Add(popupConfig);
             PopupInstancesStack.Add(newPopupInstance);
-            popupTransitionRoutine = null;
         }
 
         private void NotifyPopupChange(PopupConfig oldPopupConfig, IPopupBase oldPopupInstance, 
@@ -930,7 +1048,6 @@ namespace LegendaryTools.Systems.ScreenFlow
                 {
                     case PopupsBehaviourOnScreenTransition.PreserveAllOnHide:
                     {
-                        //Just keep going
                         break;
                     }
                     case PopupsBehaviourOnScreenTransition.HideFirstThenTransit:
@@ -940,7 +1057,6 @@ namespace LegendaryTools.Systems.ScreenFlow
                         {
                             DisposePopupFromHide(PopupConfigsStack[i], PopupInstancesStack[i]);
                         }
-
                         break;
                     }
                     case PopupsBehaviourOnScreenTransition.DestroyAllThenTransit:
@@ -949,7 +1065,6 @@ namespace LegendaryTools.Systems.ScreenFlow
                         {
                             DisposePopupFromHide(PopupConfigsStack[i], PopupInstancesStack[i]);
                         }
-
                         break;
                     }
                 }
@@ -1028,11 +1143,11 @@ namespace LegendaryTools.Systems.ScreenFlow
             switch (behaviour)
             {
                 case BackKeyBehaviour.NotAllowed: break;
-                case BackKeyBehaviour.ScreenMoveBack: MoveBack(); break;
+                case BackKeyBehaviour.ScreenMoveBack: MoveBack().FireAndForget(); break;
                 case BackKeyBehaviour.CloseFirstPopup:
                     if (CurrentPopupInstance != null)
                         CloseForegroundPopup();
-                    else MoveBack();
+                    else MoveBack().FireAndForget();
                     break;
             }
         }
