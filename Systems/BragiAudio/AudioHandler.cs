@@ -89,6 +89,8 @@ namespace LegendaryTools.Bragi
             set { if (audioSource != null) audioSource.pitch = value; }
         }
 
+        public bool IsFading { get; private set; }
+
         /// <summary>
         /// Event triggered when audio playback starts.
         /// </summary>
@@ -401,12 +403,18 @@ namespace LegendaryTools.Bragi
                 return;
             }
 
-            audioSource.clip = (AudioClip)Config.AssetLoadableConfig.LoadedAsset;
-            clipLength = audioSource.clip.length; // Cache clip length
-
-            if (!IsPaused)
+            if (Config.AssetLoadableConfig.LoadedAsset is AudioClip clip)
             {
-                _ = PlayAsync(0, CancellationToken.None);
+                audioSource.clip = clip;
+                clipLength = audioSource.clip.length; // Cache clip length
+                if (!IsPaused)
+                {
+                    _ = PlayAsync(0, CancellationToken.None);
+                }
+            }
+            else
+            {
+                Debug.LogError($"Loaded asset is not an AudioClip. Type: {Config.AssetLoadableConfig.LoadedAsset.GetType().Name}");
             }
         }
 
@@ -466,11 +474,20 @@ namespace LegendaryTools.Bragi
         /// </summary>
         private async Task HandleFadingAsync()
         {
-            if (!IsInitialized || !IsPlaying || Settings == null || Settings.FadeOutDuration <= 0 || clipLength <= 0) return;
+            if (!IsInitialized || !IsPlaying || Settings == null || Settings.FadeOutDuration <= 0 || clipLength <= 0 || IsFading)
+                return;
 
             if (Time >= clipLength - Settings.FadeOutDuration)
             {
-                await FadeVolumeAsync(audioSource.volume, 0, Settings.FadeOutDuration, cancellationToken: CancellationToken.None);
+                IsFading = true;
+                try
+                {
+                    await FadeVolumeAsync(audioSource.volume, 0, Settings.FadeOutDuration, cancellationToken: CancellationToken.None);
+                }
+                finally
+                {
+                    IsFading = false;
+                }
             }
         }
 

@@ -35,10 +35,13 @@ namespace LegendaryTools.Systems.AssetProvider
             {
                 return operationType switch
                 {
-                    OperationType.AssetBundle => assetBundleRequest.progress,
-                    OperationType.Addressable => addressableOperation.GetDownloadStatus().Percent,
-                    OperationType.Resource => resourceOperation.progress,
-                    _ => 0
+                    OperationType.AssetBundle => assetBundleRequest?.progress ?? 0f,
+                    OperationType.Addressable => 
+                        addressableOperation.IsValid() && addressableOperation.Status != AsyncOperationStatus.Failed 
+                            ? addressableOperation.GetDownloadStatus().Percent 
+                            : 0f,
+                    OperationType.Resource => resourceOperation?.progress ?? 0f,
+                    _ => 0f
                 };
             }
         }
@@ -64,9 +67,9 @@ namespace LegendaryTools.Systems.AssetProvider
                 return operationType switch
                 {
                     OperationType.AssetBundle => assetBundleRequest.asset,
-                    OperationType.Addressable => addressableOperation.Result,
+                    OperationType.Addressable => addressableOperation.IsDone && addressableOperation.Status == AsyncOperationStatus.Succeeded ? addressableOperation.Result : null,
                     OperationType.Resource => resourceOperation.asset,
-                    _ => false
+                    _ => null
                 };
             }
         }
@@ -77,6 +80,8 @@ namespace LegendaryTools.Systems.AssetProvider
         private readonly AssetBundleRequest assetBundleRequest;
         private readonly AsyncWaitBackend asyncWaitBackend;
         private readonly CancellationToken cancellationToken;
+
+        public AssetBundle Bundle { get; }
 
         public LoadOperation(AsyncOperationHandle operation, AsyncWaitBackend asyncWaitBackend, 
             CancellationToken cancellationToken = default)
@@ -98,10 +103,15 @@ namespace LegendaryTools.Systems.AssetProvider
             resourceOperation.completed += OnResourceLoadCompleted;
         }
         
-        public LoadOperation(AssetBundleRequest operation, AsyncWaitBackend asyncWaitBackend, 
+        public LoadOperation(AssetBundleRequest operation, AssetBundle bundle, AsyncWaitBackend asyncWaitBackend, 
             CancellationToken cancellationToken = default)
         {
+            if (operation == null)
+                throw new ArgumentNullException(nameof(operation));
+            if (bundle == null)
+                throw new ArgumentNullException(nameof(bundle));
             assetBundleRequest = operation;
+            Bundle = bundle;
             operationType = OperationType.AssetBundle;
             this.asyncWaitBackend = asyncWaitBackend;
             this.cancellationToken = cancellationToken;
@@ -111,24 +121,30 @@ namespace LegendaryTools.Systems.AssetProvider
         public async Task<T> Await<T>()
             where T : UnityEngine.Object
         {
-            switch (operationType)
+            try
             {
-                case OperationType.Addressable:
-                    await AsyncWait.ForAsync(AsyncAction, asyncWaitBackend, cancellationToken);
-                    return addressableOperation.Result as T;
+                switch (operationType)
+                {
+                    case OperationType.Addressable:
+                        await AsyncWait.ForAsync(AsyncAction, asyncWaitBackend, cancellationToken);
+                        return addressableOperation.Result as T;
 
-                case OperationType.AssetBundle:
-                    await assetBundleRequest;
-                    await AsyncWait.ForAsyncOperation(assetBundleRequest, asyncWaitBackend, cancellationToken);
-                    return assetBundleRequest.asset as T;
+                    case OperationType.AssetBundle:
+                        await AsyncWait.ForAsyncOperation(assetBundleRequest, asyncWaitBackend, cancellationToken);
+                        return assetBundleRequest.asset as T;
 
-                case OperationType.Resource:
-                    await resourceOperation;
-                    await AsyncWait.ForAsyncOperation(resourceOperation, asyncWaitBackend, cancellationToken);
-                    return resourceOperation.asset as T;
+                    case OperationType.Resource:
+                        await AsyncWait.ForAsyncOperation(resourceOperation, asyncWaitBackend, cancellationToken);
+                        return resourceOperation.asset as T;
 
-                default:
-                    throw new InvalidOperationException("Unknown operation type.");
+                    default:
+                        throw new InvalidOperationException("Unknown operation type.");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                Release();
+                throw;
             }
         }
 
@@ -141,12 +157,16 @@ namespace LegendaryTools.Systems.AssetProvider
         {
             switch (operationType)
             {
-                case OperationType.Addressable: Addressables.Release(addressableOperation); break;
-                case OperationType.AssetBundle: break; //Dont makes sense for AssetBundles
+                case OperationType.Addressable: 
+                    Addressables.Release(addressableOperation); 
+                    break;
+                case OperationType.AssetBundle:
+                    if (Bundle != null)
+                        Bundle.Unload(false);
+                    break;
                 case OperationType.Resource:
                     bool isGameObjectOrComponent =
                         resourceOperation.asset is GameObject || resourceOperation.asset is Component;
-
                     if (isGameObjectOrComponent)
                         Resources.UnloadUnusedAssets();
                     else

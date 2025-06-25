@@ -30,6 +30,11 @@ namespace LegendaryTools.Bragi
 
         public AudioHandler PlaySequence(AudioSettings overrideSettings = null, bool allowFading = true)
         {
+            if (Audios == null || Audios.Length == 0)
+            {
+                Debug.LogWarning("AudioGroup has no audio configs to play.");
+                return null;
+            }
             AudioHandler handler =
                 Bragi.Instance.Play(Audios[Mathf.Clamp(sequenceIndex, 0, Audios.Length - 1)].AudioConfig,
                     overrideSettings, allowFading);

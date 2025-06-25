@@ -168,9 +168,21 @@ namespace LegendaryTools.Bragi
         {
             audioConfigTriggerTable.Clear();
             customAudioConfigTriggerTable.Clear();
-            
+    
+            if (AudioConfigTriggers == null || AudioConfigTriggers.Length == 0)
+            {
+                Debug.LogWarning("UIAudioTrigger has no AudioConfigTriggers configured.");
+                return;
+            }
+
             foreach (AudioConfigTrigger audioConfigTrigger in AudioConfigTriggers)
             {
+                if (audioConfigTrigger.Config == null)
+                {
+                    Debug.LogWarning($"AudioConfigTrigger with TriggerType {audioConfigTrigger.TriggerType} has null Config.");
+                    continue;
+                }
+
                 if (!audioConfigTriggerTable.ContainsKey(audioConfigTrigger.TriggerType))
                 {
                     audioConfigTriggerTable.Add(audioConfigTrigger.TriggerType, new List<AudioConfigTrigger>());
@@ -180,7 +192,8 @@ namespace LegendaryTools.Bragi
 
                 if (audioConfigTrigger.TriggerType == AudioTriggerType.Custom)
                 {
-                    if (!customAudioConfigTriggerTable.ContainsKey(audioConfigTrigger.Custom))
+                    if (!string.IsNullOrEmpty(audioConfigTrigger.Custom) &&
+                        !customAudioConfigTriggerTable.ContainsKey(audioConfigTrigger.Custom))
                     {
                         customAudioConfigTriggerTable.Add(audioConfigTrigger.Custom, audioConfigTrigger);
                     }
@@ -211,18 +224,24 @@ namespace LegendaryTools.Bragi
 
         protected void Play(AudioConfigTrigger audioConfigTrigger)
         {
+            if (audioConfigTrigger.Config == null)
+            {
+                Debug.LogWarning($"Cannot play audio: AudioConfigTrigger has null Config.");
+                return;
+            }
+
             if (PreventParallelAudios)
             {
                 for (int index = currentHandlers.Count - 1; index >= 0; index--)
                 {
                     AudioHandler handler = currentHandlers[index];
-                    if (handler.IsPlaying)
+                    if (handler != null && handler.IsPlaying)
                     {
                         handler.StopNow();
                     }
                 }
             }
-            
+    
             switch (audioConfigTrigger.PlayMode)
             {
                 case AudioTriggerPlayMode.Default:
@@ -238,7 +257,8 @@ namespace LegendaryTools.Bragi
 
             foreach (AudioHandler handler in currentHandlers)
             {
-                handler.OnDispose += OnHandlerDisposed;
+                if (handler != null)
+                    handler.OnDispose += OnHandlerDisposed;
             }
         }
 

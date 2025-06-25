@@ -70,9 +70,11 @@ namespace LegendaryTools.Bragi
         [ContextMenu("Stop")]
         public void Stop()
         {
+            if (currentHandlers == null || currentHandlers.Length == 0)
+                return;
             foreach (AudioHandler audioHandler in currentHandlers)
             {
-                if (audioHandler.IsPlaying)
+                if (audioHandler != null && audioHandler.IsPlaying)
                 {
                     audioHandler.Stop();
                 }
@@ -148,26 +150,22 @@ namespace LegendaryTools.Bragi
         void OnAudioHandlerFinished(AudioHandler audioHandler)
         {
             audioHandler.OnFinished -= OnAudioHandlerFinished;
-            if (currentHandlers.All(item => !item.IsPlaying))
-            {
-                currentHandlers = null;
+            if (currentHandlers != null && !currentHandlers.All(item => item == null || !item.IsPlaying)) return;
+            currentHandlers = null;
 
-                if (Config.Repeat)
-                {
-                    Play();
-                    return;
-                }
-                
+            if (Config.Repeat)
+            {
+                Play();
+                return;
+            }
+
+            if (Config.PlayMode == JukeboxPlayMode.Sequential)
+            {
                 currentTrackIndex = (currentTrackIndex + 1) % Config.Tracks.Length;
                 if (currentTrackIndex == 0)
                 {
                     if (Config.CircularTracks)
                     {
-                        if (Config.PlayMode == JukeboxPlayMode.RandomReSeed)
-                        {
-                            GenerateShuffledTracks();
-                        }
-                        
                         Play();
                     }
                 }
@@ -175,6 +173,20 @@ namespace LegendaryTools.Bragi
                 {
                     Play();
                 }
+            }
+            else
+            {
+                if (!Config.CircularTracks) return;
+                if (Config.PlayMode == JukeboxPlayMode.RandomReSeed)
+                {
+                    GenerateShuffledTracks();
+                    currentTrackIndex = 0;
+                }
+                else
+                {
+                    currentTrackIndex = (currentTrackIndex + 1) % randomOrderTracks.Count;
+                }
+                Play();
             }
         }
         
