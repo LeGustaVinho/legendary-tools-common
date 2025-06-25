@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace LegendaryTools
 {
@@ -23,6 +24,18 @@ namespace LegendaryTools
             }
         
             return (T)Enum.ToObject(enumType, intValue);
+        }
+        
+        /// <summary>
+        /// Returns all possible values of the enum type.
+        /// </summary>
+        /// <typeparam name="T">Enum type.</typeparam>
+        /// <param name="enumValue">An instance of the enum (ignored, used for type inference).</param>
+        /// <returns>IEnumerable of all enum values of the specified type.</returns>
+        /// <exception cref="ArgumentException">Thrown if T is not an Enum type.</exception>
+        public static IEnumerable<T> GetAllValues<T>(this T enumValue) where T : Enum
+        {
+            return (T[])Enum.GetValues(typeof(T));
         }
         
         public static bool IsValid<T>(this T enumValue) where T : struct, Enum, IConvertible
