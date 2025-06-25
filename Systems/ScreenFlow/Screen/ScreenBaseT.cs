@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using UnityEngine;
+using System.Threading.Tasks;
 
 namespace LegendaryTools.Systems.ScreenFlow
 {
@@ -13,45 +14,44 @@ namespace LegendaryTools.Systems.ScreenFlow
         public event Action<T> OnHideCompletedT;
         public event Action<T> OnDestroyedT;
         
-        public override IEnumerator Show(object args)
+        public override async Task Show(object args)
         {
             if (args != null)
             {
                 if (args is TDataShow typedData)
-                    yield return ShowT(typedData);
+                    await ShowT(typedData);
                 else
                 {
                     Debug.LogError(
                         $"[ScreenBaseT:Show] TypeMissMatch: Args is type {args.GetType()}, but was expected {typeof(TDataShow)}, Show() will not be called");
-                    yield return null;
                 }
             }
             else
             {
-                yield return ShowT(null);
+                await ShowT(null);
             }
         }
         
-        public override IEnumerator Hide(object args)
+        public override async Task Hide(object args)
         {
             if (args != null)
             {
                 if (args is TDataHide typedData)
-                    yield return HideT(typedData);
+                    await HideT(typedData);
                 else
-                    yield return HideT(null);
+                    await HideT(null);
             }
             else
             {
-                yield return HideT(null);
+                await HideT(null);
             }
         }
 
-        public override IEnumerator RequestHide(object args)
+        public override async Task RequestHide(object args)
         {
             RaiseOnHideRequest(this);
             OnHideRequestT?.Invoke(this as T);
-            yield return Hide(args);
+            await Hide(args);
             RaiseOnHideCompleted(this);
             OnHideCompletedT?.Invoke(this as T);
         }
@@ -62,7 +62,7 @@ namespace LegendaryTools.Systems.ScreenFlow
             OnDestroyedT?.Invoke(this as T);
         }
 
-        public abstract IEnumerator ShowT(TDataShow args);
-        public abstract IEnumerator HideT(TDataHide args);
+        public abstract Task ShowT(TDataShow args);
+        public abstract Task HideT(TDataHide args);
     }
 }

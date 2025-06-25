@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace LegendaryTools.Systems.ScreenFlow
@@ -14,8 +15,8 @@ namespace LegendaryTools.Systems.ScreenFlow
         event Action<IScreenBase> OnHideRequest;
         event Action<IScreenBase> OnHideCompleted;
         event Action<IScreenBase> OnDestroyed;
-        IEnumerator Show(System.Object args);
-        IEnumerator RequestHide(System.Object args);
-        IEnumerator Hide(System.Object args);
+        Task Show(System.Object args);
+        Task RequestHide(System.Object args);
+        Task Hide(System.Object args);
     }
 }
