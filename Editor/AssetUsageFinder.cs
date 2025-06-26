@@ -12,6 +12,7 @@ using UnityEngine.SceneManagement;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace LegendaryTools.Editor
 {
@@ -23,16 +24,17 @@ namespace LegendaryTools.Editor
         private Object _assetToFind;
         private Vector2 _scrollPos;
         private List<AssetUsageEntry> _usageEntries = new();
-
-        private static readonly Dictionary<string, List<CachedUsage>> s_usageCache = new();
-
-        private static readonly Dictionary<string, List<AssetUsageEntry>> s_fileUsageCache = new();
+        private AssetGuidMapper _guidMapper = new();
+        private bool _isMapping = false;
 
         private bool _filterScenes = true;
         private bool _filterPrefabs = true;
         private bool _filterScriptableObjects = true;
         private bool _filterMaterials = true;
         private bool _filterOther = true;
+
+        private static readonly string[] SEARCH_EXTENSIONS = { ".unity", ".prefab", ".mat", ".asset", ".anim", ".controller", ".shader" };
+        private static readonly string JSON_PATH = Path.Combine("Library", "AssetUsageFinderMapping.json");
 
         /// <summary>
         /// Defines the types of asset usage that can be searched for.
@@ -100,6 +102,12 @@ namespace LegendaryTools.Editor
             window.Show();
         }
 
+        private void OnEnable()
+        {
+            // Load existing mapping if available
+            _guidMapper.LoadMappingFromJson(JSON_PATH);
+        }
+
         /// <summary>
         /// Renders the GUI for the Asset Usage Finder window.
         /// </summary>
@@ -116,14 +124,15 @@ namespace LegendaryTools.Editor
             _filterOther = EditorGUILayout.Toggle("Other", _filterOther);
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Find Usages")) FindUsages();
+            EditorGUI.BeginDisabledGroup(_isMapping);
+            if (GUILayout.Button("Find Usages")) FindUsagesAsync();
+            EditorGUI.EndDisabledGroup();
             if (GUILayout.Button("Clear Cache", GUILayout.Width(100)))
             {
-                s_usageCache.Clear();
-                s_fileUsageCache.Clear();
-                Debug.Log("All caches cleared.");
+                _guidMapper.ClearMapping();
+                File.Delete(JSON_PATH);
+                Debug.Log("Cache cleared and JSON file deleted.");
             }
-
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.EndVertical();
 
@@ -234,31 +243,19 @@ namespace LegendaryTools.Editor
 
                     if (isActive)
                     {
-                        if (s_usageCache.ContainsKey(entry.AssetPath))
+                        if (GUILayout.Button("Find Usages in File", GUILayout.Width(250)))
                         {
-                            List<CachedUsage> cachedList = s_usageCache[entry.AssetPath];
-                            bool needUpdate = cachedList.Any(item => item.Reference == null);
-                            if (needUpdate)
-                            {
-                                List<CachedUsage> newCache = FindAssetUsagesWithReference(_assetToFind);
-                                s_usageCache[entry.AssetPath] = newCache;
-                            }
-                        }
-                        else
-                        {
-                            if (GUILayout.Button("Find Usages in File", GUILayout.Width(250)))
-                            {
-                                List<CachedUsage> foundUsages = FindAssetUsagesWithReference(_assetToFind);
-                                s_usageCache[entry.AssetPath] = foundUsages;
-                            }
+                            List<CachedUsage> foundUsages = FindAssetUsagesWithReference(_assetToFind);
+                            // Store in EditorPrefs or another temporary storage if needed
+                            EditorPrefs.SetString($"AssetUsageFinder_{entry.AssetPath}", JsonUtility.ToJson(foundUsages));
                         }
 
                         entry.UsageListExpanded = EditorGUILayout.Foldout(entry.UsageListExpanded, "Usages");
                     }
 
-                    if (entry.UsageListExpanded && s_usageCache.ContainsKey(entry.AssetPath))
+                    if (entry.UsageListExpanded && EditorPrefs.HasKey($"AssetUsageFinder_{entry.AssetPath}"))
                     {
-                        List<CachedUsage> cachedUsages = s_usageCache[entry.AssetPath];
+                        List<CachedUsage> cachedUsages = JsonUtility.FromJson<List<CachedUsage>>(EditorPrefs.GetString($"AssetUsageFinder_{entry.AssetPath}"));
                         EditorGUI.indentLevel++;
                         foreach (CachedUsage usage in cachedUsages)
                         {
@@ -307,7 +304,7 @@ namespace LegendaryTools.Editor
                                     }
 
                                     List<CachedUsage> newCache = FindAssetUsagesWithReference(_assetToFind);
-                                    s_usageCache[entry.AssetPath] = newCache;
+                                    EditorPrefs.SetString($"AssetUsageFinder_{entry.AssetPath}", JsonUtility.ToJson(newCache));
                                 }
 
                             string status = $"Active: {(usage.GameObjectActive ? "Yes" : "No")}";
@@ -333,8 +330,6 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Determines if the specified usage type passes the current filter settings.
         /// </summary>
-        /// <param name="type">The type of asset usage to check.</param>
-        /// <returns>True if the usage type is allowed by the filter; otherwise, false.</returns>
         private bool PassesFilter(UsageType type)
         {
             switch (type)
@@ -358,8 +353,6 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Gets the hierarchy path of a GameObject in the scene or prefab.
         /// </summary>
-        /// <param name="go">The GameObject to get the hierarchy path for.</param>
-        /// <returns>The hierarchy path as a string, or an empty string if the GameObject is null.</returns>
         private static string GetGameObjectHierarchyPath(GameObject go)
         {
             if (go == null) return "";
@@ -375,10 +368,16 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Searches for usages of the selected asset across all relevant assets in the project.
+        /// Searches for usages of the selected asset across all relevant assets in the project using AssetGuidMapper.
         /// </summary>
-        private void FindUsages()
+        private async void FindUsagesAsync()
         {
+            if (_isMapping)
+            {
+                Debug.LogWarning("Mapping is already in progress.");
+                return;
+            }
+
             _usageEntries.Clear();
             if (_assetToFind == null)
             {
@@ -386,27 +385,24 @@ namespace LegendaryTools.Editor
                 return;
             }
 
+            _isMapping = true;
             string assetPathToFind = AssetDatabase.GetAssetPath(_assetToFind);
             string guidToFind = AssetDatabase.AssetPathToGUID(assetPathToFind);
 
-            if (s_fileUsageCache.ContainsKey(guidToFind))
+            // Check if mapping exists, otherwise perform full mapping
+            if (!_guidMapper.LoadMappingFromJson(JSON_PATH))
             {
-                _usageEntries = new List<AssetUsageEntry>(s_fileUsageCache[guidToFind]);
-                EditorUtility.ClearProgressBar();
-                return;
+                await _guidMapper.MapProjectGUIDsAsync(SEARCH_EXTENSIONS);
+                _guidMapper.SaveMappingToJson(JSON_PATH);
             }
 
-            string[] allPaths = AssetDatabase.GetAllAssetPaths();
-            int totalPaths = allPaths.Length;
+            // Find files containing the GUID
+            List<string> foundFiles = await _guidMapper.FindFilesContainingGuidAsync(guidToFind);
             List<AssetUsageEntry> foundEntries = new();
             HashSet<string> processedScenes = new();
 
-            for (int i = 0; i < totalPaths; i++)
+            foreach (string path in foundFiles)
             {
-                string path = allPaths[i];
-                if (path == assetPathToFind || !path.StartsWith("Assets"))
-                    continue;
-
                 string ext = Path.GetExtension(path).ToLower();
                 bool allowed = false;
                 UsageType type;
@@ -438,91 +434,41 @@ namespace LegendaryTools.Editor
                 if (!allowed)
                     continue;
 
-                EditorUtility.DisplayProgressBar("Finding Usages", "Analyzing " + path, (float)i / totalPaths);
+                foundEntries.Add(new AssetUsageEntry(path, type));
+            }
 
-                bool guidFound = false;
-                string[] dependencies = AssetDatabase.GetDependencies(path, true);
-                bool dependencyFound = dependencies.Contains(assetPathToFind);
-
-                if (ext == ".unity" || ext == ".prefab" || ext == ".asset" || ext == ".mat")
-                    try
-                    {
-                        string fileContent = File.ReadAllText(path);
-                        if (fileContent.Contains(guidToFind))
-                            guidFound = true;
-                    }
-                    catch
-                    {
-                        guidFound = dependencyFound;
-                    }
-                else
-                    guidFound = dependencyFound;
-
-                if (guidFound) foundEntries.Add(new AssetUsageEntry(path, type));
-
-                if (ext == ".unity" && _filterScenes && !processedScenes.Contains(path))
+            // Handle scenes with prefab instances
+            if (_filterScenes)
+            {
+                foreach (string scenePath in foundFiles.Where(f => f.EndsWith(".unity")))
                 {
-                    string[] prefabDependencies = AssetDatabase.GetDependencies(path, true)
+                    if (processedScenes.Contains(scenePath))
+                        continue;
+
+                    string[] prefabDependencies = AssetDatabase.GetDependencies(scenePath, true)
                         .Where(dep => dep.EndsWith(".prefab"))
                         .ToArray();
 
                     foreach (string prefabPath in prefabDependencies)
                     {
-                        bool prefabReferencesAsset = false;
-                        if (_assetToFind is MonoScript)
-                        {
-                            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
-                            if (prefab != null)
-                            {
-                                Component[] components = prefab.GetComponentsInChildren<Component>(true);
-                                foreach (Component comp in components)
-                                {
-                                    if (comp is MonoBehaviour mb)
-                                    {
-                                        MonoScript script = MonoScript.FromMonoBehaviour(mb);
-                                        if (script == _assetToFind)
-                                        {
-                                            prefabReferencesAsset = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        else
-                        {
-                            try
-                            {
-                                string prefabContent = File.ReadAllText(prefabPath);
-                                if (prefabContent.Contains(guidToFind))
-                                    prefabReferencesAsset = true;
-                            }
-                            catch
-                            {
-                                string[] prefabDeps = AssetDatabase.GetDependencies(prefabPath, true);
-                                prefabReferencesAsset = prefabDeps.Contains(assetPathToFind);
-                            }
-                        }
-
+                        bool prefabReferencesAsset = await _guidMapper.FileContainsGuidAsync(prefabPath, guidToFind);
                         if (prefabReferencesAsset)
                         {
-                            foundEntries.Add(new AssetUsageEntry(path, UsageType.SceneWithPrefabInstance, prefabPath));
-                            processedScenes.Add(path);
+                            foundEntries.Add(new AssetUsageEntry(scenePath, UsageType.SceneWithPrefabInstance, prefabPath));
+                            processedScenes.Add(scenePath);
                         }
                     }
                 }
             }
 
-            EditorUtility.ClearProgressBar();
             _usageEntries = foundEntries;
-            s_fileUsageCache[guidToFind] = new List<AssetUsageEntry>(_usageEntries);
+            EditorUtility.ClearProgressBar();
+            _isMapping = false;
         }
 
         /// <summary>
         /// Finds all usages of the specified asset within the active scene or prefab.
         /// </summary>
-        /// <param name="asset">The asset to find usages for.</param>
-        /// <returns>A list of cached usage entries for the asset.</returns>
         private List<CachedUsage> FindAssetUsagesWithReference(Object asset)
         {
             List<CachedUsage> foundUsages = new();
@@ -549,9 +495,6 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Recursively searches a GameObject and its children for references to the specified asset.
         /// </summary>
-        /// <param name="go">The GameObject to search.</param>
-        /// <param name="asset">The asset to find references to.</param>
-        /// <param name="usages">The list to store found usages.</param>
         private void GetAssetUsagesForGameObject(GameObject go, Object asset, List<CachedUsage> usages)
         {
             Component[] comps = go.GetComponents<Component>();
@@ -578,9 +521,6 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Checks if a component references the specified asset.
         /// </summary>
-        /// <param name="comp">The component to check.</param>
-        /// <param name="asset">The asset to look for.</param>
-        /// <returns>True if the component references the asset; otherwise, false.</returns>
         private bool ComponentReferencesAsset(Component comp, Object asset)
         {
             if (asset is MonoScript monoScript)
@@ -607,8 +547,6 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Removes references to the specified asset from a GameObject's components.
         /// </summary>
-        /// <param name="go">The GameObject to remove references from.</param>
-        /// <param name="asset">The asset to remove references to.</param>
         private void RemoveAssetReferenceFromGameObject(GameObject go, Object asset)
         {
             Component[] comps = go.GetComponents<Component>();
