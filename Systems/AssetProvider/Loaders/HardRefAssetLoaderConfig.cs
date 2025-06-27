@@ -13,7 +13,9 @@ namespace LegendaryTools.Systems.AssetProvider
         public bool IsDone => true;
         public object Result { get; private set; }
         public float Progress => 1;
+        #pragma warning disable CS0067
         public event Action<object> OnCompleted;
+        #pragma warning restore CS0067
         public void Release()
         {
         }

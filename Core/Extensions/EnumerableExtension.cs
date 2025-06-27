@@ -242,5 +242,37 @@ namespace LegendaryTools
 
             return false;
         }
+        
+        /// <summary>
+        /// Adds an item to the end of the array and returns a new array.
+        /// </summary>
+        /// <typeparam name="T">Type of the array elements.</typeparam>
+        /// <param name="source">The source array.</param>
+        /// <param name="item">The item to add.</param>
+        /// <returns>
+        /// A new array containing all elements of the source array,
+        /// followed by the new item.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if the source array is null.
+        /// </exception>
+        public static T[] AddItem<T>(this T[] source, T item)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            // Allocate a new array with an extra slot for the new item.
+            T[] result = new T[source.Length + 1];
+
+            // Copy existing elements to the new array.
+            Array.Copy(source, result, source.Length);
+
+            // Assign the new item to the last position.
+            result[source.Length] = item;
+
+            return result;
+        }
     }
 }
