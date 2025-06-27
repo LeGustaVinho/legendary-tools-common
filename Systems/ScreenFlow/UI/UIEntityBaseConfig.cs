@@ -1,5 +1,6 @@
 using LegendaryTools.Systems.AssetProvider;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace LegendaryTools.Systems.ScreenFlow
 {
@@ -7,6 +8,6 @@ namespace LegendaryTools.Systems.ScreenFlow
     {
         public AssetLoaderConfig AssetLoaderConfig;
         
-        public AnimationType AnimationType = AnimationType.NoAnimation;
+        public TransitionMode TransitionMode;
     }
 }

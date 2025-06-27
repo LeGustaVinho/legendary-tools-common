@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.Playables;
 #if UNITY_TIMELINE
 using UnityEngine.Timeline;
 #endif
-#if DOTWEEN_PRO || DOTWEEN
+#if DOTWEEN_PRO
 using DG.Tweening;
 using DG.Tweening.Core;
 #endif
@@ -22,58 +23,63 @@ namespace LegendaryTools.Systems.ScreenFlow
         Custom
     }
 
+    [Serializable]
+    public class AnimationSystemConfig
+    {
+        public AnimationSystem AnimationSystem = AnimationSystem.None;
+
+        [Header("Animation")]
+        public Animation ShowAnimation;
+        public Animation HideAnimation;
+
+        [Header("Animator")]
+        public Animator Animator;
+        public string ShowTriggerName = "Show";
+        public string HideTriggerName = "Hide";
+
+#if DOTWEEN_PRO
+        [Header("DoTweenPro")]
+        public DOTweenAnimation DoTweenShowAnimation;
+        public DOTweenAnimation DoTweenHideAnimation;
+#endif
+
+#if UNITY_TIMELINE
+        [Header("Timeline")]
+        public PlayableDirector TimelineDirector;
+        public TimelineAsset ShowTimeline;
+        public TimelineAsset HideTimeline;
+#endif
+    }
+    
     public abstract class AnimatedScreenBaseT<T, TDataShow, TDataHide> : ScreenBaseT<T, TDataShow, TDataHide>
         where T : class
         where TDataShow : class
         where TDataHide : class
     {
-        [SerializeField] private AnimationSystem animationSystem = AnimationSystem.None;
 
-        [SerializeField] private Animation showAnimation;
-        [SerializeField] private Animation hideAnimation;
+        [SerializeField]protected AnimationSystemConfig animationSystemConfig;
 
-        [SerializeField] private Animator animator;
-        [SerializeField] private string showTriggerName = "Show";
-        [SerializeField] private string hideTriggerName = "Hide";
-
-#if DOTWEEN_PRO || DOTWEEN
-        [SerializeField] private DOTweenAnimation doTweenShowAnimation;
-        [SerializeField] private DOTweenAnimation doTweenHideAnimation;
-#endif
-
-#if UNITY_TIMELINE
-        [SerializeField] private PlayableDirector timelineDirector;
-        [SerializeField] private TimelineAsset showTimeline;
-        [SerializeField] private TimelineAsset hideTimeline;
-#endif
-
-        [SerializeField] private float customShowDuration = 1f;
-        [SerializeField] private float customHideDuration = 1f;
-
-        public AnimationSystem AnimationSystem
-        {
-            get => animationSystem;
-            set => animationSystem = value;
-        }
-
+        public UnityEvent OnShow;
+        public UnityEvent OnHide;
+        
         public override async Task ShowT(TDataShow args)
         {
-            switch (animationSystem)
+            switch (animationSystemConfig.AnimationSystem)
             {
                 case AnimationSystem.Animation:
-                    await PlayAnimation(showAnimation);
+                    await PlayAnimation(animationSystemConfig.ShowAnimation);
                     break;
                 case AnimationSystem.Animator:
-                    await PlayAnimatorTrigger(animator, showTriggerName);
+                    await PlayAnimatorTrigger(animationSystemConfig.Animator, animationSystemConfig.ShowTriggerName);
                     break;
-#if DOTWEEN_PRO || DOTWEEN
+#if DOTWEEN_PRO
                 case AnimationSystem.DOTweenPro:
-                    await PlayDOTweenAnimation(doTweenShowAnimation);
+                    await PlayDOTweenAnimation(animationSystemConfig.DoTweenShowAnimation);
                     break;
 #endif
 #if UNITY_TIMELINE
                 case AnimationSystem.UnityTimeline:
-                    await PlayTimeline(timelineDirector, showTimeline);
+                    await PlayTimeline(animationSystemConfig.TimelineDirector, animationSystemConfig.ShowTimeline);
                     break;
 #endif
                 case AnimationSystem.Custom:
@@ -85,26 +91,27 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
 
             await OnShowT(args);
+            OnShow.Invoke();
         }
 
         public override async Task HideT(TDataHide args)
         {
-            switch (animationSystem)
+            switch (animationSystemConfig.AnimationSystem)
             {
                 case AnimationSystem.Animation:
-                    await PlayAnimation(hideAnimation);
+                    await PlayAnimation(animationSystemConfig.HideAnimation);
                     break;
                 case AnimationSystem.Animator:
-                    await PlayAnimatorTrigger(animator, hideTriggerName);
+                    await PlayAnimatorTrigger(animationSystemConfig.Animator, animationSystemConfig.HideTriggerName);
                     break;
-#if DOTWEEN_PRO || DOTWEEN
+#if DOTWEEN_PRO
                 case AnimationSystem.DOTweenPro:
-                    await PlayDOTweenAnimation(doTweenHideAnimation);
+                    await PlayDOTweenAnimation(animationSystemConfig.DoTweenHideAnimation);
                     break;
 #endif
 #if UNITY_TIMELINE
                 case AnimationSystem.UnityTimeline:
-                    await PlayTimeline(timelineDirector, hideTimeline);
+                    await PlayTimeline(animationSystemConfig.TimelineDirector, animationSystemConfig.HideTimeline);
                     break;
 #endif
                 case AnimationSystem.Custom:
@@ -116,6 +123,7 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
 
             await OnHideT(args);
+            OnHide.Invoke();
         }
 
         private async Task PlayAnimation(Animation animation)
@@ -143,7 +151,7 @@ namespace LegendaryTools.Systems.ScreenFlow
             await Task.Delay((int)(stateInfo.length * 1000));
         }
 
-#if DOTWEEN_PRO || DOTWEEN
+#if DOTWEEN_PRO
         private async Task PlayDOTweenAnimation(DOTweenAnimation doTweenAnimation)
         {
             if (doTweenAnimation == null)
@@ -177,13 +185,13 @@ namespace LegendaryTools.Systems.ScreenFlow
         protected virtual async Task CustomShowAnimation(TDataShow args)
         {
             // Override this method for custom show animations
-            await Task.Delay((int)(customShowDuration * 1000));
+            await Task.Yield();
         }
 
         protected virtual async Task CustomHideAnimation(TDataHide args)
         {
             // Override this method for custom hide animations
-            await Task.Delay((int)(customHideDuration * 1000));
+            await Task.Yield();
         }
 
         protected abstract Task OnShowT(TDataShow args);
@@ -191,14 +199,14 @@ namespace LegendaryTools.Systems.ScreenFlow
 
         protected virtual void Awake()
         {
-            showAnimation = showAnimation ?? GetComponent<Animation>();
-            animator = animator ?? GetComponent<Animator>();
-#if DOTWEEN_PRO || DOTWEEN
-            doTweenShowAnimation = doTweenShowAnimation ?? GetComponent<DOTweenAnimation>();
-            doTweenHideAnimation = doTweenHideAnimation ?? GetComponent<DOTweenAnimation>();
+            animationSystemConfig.ShowAnimation = animationSystemConfig.ShowAnimation ?? GetComponent<Animation>();
+            animationSystemConfig.Animator = animationSystemConfig.Animator ?? GetComponent<Animator>();
+#if DOTWEEN_PRO
+            animationSystemConfig.DoTweenShowAnimation = animationSystemConfig.DoTweenShowAnimation ?? GetComponent<DOTweenAnimation>();
+            animationSystemConfig.DoTweenHideAnimation = animationSystemConfig.DoTweenHideAnimation ?? GetComponent<DOTweenAnimation>();
 #endif
 #if UNITY_TIMELINE
-            timelineDirector = timelineDirector ?? GetComponent<PlayableDirector>();
+            animationSystemConfig.TimelineDirector = animationSystemConfig.TimelineDirector ?? GetComponent<PlayableDirector>();
 #endif
         }
     }

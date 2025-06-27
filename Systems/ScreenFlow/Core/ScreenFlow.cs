@@ -483,10 +483,9 @@ namespace LegendaryTools.Systems.ScreenFlow
                 if (isTopOfStack)
                 {
                     // Handle popup hiding based on its animation type.
-                    switch (popupConfig.AnimationType)
+                    switch (popupConfig.TransitionMode)
                     {
-                        case AnimationType.NoAnimation:
-                        case AnimationType.Wait:
+                        case TransitionMode.Sequential:
                         {
                             // Hide the popup and dispose of it.
                             await popupBase.RequestHide(args);
@@ -495,7 +494,7 @@ namespace LegendaryTools.Systems.ScreenFlow
                             DisposePopupFromHide(popupConfig, popupBase);
                             break;
                         }
-                        case AnimationType.Intersection:
+                        case TransitionMode.Parallel:
                         {
                             // Start hiding the popup asynchronously.
                             hidePopupRoutine = popupBase.RequestHide(args);
@@ -508,15 +507,14 @@ namespace LegendaryTools.Systems.ScreenFlow
                         (behindPopupConfig.GoingBackgroundBehaviour == PopupGoingBackgroundBehaviour.JustHide ||
                          behindPopupConfig.GoingBackgroundBehaviour == PopupGoingBackgroundBehaviour.HideAndDestroy))
                     {
-                        switch (popupConfig.AnimationType)
+                        switch (popupConfig.TransitionMode)
                         {
-                            case AnimationType.NoAnimation:
-                            case AnimationType.Wait:
+                            case TransitionMode.Sequential:
                             {
                                 await behindPopupInstance.Show(args);
                                 break;
                             }
-                            case AnimationType.Intersection:
+                            case TransitionMode.Parallel:
                             {
                                 showPopupRoutine = behindPopupInstance.Show(args);
                                 break;
@@ -638,15 +636,14 @@ namespace LegendaryTools.Systems.ScreenFlow
             if (oldScreenConfig == null || oldScreenInstance == null) return;
 
             // Handle hiding based on the screen's animation type.
-            switch (oldScreenConfig.AnimationType)
+            switch (oldScreenConfig.TransitionMode)
             {
-                case AnimationType.NoAnimation:
-                case AnimationType.Wait:
+                case TransitionMode.Sequential:
                     // Hide the screen and handle completion immediately.
                     await oldScreenInstance.RequestHide(args);
                     HandleScreenHideCompletion(oldScreenConfig, oldScreenInstance, onHide);
                     break;
-                case AnimationType.Intersection:
+                case TransitionMode.Parallel:
                     // Start hiding the screen asynchronously.
                     hideScreenRoutine = oldScreenInstance.RequestHide(args);
                     break;
@@ -750,14 +747,13 @@ namespace LegendaryTools.Systems.ScreenFlow
         private async Task ShowNewScreen(ScreenConfig screenConfig, ScreenBase newScreenInstance, System.Object args)
         {
             // Handle showing the screen based on its animation type.
-            switch (screenConfig.AnimationType)
+            switch (screenConfig.TransitionMode)
             {
-                case AnimationType.NoAnimation:
-                case AnimationType.Wait:
+                case TransitionMode.Sequential:
                     // Show the screen and wait for completion.
                     await newScreenInstance.Show(args);
                     break;
-                case AnimationType.Intersection:
+                case TransitionMode.Parallel:
                     // Start showing the screen asynchronously.
                     showScreenRoutine = newScreenInstance.Show(args);
                     break;
@@ -884,10 +880,9 @@ namespace LegendaryTools.Systems.ScreenFlow
 
             bool allowStackablePopups = CurrentScreenConfig.AllowStackablePopups;
             
-            switch (oldPopupConfig.AnimationType)
+            switch (oldPopupConfig.TransitionMode)
             {
-                case AnimationType.NoAnimation:
-                case AnimationType.Wait:
+                case TransitionMode.Sequential:
                     if (allowStackablePopups)
                     {
                         oldPopupInstance.GoToBackground(args);
@@ -909,7 +904,7 @@ namespace LegendaryTools.Systems.ScreenFlow
                         DisposePopupFromHide(oldPopupConfig, oldPopupInstance, oldPopupConfig == newPopupConfig);
                     }
                     break;
-                case AnimationType.Intersection:
+                case TransitionMode.Parallel:
                     if (allowStackablePopups)
                     {
                         oldPopupInstance.GoToBackground(args);
@@ -991,13 +986,12 @@ namespace LegendaryTools.Systems.ScreenFlow
             newPopupInstance.ParentScreen = CurrentScreenInstance;
             popupCanvasManager.CalculatePopupCanvasSortOrder(canvasPopup, CurrentPopupInstance);
 
-            switch (popupConfig.AnimationType)
+            switch (popupConfig.TransitionMode)
             {
-                case AnimationType.NoAnimation:
-                case AnimationType.Wait:
+                case TransitionMode.Sequential:
                     await newPopupInstance.Show(args);
                     break;
-                case AnimationType.Intersection:
+                case TransitionMode.Parallel:
                     showPopupRoutine = newPopupInstance.Show(args);
                     break;
             }

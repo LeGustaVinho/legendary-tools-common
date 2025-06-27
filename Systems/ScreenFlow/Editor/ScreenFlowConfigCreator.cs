@@ -72,10 +72,12 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
                 PrefabUtility.UnloadPrefabContents(prefabInstance);
 
                 // Create a folder for this prefab's assets
-                string prefabFolder = Path.Combine(directory, prefabName);
+                string childFolderName = $"{prefabName}{(isScreen ? "Screen" : "Popup")}";
+                string prefabFolder = Path.Combine(directory, childFolderName);
+                //string prefabFolder = Path.Combine(directory, prefabName);
                 if (!AssetDatabase.IsValidFolder(prefabFolder))
                 {
-                    AssetDatabase.CreateFolder(directory, prefabName);
+                    AssetDatabase.CreateFolder(directory, childFolderName);
                 }
 
                 // Move the prefab to the appropriate folder
@@ -281,7 +283,7 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
         {
             string className = $"{prefabName}{(isScreen ? "Screen" : "Popup")}";
             string filePath = Path.Combine(folderPath, $"{className}.cs");
-            string baseClass = isScreen ? "ScreenBase" : "PopupBase";
+            string baseClass = isScreen ? $"AnimatedScreenBaseT<{className}, System.Object, System.Object>" : $"AnimatedPopupBaseT<{className}, System.Object, System.Object>";
             string namespaceName = "ScreenFlow.CodeGenerator";
 
             // Create the concrete class content
@@ -293,21 +295,22 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
             classContent.AppendLine($"{{");
             classContent.AppendLine($"    public class {className} : {baseClass}");
             classContent.AppendLine($"    {{");
-            if (!isScreen)
-            {
-                classContent.AppendLine($"        public override void OnGoToBackground(System.Object args)");
-                classContent.AppendLine($"        {{");
-                classContent.AppendLine($"            // Implement background behavior here");
-                classContent.AppendLine($"        }}");
-                classContent.AppendLine();
-            }
-            classContent.AppendLine($"        public override async Task Show(System.Object args)");
+            // if (!isScreen)
+            // {
+            //     classContent.AppendLine($"        public override void OnGoToBackground(System.Object args)");
+            //     classContent.AppendLine($"        {{");
+            //     classContent.AppendLine($"            base.OnGoToBackground(args);");
+            //     classContent.AppendLine($"            // Implement background behavior here");
+            //     classContent.AppendLine($"        }}");
+            //     classContent.AppendLine();
+            // }
+            classContent.AppendLine($"        protected override async Task OnShowT(System.Object args)");
             classContent.AppendLine($"        {{");
             classContent.AppendLine($"            // Implement show behavior here");
             classContent.AppendLine($"            await Task.Yield();");
             classContent.AppendLine($"        }}");
             classContent.AppendLine();
-            classContent.AppendLine($"        public override async Task Hide(System.Object args)");
+            classContent.AppendLine($"        protected override async Task OnHideT(System.Object args)");
             classContent.AppendLine($"        {{");
             classContent.AppendLine($"            // Implement hide behavior here");
             classContent.AppendLine($"            await Task.Yield();");
