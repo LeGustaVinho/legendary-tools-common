@@ -3,7 +3,10 @@
     "rootNamespace": "",
     "references": [
         "GUID:2247f345c1389cb428906dc038800b93",
-        "GUID:57e4ccb1ab9be0f48b58a61d57f7b27b"
+        "GUID:57e4ccb1ab9be0f48b58a61d57f7b27b",
+        "GUID:f06555f75b070af458a003d92f9efb00",
+        "GUID:815e1189c01201646a4cbfc86b601a2e",
+        "GUID:eeb9fa96ab681ea45931ce90865eae04"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -12,6 +15,17 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.addressables",
+            "expression": "",
+            "define": "ASSET_PROVIDER_HAS_ADDRESSABLES"
+        },
+        {
+            "name": "com.unity.timeline",
+            "expression": "",
+            "define": "UNITY_TIMELINE"
+        }
+    ],
     "noEngineReferences": false
 }

@@ -56,8 +56,7 @@ namespace LegendaryTools.Systems.AssetProvider
         [Sirenix.OdinInspector.HideInEditorMode]
         [Sirenix.OdinInspector.ReadOnly]
 #endif
-        public virtual bool
-            IsInScene
+        public virtual bool IsInScene
         {
             protected set;
             get;
@@ -93,8 +92,7 @@ namespace LegendaryTools.Systems.AssetProvider
                 await Handle.Await<T>();
                 return Handle;
             }
-
-            // Se não está carregando, inicia o carregamento
+            
             return await LoadAsync<T>(cancellationToken);
         }
 

@@ -16,6 +16,12 @@ namespace LegendaryTools.Systems.AssetProvider
         #pragma warning disable CS0067
         public event Action<object> OnCompleted;
         #pragma warning restore CS0067
+        
+        public HardRefLoadedAsset(object result)
+        {
+            Result = result;
+        }
+        
         public void Release()
         {
         }
@@ -23,11 +29,6 @@ namespace LegendaryTools.Systems.AssetProvider
         public async Task<T> Await<T>() where T : Object
         {
             return Result as T;
-        }
-
-        public HardRefLoadedAsset(object result)
-        {
-            Result = result;
         }
     }
     
@@ -38,12 +39,15 @@ namespace LegendaryTools.Systems.AssetProvider
 
         public override T Load<T>()
         {
-            return HardReference as T;
+            loadedAsset = HardReference;
+            return loadedAsset as T;
         }
 
         public override async Task<ILoadOperation> LoadAsync<T>(CancellationToken cancellationToken = default)
         {
-            return new HardRefLoadedAsset(HardReference);
+            HardRefLoadedAsset handle = new HardRefLoadedAsset(HardReference);
+            loadedAsset = HardReference;
+            return handle;
         }
 
         public override void Unload()
@@ -63,7 +67,9 @@ namespace LegendaryTools.Systems.AssetProvider
 
         public override async Task<ILoadOperation> LoadAsync<T1>(CancellationToken cancellationToken = default)
         {
-            return new HardRefLoadedAsset(HardReference);
+            HardRefLoadedAsset handle = new HardRefLoadedAsset(HardReference);
+            loadedAsset = HardReference;
+            return handle;
         }
 
         public override void Unload()

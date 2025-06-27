@@ -1,7 +1,5 @@
-﻿using System;
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
-using LegendaryTools.Systems.ScreenFlow;
 using LegendaryTools.Systems.AssetProvider;
 using System.IO;
 using System.Linq;
@@ -21,7 +19,9 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
         {
             nameof(HardRefAssetLoaderConfig),
             nameof(ResourcesAssetLoaderConfig),
+            #if ASSET_PROVIDER_HAS_ADDRESSABLES
             nameof(AddressablesAssetLoaderConfig)
+            #endif
         };
 
         // Struct to store pending operations, marked as Serializable for JSON
@@ -32,6 +32,7 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
             public bool IsScreen;
             public string PrefabName;
             public string ConfigPath; // Store path to ScreenConfig or PopupConfig
+            public bool NeedsComponent; // Indicates if a concrete component needs to be added
         }
 
         [MenuItem("Assets/Create/ScreenFlow/Create Screen or Popup Config", false, 80)]
@@ -65,6 +66,11 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
                 string directory = Path.GetDirectoryName(prefabPath);
                 string prefabName = SanitizeClassName(Path.GetFileNameWithoutExtension(prefabPath));
 
+                // Check if prefab already has ScreenBase or PopupBase
+                GameObject prefabInstance = PrefabUtility.LoadPrefabContents(prefabPath);
+                bool hasComponent = prefabInstance.GetComponent<ScreenBase>() != null;
+                PrefabUtility.UnloadPrefabContents(prefabInstance);
+
                 // Create a folder for this prefab's assets
                 string prefabFolder = Path.Combine(directory, prefabName);
                 if (!AssetDatabase.IsValidFolder(prefabFolder))
@@ -96,8 +102,12 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
                 }
                 prefabPath = uniquePrefabPath; // Update prefabPath to new location
 
-                // Create concrete class
-                string classFilePath = CreateConcreteClass(isScreen, prefabFolder, prefabName);
+                // Create concrete class only if no component exists
+                string classFilePath = null;
+                if (!hasComponent)
+                {
+                    classFilePath = CreateConcreteClass(isScreen, prefabFolder, prefabName);
+                }
 
                 // Create AssetLoaderConfig
                 AssetLoaderConfig assetLoaderConfig = CreateAssetLoaderConfig(loaderChoice, prefabFolder, prefabName, prefab);
@@ -105,13 +115,14 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
                 // Create ScreenConfig or PopupConfig
                 UIEntityBaseConfig config = CreateUIEntityConfig(isScreen, prefabFolder, prefabName, assetLoaderConfig);
 
-                // Store pending operation to add component and config after compilation
+                // Store pending operation to add component (if needed) and config after compilation
                 pendingOperations.Add(new PendingOperation
                 {
                     PrefabPath = prefabPath,
                     IsScreen = isScreen,
                     PrefabName = prefabName,
-                    ConfigPath = AssetDatabase.GetAssetPath(config)
+                    ConfigPath = AssetDatabase.GetAssetPath(config),
+                    NeedsComponent = !hasComponent
                 });
             }
 
@@ -151,17 +162,20 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
                 ? new List<PendingOperation>()
                 : JsonConvert.DeserializeObject<List<PendingOperation>>(json);
 
-            // Add components to prefabs
+            // Add components to prefabs (if needed)
             foreach (var operation in pendingOperations)
             {
-                GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(operation.PrefabPath);
-                if (prefab != null)
+                if (operation.NeedsComponent)
                 {
-                    AddConcreteComponent(prefab, operation.IsScreen, operation.PrefabName);
-                }
-                else
-                {
-                    Debug.LogWarning($"[ScreenFlowConfigCreator] Could not load prefab at path {operation.PrefabPath}. Component not added.");
+                    GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(operation.PrefabPath);
+                    if (prefab != null)
+                    {
+                        AddConcreteComponent(prefab, operation.IsScreen, operation.PrefabName);
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[ScreenFlowConfigCreator] Could not load prefab at path {operation.PrefabPath}. Component not added.");
+                    }
                 }
             }
 
@@ -228,13 +242,13 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
                 if (operation.IsScreen)
                 {
                     ScreenConfig screenConfig = config as ScreenConfig;
-                    if(!selectedConfig.Screens.Contains(screenConfig))
+                    if (!selectedConfig.Screens.Contains(screenConfig))
                         selectedConfig.Screens = selectedConfig.Screens.AddItem(screenConfig);
                 }
                 else
                 {
                     PopupConfig popupConfig = config as PopupConfig;
-                    if(!selectedConfig.Popups.Contains(popupConfig))
+                    if (!selectedConfig.Popups.Contains(popupConfig))
                         selectedConfig.Popups = selectedConfig.Popups.AddItem(popupConfig);
                 }
             }
@@ -248,7 +262,7 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
             AssetDatabase.Refresh();
 
             EditorUtility.DisplayDialog("Success", 
-                $"Created {(pendingOperations.Any(op => op.IsScreen) ? "ScreenConfig" : "PopupConfig")}, concrete class, modified {(pendingOperations.Count > 1 ? "prefabs" : "prefab")}, and added to ScreenFlowConfig successfully!", 
+                $"Created {(pendingOperations.Any(op => op.IsScreen) ? "ScreenConfig" : "PopupConfig")}, concrete class (if needed), modified {(pendingOperations.Count > 1 ? "prefabs" : "prefab")}, and added to ScreenFlowConfig successfully!", 
                 "OK");
         }
 
@@ -332,9 +346,11 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
                         Debug.LogWarning($"[ScreenFlowConfigCreator] Prefab {prefabName} is not in a Resources folder. ResourcePath will be empty.");
                     }
                     break;
+#if ASSET_PROVIDER_HAS_ADDRESSABLES
                 case 2: // AddressablesAssetLoaderConfig
                     config = ScriptableObject.CreateInstance<AddressablesAssetLoaderConfig>();
                     break;
+#endif
                 default:
                     throw new System.ArgumentException("Invalid loader choice");
             }
@@ -345,7 +361,7 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
 
         private static UIEntityBaseConfig CreateUIEntityConfig(bool isScreen, string folderPath, string prefabName, AssetLoaderConfig assetLoaderConfig)
         {
-            string configPath = Path.Combine(folderPath, $"{prefabName}_{(isScreen ? "ScreenConfig" : "PopupConfig")}.asset");
+            string configPath = Path.Combine(folderPath, $"{prefabName}{(isScreen ? "Screen" : "Popup")}.asset");
             UIEntityBaseConfig config = isScreen 
                 ? ScriptableObject.CreateInstance<ScreenConfig>() 
                 : ScriptableObject.CreateInstance<PopupConfig>();
@@ -373,10 +389,8 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
             // Load the prefab in edit mode
             GameObject prefabInstance = PrefabUtility.LoadPrefabContents(AssetDatabase.GetAssetPath(prefab));
 
-            // Check if component already exists
-            bool hasComponent = isScreen 
-                ? prefabInstance.GetComponent<ScreenBase>() != null 
-                : prefabInstance.GetComponent<PopupBase>() != null;
+            // Check if component already exists (redundant check for safety)
+            bool hasComponent = prefabInstance.GetComponent<ScreenBase>() != null;
 
             if (!hasComponent)
             {

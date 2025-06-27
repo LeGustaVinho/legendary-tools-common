@@ -5,7 +5,7 @@ using UnityEngine.Playables;
 #if UNITY_TIMELINE
 using UnityEngine.Timeline;
 #endif
-#if DOTWEEN_PRO
+#if DOTWEEN_PRO || DOTWEEN
 using DG.Tweening;
 using DG.Tweening.Core;
 #endif
@@ -26,7 +26,7 @@ namespace LegendaryTools.Systems.ScreenFlow
         [SerializeField] private string showTriggerName = "Show";
         [SerializeField] private string hideTriggerName = "Hide";
 
-#if DOTWEEN_PRO
+#if DOTWEEN_PRO || DOTWEEN
         [SerializeField] private DOTweenAnimation doTweenShowAnimation;
         [SerializeField] private DOTweenAnimation doTweenHideAnimation;
 #endif
@@ -56,7 +56,7 @@ namespace LegendaryTools.Systems.ScreenFlow
                 case AnimationSystem.Animator:
                     await PlayAnimatorTrigger(animator, showTriggerName);
                     break;
-#if DOTWEEN_PRO
+#if DOTWEEN_PRO || DOTWEEN
                 case AnimationSystem.DOTweenPro:
                     await PlayDOTweenAnimation(doTweenShowAnimation);
                     break;
@@ -87,7 +87,7 @@ namespace LegendaryTools.Systems.ScreenFlow
                 case AnimationSystem.Animator:
                     await PlayAnimatorTrigger(animator, hideTriggerName);
                     break;
-#if DOTWEEN_PRO
+#if DOTWEEN_PRO || DOTWEEN
                 case AnimationSystem.DOTweenPro:
                     await PlayDOTweenAnimation(doTweenHideAnimation);
                     break;
@@ -139,7 +139,7 @@ namespace LegendaryTools.Systems.ScreenFlow
             await Task.Delay((int)(stateInfo.length * 1000));
         }
 
-#if DOTWEEN_PRO
+#if DOTWEEN_PRO || DOTWEEN
         private async Task PlayDOTweenAnimation(DOTweenAnimation doTweenAnimation)
         {
             if (doTweenAnimation == null)
@@ -194,7 +194,7 @@ namespace LegendaryTools.Systems.ScreenFlow
         {
             showAnimation = showAnimation ?? GetComponent<Animation>();
             animator = animator ?? GetComponent<Animator>();
-#if DOTWEEN_PRO
+#if DOTWEEN_PRO || DOTWEEN
             doTweenShowAnimation = doTweenShowAnimation ?? GetComponent<DOTweenAnimation>();
             doTweenHideAnimation = doTweenHideAnimation ?? GetComponent<DOTweenAnimation>();
 #endif
