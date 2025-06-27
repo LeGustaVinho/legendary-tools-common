@@ -111,6 +111,31 @@ namespace LegendaryTools.Concurrency
             }
         }
 
+        public static Task ForTask(Task job,
+            AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
+            IProgress<float> progress = null)
+        {
+            AsyncWaitTaskContext context = new()
+            {
+                CancellationToken = cancellationToken,
+                Backend = backend,
+                Progress = progress
+            };
+
+            switch (backend)
+            {
+#if ENABLE_UNITASK
+                case AsyncWaitBackend.UniTask:
+                    return UniTaskAsyncWait.ForTask(job, context);
+#endif
+                case AsyncWaitBackend.NativeAsyncWait:
+                    return WaitForTaskNativeAsync(job, context);
+                case AsyncWaitBackend.UnityCoroutine:
+                default:
+                    return RunCoroutine(WaitForTaskCoroutine(job, context), cancellationToken);
+            }
+        }
+        
         public static Task ForAsync(Func<AsyncWaitTaskContext, Task> asyncAction,
             AsyncWaitBackend backend = AsyncWaitBackend.UnityCoroutine, CancellationToken cancellationToken = default,
             IProgress<float> progress = null)
@@ -876,6 +901,35 @@ namespace LegendaryTools.Concurrency
             yield return new WaitForFixedUpdate();
         }
 
+        private static async Task WaitForTaskNativeAsync(Task job, AsyncWaitTaskContext context)
+        {
+            while (!job.IsCompleted)
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
+                context.Progress?.Report(job.IsCompleted ? 1f : 0f);
+                await Task.Yield();
+            }
+
+            context.Progress?.Report(1f);
+            if (job.IsFaulted) throw job.Exception?.InnerException ?? new Exception("Task failed.");
+            if (job.IsCanceled) throw new OperationCanceledException(context.CancellationToken);
+        }
+
+        private static System.Collections.IEnumerator WaitForTaskCoroutine(Task job, AsyncWaitTaskContext context)
+        {
+            while (!job.IsCompleted)
+            {
+                if (context.CancellationToken.IsCancellationRequested)
+                    throw new OperationCanceledException(context.CancellationToken);
+                context.Progress?.Report(job.IsCompleted ? 1f : 0f);
+                yield return null;
+            }
+
+            context.Progress?.Report(1f);
+            if (job.IsFaulted) throw job.Exception?.InnerException ?? new Exception("Task failed.");
+            if (job.IsCanceled) throw new OperationCanceledException(context.CancellationToken);
+        }
+        
         private static async Task WaitForAsyncOperation(AsyncWaitTaskContext context, AsyncOperation asyncOperation)
         {
             while (!asyncOperation.isDone)

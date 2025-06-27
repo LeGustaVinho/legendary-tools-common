@@ -40,6 +40,24 @@ namespace LegendaryTools.Concurrency
             return UniTask.WaitForFixedUpdate(cancellationToken).AsTask();
         }
 
+        public static Task ForTask(Task job, AsyncWaitTaskContext context)
+        {
+            return UniTask.Create(async () =>
+            {
+                while (!job.IsCompleted)
+                {
+                    context.CancellationToken.ThrowIfCancellationRequested();
+                    context.Progress?.Report(job.IsCompleted ? 1f : 0f);
+                    await UniTask.Yield();
+                }
+
+                context.Progress?.Report(1f);
+                if (job.IsFaulted) throw job.Exception?.InnerException ?? new Exception("Task failed.");
+                if (job.IsCanceled) throw new OperationCanceledException(context.CancellationToken);
+                return UniTask.CompletedTask;
+            }).AttachExternalCancellation(context.CancellationToken).AsTask();
+        }
+        
         public static Task ForAsync(Func<AsyncWaitTaskContext, Task> asyncAction, AsyncWaitTaskContext context)
         {
             return UniTask.Create(async () =>
