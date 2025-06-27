@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using LegendaryTools.Systems.AssetProvider;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -51,35 +52,44 @@ namespace LegendaryTools.Actor
         {
             if(autoCreateGameObject)
             {
-                void CreateAndInitGameObject(object prefabActor)
+                ActorAutoCreate();
+            }
+        }
+
+        private async void ActorAutoCreate()
+        {
+            void CreateAndInitGameObject(object prefabActor)
+            {
+                if (prefabActor is ActorMonoBehaviour actorMonoBehaviourPrefab)
                 {
-                    if (prefabActor is ActorMonoBehaviour actorMonoBehaviourPrefab)
-                    {
-                        Prefab = actorMonoBehaviourPrefab.gameObject;
-                    }
-                    else if(prefabActor is GameObject actorMonoBehaviourPrefabGameObject)
-                    {
-                        if (actorMonoBehaviourPrefabGameObject.GetComponent<ActorMonoBehaviour>() != null)
-                        {
-                            Prefab = actorMonoBehaviourPrefabGameObject;
-                        }
-                    }
-                
-                    OnAsyncActorBodyLoaded?.Invoke(this, ActorBehaviour);
-                    RegenerateBody();
+                    Prefab = actorMonoBehaviourPrefab.gameObject;
                 }
-            
-                if (Config != null)
+                else if(prefabActor is GameObject actorMonoBehaviourPrefabGameObject)
                 {
-                    if (Config.TypeByActorAssetLoadersTable.TryGetValue(this.GetType(), out AssetLoaderConfig assetLoaderConfig))
-                        handler = assetLoaderConfig.LoadWithCoroutines<ActorMonoBehaviour>(CreateAndInitGameObject);
-                    else
-                        CreateAndInitGameObject(Prefab);
+                    if (actorMonoBehaviourPrefabGameObject.GetComponent<ActorMonoBehaviour>() != null)
+                    {
+                        Prefab = actorMonoBehaviourPrefabGameObject;
+                    }
+                }
+                
+                OnAsyncActorBodyLoaded?.Invoke(this, ActorBehaviour);
+                RegenerateBody();
+            }
+
+            if (Config != null)
+            {
+                if (Config.TypeByActorAssetLoadersTable.TryGetValue(this.GetType(),
+                        out AssetLoaderConfig assetLoaderConfig))
+                {
+                    handler = await assetLoaderConfig.WaitForLoadingAsync<ActorMonoBehaviour>();
+                    CreateAndInitGameObject(handler.Result as ActorMonoBehaviour);
                 }
                 else
-                {
                     CreateAndInitGameObject(Prefab);
-                }
+            }
+            else
+            {
+                CreateAndInitGameObject(Prefab);
             }
         }
 
@@ -346,7 +356,7 @@ namespace LegendaryTools.Actor
 
         #region Static
         
-        public static void Initialize(ActorSystemAssetLoadableConfig config, Action onInitialize = null)
+        public static async Task Initialize(ActorSystemAssetLoadableConfig config, Action onInitialize = null)
         {
             Config = config;
             Config.Initialize();
@@ -355,7 +365,7 @@ namespace LegendaryTools.Actor
             {
                 PreloadQueue.Add(pair.Value);
             }
-            UnityHub.Instance.StartCoroutine(PreloadingAssets(onInitialize));
+            await PreloadingAssets(onInitialize);
         }
 
         public static T AddOrGetActorComponent<T>(GameObject gameObject)
@@ -414,13 +424,12 @@ namespace LegendaryTools.Actor
             return null;
         }
         
-        private static IEnumerator PreloadingAssets(Action onInitialize = null)
+        private static async Task PreloadingAssets(Action onInitialize = null)
         {
             for (int i = PreloadQueue.Count - 1; i >= 0; i--)
             {
                 AssetLoaderConfig item = PreloadQueue[i];
-                item.PrepareLoadRoutine<ActorMonoBehaviour>();
-                yield return item.WaitLoadRoutine();
+                await item.WaitForLoadingAsync<ActorMonoBehaviour>();
                 PreloadQueue.Remove(item);
             }
             onInitialize?.Invoke();
