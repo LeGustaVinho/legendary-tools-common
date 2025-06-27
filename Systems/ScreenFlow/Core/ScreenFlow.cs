@@ -55,7 +55,7 @@ namespace LegendaryTools.Systems.ScreenFlow
 #endif
         {
             rectTransform = GetComponent<RectTransform>();
-            popupManager = new PopupManager(Config, GetComponent<Canvas>(), GetComponent<CanvasScaler>(), GetComponent<GraphicRaycaster>());
+            popupManager = new PopupManager(this, Config, GetComponent<Canvas>(), GetComponent<CanvasScaler>(), GetComponent<GraphicRaycaster>());
             commandQueueProcessor = new CommandQueueProcessor(this, popupManager, uiEntityLoader);
             uiEntityLoader = new UIEntityLoader(this, popupManager);
         }

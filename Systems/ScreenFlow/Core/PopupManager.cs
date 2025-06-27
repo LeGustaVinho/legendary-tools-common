@@ -8,6 +8,7 @@ namespace LegendaryTools.Systems.ScreenFlow
 {
     public class PopupManager
     {
+        private readonly ScreenFlow screenFlow;
         private readonly ScreenFlowConfig config;
         private readonly Canvas canvas;
         private readonly CanvasScaler canvasScaler;
@@ -23,8 +24,10 @@ namespace LegendaryTools.Systems.ScreenFlow
 
         public event Action<(PopupConfig, IPopupBase), (PopupConfig, IPopupBase)> OnPopupOpen;
 
-        public PopupManager(ScreenFlowConfig config, Canvas canvas, CanvasScaler canvasScaler, GraphicRaycaster graphicRaycaster)
+        public PopupManager(ScreenFlow screenFlow, ScreenFlowConfig config, Canvas canvas, CanvasScaler canvasScaler,
+            GraphicRaycaster graphicRaycaster)
         {
+            this.screenFlow = screenFlow;
             this.config = config;
             this.canvas = canvas;
             this.canvasScaler = canvasScaler;
@@ -307,7 +310,7 @@ namespace LegendaryTools.Systems.ScreenFlow
 
         private void OnClosePopupRequest(IPopupBase popupToClose)
         {
-            // This could trigger a command to close the popup
+            screenFlow.ClosePopup(popupToClose);
         }
 
         private void DisposePopupFromHide(PopupConfig popupConfig, IPopupBase popupInstance, bool forceDontUnload = false)
