@@ -18,14 +18,14 @@ namespace LegendaryTools.Bragi
         public AudioHandler Play(AudioConfig audioConfig, AudioSettings overrideSettings = null, bool allowFading = true)
         {
             AudioHandler handler = Pool.Instantiate(audioHandlerPrefab);
-            handler.Initialize(audioConfig, overrideSettings ?? audioConfig.AudioSettings, allowFading);
+            handler.Initialize(audioConfig, overrideSettings ?? audioConfig.AudioSettings, allowFading).FireAndForget();
             return handler;
         }
 
         public AudioHandler Play(Vector3 position, AudioConfig audioConfig, AudioSettings overrideSettings = null, bool allowFading = true)
         {
             AudioHandler handler = Pool.Instantiate(audioHandlerPrefab);
-            handler.Initialize(audioConfig, overrideSettings ?? audioConfig.AudioSettings, allowFading);
+            handler.Initialize(audioConfig, overrideSettings ?? audioConfig.AudioSettings, allowFading).FireAndForget();
             handler.Position = position;
             return handler;
         }
@@ -33,7 +33,7 @@ namespace LegendaryTools.Bragi
         public AudioHandler Play(Transform parent, AudioConfig audioConfig, AudioSettings overrideSettings = null, bool allowFading = true)
         {
             AudioHandler handler = Pool.Instantiate(audioHandlerPrefab);
-            handler.Initialize(audioConfig, overrideSettings ?? audioConfig.AudioSettings, allowFading);
+            handler.Initialize(audioConfig, overrideSettings ?? audioConfig.AudioSettings, allowFading).FireAndForget();
             handler.VirtualParent = parent;
             return handler;
         }
