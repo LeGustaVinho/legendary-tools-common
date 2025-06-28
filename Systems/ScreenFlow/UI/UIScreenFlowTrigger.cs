@@ -7,7 +7,6 @@ namespace LegendaryTools.Systems.ScreenFlow
     {
         public ScreenFlowTriggerMode Mode = ScreenFlowTriggerMode.Trigger;
         public UIEntityBaseConfig UiEntity;
-        public bool Enqueue;
         
         private Button button;
 
@@ -32,17 +31,17 @@ namespace LegendaryTools.Systems.ScreenFlow
                 {
                     case ScreenFlowTriggerMode.Trigger:
                     {
-                        ScreenFlowInstance.SendTrigger(UiEntity, enqueue:Enqueue);
+                        ScreenFlowInstance.SendTrigger(UiEntity);
                         break;
                     }
                     case ScreenFlowTriggerMode.MoveBack:
                     {
-                        ScreenFlowInstance.MoveBack(enqueue:Enqueue);
+                        ScreenFlowInstance.MoveBack();
                         break;
                     }
                     case ScreenFlowTriggerMode.ClosePopup:
                     {
-                        ScreenFlowInstance.CloseForegroundPopup(enqueue:Enqueue);
+                        ScreenFlowInstance.CloseForegroundPopup();
                         break;
                     }
                 }

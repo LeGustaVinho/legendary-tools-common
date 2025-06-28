@@ -72,12 +72,10 @@ namespace LegendaryTools.Systems.ScreenFlow
 
         protected virtual void Update()
         {
-#if ENABLE_LEGACY_INPUT_MANAGER
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 ProcessBackKey();
             }
-#endif
         }
 
         public async Task Initialize()
@@ -111,32 +109,28 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
         }
 
-        public async Task SendTrigger(string name, object args = null, bool enqueue = true,
-            Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
+        public async Task SendTrigger(string name, object args = null, Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
         {
             if (uiEntitiesLookup.TryGetValue(name, out UIEntityBaseConfig uiEntityBaseConfig))
             {
-                await SendTrigger(uiEntityBaseConfig, args, enqueue, requestedScreenOnShow, previousScreenOnHide);
+                await SendTrigger(uiEntityBaseConfig, args, requestedScreenOnShow, previousScreenOnHide);
             }
         }
 
-        public async Task SendTrigger(UIEntityBaseConfig uiEntity, object args = null, bool enqueue = true,
-            Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
+        public async Task SendTrigger(UIEntityBaseConfig uiEntity, object args = null, Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
         {
             ScreenFlowCommand command = new ScreenFlowCommand(ScreenFlowCommandType.Trigger, uiEntity, args, requestedScreenOnShow, previousScreenOnHide);
-            await commandQueueProcessor.ProcessCommand(command, enqueue);
+            await commandQueueProcessor.ProcessCommand(command);
         }
 
-        public async Task SendTriggerT<TConfig, TShow>(TConfig uiEntity, TShow args = null, bool enqueue = true,
-            Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
+        public async Task SendTriggerT<TConfig, TShow>(TConfig uiEntity, TShow args = null, Action<IScreenBase> requestedScreenOnShow = null, Action<IScreenBase> previousScreenOnHide = null)
             where TConfig : UIEntityBaseConfig
             where TShow : class
         {
-            await SendTrigger(uiEntity, args, enqueue, requestedScreenOnShow, previousScreenOnHide);
+            await SendTrigger(uiEntity, args, requestedScreenOnShow, previousScreenOnHide);
         }
 
-        public async Task SendTriggerT<TConfig, TShow, THide>(TConfig uiEntity, TShow args = null, bool enqueue = true,
-            Action<ScreenBaseT<TConfig, TShow, THide>> requestedScreenOnShow = null,
+        public async Task SendTriggerT<TConfig, TShow, THide>(TConfig uiEntity, TShow args = null, Action<ScreenBaseT<TConfig, TShow, THide>> requestedScreenOnShow = null,
             Action<IScreenBase> previousScreenOnHide = null)
             where TConfig : UIEntityBaseConfig
             where TShow : class
@@ -147,27 +141,27 @@ namespace LegendaryTools.Systems.ScreenFlow
                 if (screenBase is ScreenBaseT<TConfig, TShow, THide> screenBaseT)
                     requestedScreenOnShow?.Invoke(screenBaseT);
             }
-            await SendTrigger(uiEntity, args, enqueue, RequestedScreenTOnShow, previousScreenOnHide);
+            await SendTrigger(uiEntity, args, RequestedScreenTOnShow, previousScreenOnHide);
         }
 
-        public async Task MoveBack(object args = null, bool enqueue = true, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
+        public async Task MoveBack(object args = null, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
         {
             ScreenFlowCommand command = new ScreenFlowCommand(ScreenFlowCommandType.MoveBack, null, args, onShow, onHide);
-            await commandQueueProcessor.ProcessCommand(command, enqueue);
+            await commandQueueProcessor.ProcessCommand(command);
         }
 
-        public void CloseForegroundPopup(object args = null, bool enqueue = true, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
+        public void CloseForegroundPopup(object args = null, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
         {
             if (CurrentPopupInstance != null)
             {
-                ClosePopup(CurrentPopupInstance, args, enqueue, onShow, onHide);
+                ClosePopup(CurrentPopupInstance, args, onShow, onHide);
             }
         }
 
-        public void ClosePopup(IPopupBase popupBase, object args = null, bool enqueue = true, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
+        public void ClosePopup(IPopupBase popupBase, object args = null, Action<IScreenBase> onShow = null, Action<IScreenBase> onHide = null)
         {
             ScreenFlowCommand command = new ScreenFlowCommand(ScreenFlowCommandType.ClosePopup, popupBase, args, onShow, onHide);
-            commandQueueProcessor.EnqueueOrProcessCommand(command, enqueue);
+            commandQueueProcessor.ProcessCommand(command).FireAndForget();
         }
 
         public void Dispose()

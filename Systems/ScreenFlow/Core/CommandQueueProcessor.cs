@@ -21,44 +21,42 @@ namespace LegendaryTools.Systems.ScreenFlow
             this.uiEntityLoader = uiEntityLoader;
         }
 
-        public async Task ProcessCommand(ScreenFlowCommand command, bool enqueue)
+        public async Task ProcessCommand(ScreenFlowCommand command)
         {
-            if (!IsTransiting)
+            if (IsTransiting)
             {
                 commandQueue.Add(command);
-                transitionRoutine = ProcessCommandQueue();
-                await transitionRoutine;
+                while (!command.IsDone)
+                {
+                    await Task.Yield();
+                }
             }
             else
             {
-                if (enqueue)
-                {
-                    commandQueue.Add(command);
-                    await WaitForCommandProcessing(command);
-                }
-                else
-                {
-                    await transitionRoutine;
-                    commandQueue.Add(command);
-                    transitionRoutine = ProcessCommandQueue();
-                    await transitionRoutine;
-                }
-            }
-        }
-
-        public void EnqueueOrProcessCommand(ScreenFlowCommand command, bool enqueue)
-        {
-            if (!IsTransiting)
-            {
                 commandQueue.Add(command);
                 transitionRoutine = ProcessCommandQueue();
-            }
-            else if (enqueue)
-            {
-                commandQueue.Add(command);
+                while (!command.IsDone)
+                {
+                    await Task.Yield();
+                }
+                
+                if(commandQueue.Count > 0)
+                    WaitCommandQueue().FireAndForget();
+                else
+                    transitionRoutine = null;
+                
             }
         }
 
+        private async Task WaitCommandQueue()
+        {
+            if (transitionRoutine != null)
+            {
+                await transitionRoutine;
+                transitionRoutine = null;
+            }
+        }
+        
         public void Dispose()
         {
             commandQueue.Clear();
@@ -79,29 +77,29 @@ namespace LegendaryTools.Systems.ScreenFlow
                         {
                             case ScreenConfig screenConfig:
                                 await screenFlow.ScreenTransitTo(screenConfig, false, next.Args, next.OnShow, next.OnHide);
+                                next.IsDone = true;
                                 break;
                             case PopupConfig popupConfig:
-                                if (screenFlow.CurrentScreenConfig != null && screenFlow.CurrentScreenConfig.AllowPopups)
-                                    await popupManager.PopupTransitTo(popupConfig, screenFlow.CurrentScreenConfig, next.Args, next.OnShow, next.OnHide, screenFlow);
+                                if (screenFlow.CurrentScreenConfig != null &&
+                                    screenFlow.CurrentScreenConfig.AllowPopups)
+                                {
+                                    await popupManager.PopupTransitTo(popupConfig, screenFlow.CurrentScreenConfig,
+                                        next.Args, next.OnShow, next.OnHide, screenFlow);
+                                    next.IsDone = true;
+                                }
+
                                 break;
                         }
                         break;
                     case ScreenFlowCommandType.MoveBack:
                         await MoveBackOp(next.Args, next.OnShow, next.OnHide);
+                        next.IsDone = true;
                         break;
                     case ScreenFlowCommandType.ClosePopup:
                         await popupManager.ClosePopupOp(next.Object as IPopupBase, next.Args, next.OnShow, next.OnHide, screenFlow);
+                        next.IsDone = true;
                         break;
                 }
-            }
-            transitionRoutine = null;
-        }
-
-        private async Task WaitForCommandProcessing(ScreenFlowCommand command)
-        {
-            while (commandQueue.Contains(command))
-            {
-                await Task.Yield();
             }
         }
 

@@ -9,13 +9,11 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
     {
         private SerializedProperty triggerModeProperty;
         private SerializedProperty uiEntityProperty;
-        private SerializedProperty enqueueProperty;
 
         private void OnEnable()
         {
             triggerModeProperty = serializedObject.FindProperty(nameof(UIScreenFlowTrigger.Mode));
             uiEntityProperty = serializedObject.FindProperty(nameof(UIScreenFlowTrigger.UiEntity));
-            enqueueProperty = serializedObject.FindProperty(nameof(UIScreenFlowTrigger.Enqueue));
         }
 
         public override void OnInspectorGUI()
@@ -31,8 +29,6 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
             {
                 EditorGUILayout.PropertyField(uiEntityProperty);
             }
-
-            EditorGUILayout.PropertyField(enqueueProperty);
 
             serializedObject.ApplyModifiedProperties();
         }
