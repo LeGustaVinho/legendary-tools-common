@@ -4,6 +4,6 @@ namespace LegendaryTools.Systems.ScreenFlow
     {
         NotAllowed,
         ScreenMoveBack,
-        CloseFirstPopup,
+        CloseFirstPopupOrMoveBack,
     }
 }

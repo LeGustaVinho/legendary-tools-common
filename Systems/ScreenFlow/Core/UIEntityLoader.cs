@@ -63,7 +63,7 @@ namespace LegendaryTools.Systems.ScreenFlow
             }
         }
 
-        public async Task LoadAndInstantiateScreen(ScreenConfig screenConfig, Action<ScreenBase> onInstanceCreated)
+        public async Task<ScreenBase> LoadAndInstantiateScreen(ScreenConfig screenConfig)
         {
             if (nextScreenLoading != null)
             {
@@ -81,14 +81,14 @@ namespace LegendaryTools.Systems.ScreenFlow
             if (screenConfig.AssetLoaderConfig.LoadedAsset == null)
             {
                 Debug.LogError($"[UIEntityLoader:LoadAndInstantiateScreen] -> Failed to load {screenConfig.AssetLoaderConfig.name}", screenConfig);
-                return;
+                return null;
             }
 
             ScreenBase newScreenPrefab = GetScreenPrefab(screenConfig);
             if (newScreenPrefab == null)
             {
                 Debug.LogError($"[UIEntityLoader:LoadAndInstantiateScreen] -> {screenConfig.AssetLoaderConfig.LoadedAsset.GetType()} doesn't have any component that inherits from ScreenBase class", screenConfig);
-                return;
+                return null;
             }
 
             ScreenBase newScreenInstance;
@@ -103,7 +103,7 @@ namespace LegendaryTools.Systems.ScreenFlow
                     out RectTransform instanceRT, out RectTransform prefabRT);
             }
 
-            onInstanceCreated?.Invoke(newScreenInstance);
+            return newScreenInstance;
         }
 
         public async Task ShowNewScreen(ScreenConfig screenConfig, ScreenBase newScreenInstance, object args)
@@ -152,9 +152,9 @@ namespace LegendaryTools.Systems.ScreenFlow
 
         public void ReparentUIElement(RectTransform elementInstanceRT, RectTransform elementPrefabRT, Transform parent)
         {
-            if (elementInstanceRT == null || elementPrefabRT == null || parent == null)
+            if (elementInstanceRT == null || elementPrefabRT == null)
             {
-                Debug.LogError("[UIEntityLoader:ReparentUIElement] -> Invalid parameters: elementInstanceRT, elementPrefabRT, or parent is null");
+                Debug.LogError("[UIEntityLoader:ReparentUIElement] -> Invalid parameters: elementInstanceRT or elementPrefabRT is null");
                 return;
             }
 

@@ -33,9 +33,6 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
             ScreenFlowConfig config = FindOrCreateScreenFlowConfig();
             screenFlow.Config = config;
             
-            if(config.Screens.Length > 0)
-                screenFlow.StartScreen = config.Screens[0];
-            
             // Ensure the Canvas is properly positioned in the hierarchy
             if (Selection.activeGameObject != null)
             {
