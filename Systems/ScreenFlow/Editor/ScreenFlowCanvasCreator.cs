@@ -25,9 +25,11 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
 
             // Add ScreenFlow component
             ScreenFlow screenFlow = canvasGO.AddComponent<ScreenFlow>();
+#if SCREEN_FLOW_SINGLETON
             screenFlow.ForceSingleInstance = true;
             screenFlow.IsPersistent = true;
             screenFlow.AutoInitializeOnStart = true;
+#endif
 
             // Find or create ScreenFlowConfig
             ScreenFlowConfig config = FindOrCreateScreenFlowConfig();
