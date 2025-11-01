@@ -9,9 +9,9 @@ namespace LegendaryTools.Editor
     public class AssetNavigatorWindow : EditorWindow
     {
         // Lists to store selection history (index 0 is the most recent user selection)
-        private List<Object> assetHistory = new List<Object>(); // For non-GameObject assets
-        private List<GameObject> gameObjectHistory = new List<GameObject>(); // For GameObjects
-        private List<Object> assetPalette = new List<Object>(); // For persistent Asset Palette
+        private List<Object> assetHistory = new(); // For non-GameObject assets
+        private List<GameObject> gameObjectHistory = new(); // For GameObjects
+        private List<Object> assetPalette = new(); // For persistent Asset Palette
 
         // Variable to track the last selected object
         private Object lastSelected = null;
@@ -25,6 +25,9 @@ namespace LegendaryTools.Editor
 
         private const int HISTORY_SIZE = 20;
         private const string PALETTE_PREFS_KEY = "LegendaryTools_AssetPalette_GUIDs";
+
+        // Scroll position for the whole window
+        private Vector2 scrollPos; // Maintains a single scroll view for the whole GUI
 
         // Create a menu item to open the window (Window > Asset History)
         [MenuItem("Tools/LegendaryTools/Asset Navigator Window")]
@@ -132,9 +135,7 @@ namespace LegendaryTools.Editor
                         string path = AssetDatabase.GUIDToAssetPath(guid);
                         Object asset = AssetDatabase.LoadAssetAtPath<Object>(path);
                         if (asset != null && (!(asset is GameObject) || PrefabUtility.IsPartOfPrefabAsset(asset)))
-                        {
                             assetPalette.Add(asset);
-                        }
                     }
                 }
             }
@@ -225,6 +226,10 @@ namespace LegendaryTools.Editor
 
         private void OnGUI()
         {
+            // Begin a single scroll view wrapping the entire GUI content.
+            // This ensures the whole window scrolls as one unit regardless of section heights.
+            scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
+
             GUILayout.Space(10);
 
             // Asset History Section
@@ -232,14 +237,12 @@ namespace LegendaryTools.Editor
             GUILayout.BeginHorizontal();
             // Back button for Asset history
             if (GUILayout.Button("Back (Assets)"))
-            {
                 if (currentAssetHistoryIndex < assetHistory.Count - 1)
                 {
                     ignoreNextSelectionChange = true;
                     currentAssetHistoryIndex++;
                     Selection.activeObject = assetHistory[currentAssetHistoryIndex];
                 }
-            }
 
             // Clear Asset History button
             if (GUILayout.Button("Clear Asset History"))
@@ -259,6 +262,7 @@ namespace LegendaryTools.Editor
                         lastSelected = null;
                 }
             }
+
             GUILayout.EndHorizontal();
 
             GUILayout.Space(5);
@@ -278,6 +282,7 @@ namespace LegendaryTools.Editor
                     Selection.activeObject = asset;
                     currentAssetHistoryIndex = i;
                 }
+
                 GUI.backgroundColor = Color.white;
             }
 
@@ -288,14 +293,12 @@ namespace LegendaryTools.Editor
             GUILayout.BeginHorizontal();
             // Back button for GameObject history
             if (GUILayout.Button("Back (GameObjects)"))
-            {
                 if (currentGameObjectHistoryIndex < gameObjectHistory.Count - 1)
                 {
                     ignoreNextSelectionChange = true;
                     currentGameObjectHistoryIndex++;
                     Selection.activeObject = gameObjectHistory[currentGameObjectHistoryIndex];
                 }
-            }
 
             // Clear GameObject History button
             if (GUILayout.Button("Clear GameObject History"))
@@ -315,6 +318,7 @@ namespace LegendaryTools.Editor
                         lastSelected = null;
                 }
             }
+
             GUILayout.EndHorizontal();
 
             GUILayout.Space(5);
@@ -334,6 +338,7 @@ namespace LegendaryTools.Editor
                     Selection.activeObject = go;
                     currentGameObjectHistoryIndex = i;
                 }
+
                 GUI.backgroundColor = Color.white;
             }
 
@@ -348,6 +353,7 @@ namespace LegendaryTools.Editor
                 assetPalette.Clear();
                 SaveAssetPalette();
             }
+
             GUILayout.EndHorizontal();
 
             GUILayout.Space(5);
@@ -369,15 +375,15 @@ namespace LegendaryTools.Editor
                     DragAndDrop.AcceptDrag();
                     foreach (Object draggedObject in DragAndDrop.objectReferences)
                     {
-                        if (draggedObject != null && (!(draggedObject is GameObject) || PrefabUtility.IsPartOfPrefabAsset(draggedObject)))
-                        {
+                        if (draggedObject != null && (!(draggedObject is GameObject) ||
+                                                      PrefabUtility.IsPartOfPrefabAsset(draggedObject)))
                             if (!assetPalette.Contains(draggedObject))
                             {
                                 assetPalette.Add(draggedObject);
                                 SaveAssetPalette();
                             }
-                        }
                     }
+
                     Event.current.Use();
                 }
             }
@@ -397,6 +403,7 @@ namespace LegendaryTools.Editor
                     Selection.activeObject = asset;
                     EditorGUIUtility.PingObject(asset); // Highlight in Project window
                 }
+
                 GUI.backgroundColor = Color.white;
 
                 // Remove button for individual asset
@@ -406,8 +413,12 @@ namespace LegendaryTools.Editor
                     SaveAssetPalette();
                     break; // Exit loop to avoid modifying collection during iteration
                 }
+
                 GUILayout.EndHorizontal();
             }
+
+            // End of the single scroll view wrapping the entire GUI
+            EditorGUILayout.EndScrollView();
         }
     }
 }
