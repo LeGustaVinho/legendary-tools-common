@@ -46,7 +46,7 @@ namespace LegendaryTools.UI.Editor
             {typeof(TextMeshProUGUI), "Text"},
         };
 
-        [MenuItem("Tools/LegendaryTools/Tag All UI Objects in Scene")]
+        [MenuItem("Tools/LegendaryTools/UI/Tag All UI Objects in Scene")]
         public static void TagGameObjects()
         {
             foreach (GameObject obj in Object.FindObjectsByType<GameObject>(FindObjectsInactive.Include,

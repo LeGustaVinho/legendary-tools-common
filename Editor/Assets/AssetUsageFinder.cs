@@ -115,7 +115,7 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Opens the Asset Usage Finder window from the Unity Editor menu.
         /// </summary>
-        [MenuItem("Tools/LegendaryTools/Asset Usage Finder")]
+        [MenuItem("Tools/LegendaryTools/Assets/Asset Usage Finder")]
         public static void ShowWindow()
         {
             AssetUsageFinder window = GetWindow<AssetUsageFinder>("Asset Usage Finder");

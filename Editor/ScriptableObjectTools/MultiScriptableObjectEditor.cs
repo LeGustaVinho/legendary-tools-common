@@ -15,7 +15,7 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Opens the Multi ScriptableObject Editor window from the Unity Editor menu.
         /// </summary>
-        [MenuItem("Tools/LegendaryTools/ScriptableObject/Multi ScriptableObject Editor")]
+        [MenuItem("Tools/LegendaryTools/ScriptableObjects/Multi ScriptableObject Editor")]
         public static void OpenWindow()
         {
             GetWindow<MultiScriptableObjectEditor>("Multi ScriptableObject Editor");
