@@ -36,23 +36,13 @@ public interface IDagNode
     /// <summary>Gets the position in canvas (logical) coordinates.</summary>
     Vector2 Position { get; }
 
-    // --- Optional appearance overrides used by the editor ---
-
-    /// <summary>
-    /// Gets a value indicating whether a custom node size is provided.
-    /// When <c>true</c>, <see cref="NodeSize"/> is used instead of editor defaults.
-    /// </summary>
+    /// <summary>Gets a value indicating whether a custom node size is provided.</summary>
     bool HasCustomNodeSize { get; }
 
-    /// <summary>
-    /// Gets the custom node size used when <see cref="HasCustomNodeSize"/> is <c>true</c>.
-    /// </summary>
+    /// <summary>Gets the custom node size.</summary>
     Vector2 NodeSize { get; }
 
-    /// <summary>
-    /// Gets a value indicating whether custom GUI styles are provided for this node.
-    /// When <c>true</c>, the editor will attempt to resolve styles by name.
-    /// </summary>
+    /// <summary>Gets a value indicating whether custom GUI styles are provided for this node.</summary>
     bool HasCustomNodeStyles { get; }
 
     /// <summary>Gets the name of the normal (unselected) GUIStyle.</summary>
@@ -82,6 +72,26 @@ public interface IDagEdge<TNode>
 }
 
 /// <summary>
+/// Optional styling/metadata contract for edges.
+/// Implementations may provide name, color and a center text label for rendering,
+/// while preserving compatibility with code that only expects <see cref="IDagEdge{TNode}"/>.
+/// </summary>
+public interface IStyledEdge
+{
+    /// <summary>Gets a human-readable edge name.</summary>
+    string Name { get; }
+
+    /// <summary>Gets the preferred color for rendering this edge.</summary>
+    Color EdgeColor { get; }
+
+    /// <summary>
+    /// Gets an optional text rendered at the curve midpoint.
+    /// When empty or null, nothing is drawn.
+    /// </summary>
+    string CenterText { get; }
+}
+
+/// <summary>
 /// Algorithm surface for DAGs. Kept minimal by design.
 /// </summary>
 /// <typeparam name="TNode">Node abstraction.</typeparam>
@@ -97,6 +107,6 @@ public interface IDagAlgorithms<TNode, TEdge>
     /// <param name="getTo">Projection to read edge <c>To</c>.</param>
     /// <returns><c>true</c> if a cycle exists; otherwise <c>false</c>.</returns>
     bool HasCycle(IReadOnlyDag<TNode, TEdge> dag,
-                  System.Func<TEdge, TNode> getFrom,
-                  System.Func<TEdge, TNode> getTo);
+        System.Func<TEdge, TNode> getFrom,
+        System.Func<TEdge, TNode> getTo);
 }

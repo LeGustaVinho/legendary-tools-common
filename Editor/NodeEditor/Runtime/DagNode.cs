@@ -13,15 +13,16 @@ public class DagNode : ScriptableObject, IDagNode
     [SerializeField] private Vector2 position;
 
     // Example serialized fields (some drawn inline in the node via [ShowInNode])
-    [ShowInNode, SerializeField] public string note;
-    [ShowInNode, SerializeField] public int someInt;
+    [ShowInNode] [SerializeField] public string note;
+    [ShowInNode] [SerializeField] public int someInt;
     [SerializeField] public float someFloat;
-    [ShowInNode, SerializeField] public UnityEngine.Object reference;
+    [ShowInNode] [SerializeField] public UnityEngine.Object reference;
 
     // Optional appearance overrides consumed by the editor
-    [Header("Appearance (Optional)")]
-    [SerializeField] private bool overrideSize = false;
-    [SerializeField] private Vector2 customSize = new Vector2(200f, 110f);
+    [Header("Appearance (Optional)")] [SerializeField]
+    private bool overrideSize = false;
+
+    [SerializeField] private Vector2 customSize = new(200f, 110f);
 
     [SerializeField] private bool overrideStyles = false;
     [SerializeField] private GUISkin styleSkin = null;
@@ -58,11 +59,20 @@ public class DagNode : ScriptableObject, IDagNode
     public GUISkin StyleSkin => styleSkin;
 
     /// <summary>Sets the identifier. Internal to the editor workflow.</summary>
-    internal void SetId(int value) => id = value;
+    internal void SetId(int value)
+    {
+        id = value;
+    }
 
     /// <summary>Sets the display title. Internal to the editor workflow.</summary>
-    internal void SetTitle(string value) => title = value;
+    internal void SetTitle(string value)
+    {
+        title = value;
+    }
 
     /// <summary>Sets the canvas position. Internal to the editor workflow.</summary>
-    internal void SetPosition(Vector2 value) => position = value;
+    internal void SetPosition(Vector2 value)
+    {
+        position = value;
+    }
 }
