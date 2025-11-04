@@ -12,15 +12,15 @@ public class DefaultNodeMenuProvider : INodeContextMenuProvider
 
         // Connections
         menu.AddItemIf(
-            "Connections/Create Connection",
-            () => count >= 1,
-            () =>
+            path: "Connections/Create Connection",
+            isVisible: () => count >= 1,
+            onClick: () =>
             {
-                DagNode n = context.Nodes.FirstOrDefault() as DagNode;
+                var n = context.Nodes.FirstOrDefault() as DagNode;
                 if (n == null) return;
                 context.StartConnection?.Invoke(n.Id);
             },
-            () => count >= 1
+            isEnabled: () => count >= 1
         );
 
         // --- Edit group: Copy/Duplicate ---

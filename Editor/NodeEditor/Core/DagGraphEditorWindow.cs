@@ -78,12 +78,14 @@ public class DagGraphEditorWindow : EditorWindow
         // Global cancel for connection mode
         Event e = Event.current;
         if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape)
-            if (_ctx.PendingFromNodeId.HasValue)
+        {
+            if (!string.IsNullOrEmpty(_ctx.PendingFromNodeId))
             {
                 _ctx.PendingFromNodeId = null;
                 Repaint();
                 e.Use();
             }
+        }
 
         // Shortcuts
         HandleShortcuts(canvasRect);
@@ -180,7 +182,7 @@ public class DagGraphEditorWindow : EditorWindow
                 _ctx.SelectedNodes,
                 _ctx.SelectedEdges,
                 _ctx.VirtualCanvasSize,
-                _ctx.PendingFromNodeId.HasValue,
+                !string.IsNullOrEmpty(_ctx.PendingFromNodeId),
                 CreateNewAsset,
                 AddNodeAtViewportCenter,
                 Repaint,
@@ -223,13 +225,13 @@ public class DagGraphEditorWindow : EditorWindow
         Event e = Event.current;
 
         // Finalize connection by clicking a destination node
-        if (_ctx.PendingFromNodeId.HasValue && e.type == EventType.MouseDown && e.button == 0)
+        if (!string.IsNullOrEmpty(_ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0)
         {
-            int fromId = _ctx.PendingFromNodeId.Value;
+            string fromId = _ctx.PendingFromNodeId;
             if (fromId != node.Id)
             {
                 Undo.RecordObject(_ctx.Graph, "Add Edge");
-                if (!_ctx.Graph.TryAddEdge(fromId, node.Id, out string err))
+                if (!_ctx.Graph.TryAddEdge(fromId, node.Id, out var err))
                     ShowNotification(new GUIContent(err));
                 else
                     EditorUtility.SetDirty(_ctx.Graph);
@@ -237,6 +239,7 @@ public class DagGraphEditorWindow : EditorWindow
                 _ctx.PendingFromNodeId = null;
                 e.Use();
                 return; // prevent selection on this click
+                return;
             }
         }
 
@@ -310,8 +313,7 @@ public class DagGraphEditorWindow : EditorWindow
         Event e = Event.current;
         if (!canvasRect.Contains(e.mousePosition)) return;
 
-        if (_ctx.PendingFromNodeId.HasValue && e.type == EventType.MouseDown && e.button == 0)
-            return; // ignore while connecting
+        if (!string.IsNullOrEmpty(_ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0) return;
 
         Vector2 mouseLogical = CoordinateSystem.ScreenToLogical(e.mousePosition, canvasRect, _ctx.Scroll, 1f);
         if (IsMouseOverAnyNode(canvasRect)) return;
@@ -384,8 +386,7 @@ public class DagGraphEditorWindow : EditorWindow
         Event e = Event.current;
         if (!canvasRect.Contains(e.mousePosition)) return;
 
-        if (_ctx.PendingFromNodeId.HasValue && e.type == EventType.MouseDown && e.button == 0 &&
-            !(overNode || overEdge))
+        if (!string.IsNullOrEmpty(_ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0 && !(overNode || overEdge))
         {
             // Block marquee start while connecting
             e.Use();
@@ -418,7 +419,7 @@ public class DagGraphEditorWindow : EditorWindow
     /// </summary>
     private void DrawConnectionModeOverlay(Rect canvasRect)
     {
-        if (!_ctx.PendingFromNodeId.HasValue) return;
+        if (string.IsNullOrEmpty(_ctx.PendingFromNodeId)) return;
 
         Rect banner = new(canvasRect.x + 8, canvasRect.y + 8, canvasRect.width - 16, 26);
         Color prev = GUI.color;

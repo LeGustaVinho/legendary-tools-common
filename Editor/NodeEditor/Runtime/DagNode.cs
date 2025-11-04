@@ -8,7 +8,7 @@ using UnityEngine;
 [Serializable]
 public class DagNode : ScriptableObject, IDagNode
 {
-    [SerializeField] private int id;
+    [SerializeField] private string id;
     [SerializeField] private string title = "Node";
     [SerializeField] private Vector2 position;
 
@@ -31,8 +31,8 @@ public class DagNode : ScriptableObject, IDagNode
     [SerializeField] private string normalStyleName = "flow node 0";
     [SerializeField] private string selectedStyleName = "flow node 0 on";
 
-    /// <summary>Gets the unique node identifier.</summary>
-    public int Id => id;
+    /// <summary>Unique node identifier (GUID string).</summary>
+    public string Id => id;
 
     /// <summary>Gets the display title.</summary>
     public string Title => title;
@@ -58,11 +58,8 @@ public class DagNode : ScriptableObject, IDagNode
     /// <summary>Gets the GUISkin where styles are resolved first.</summary>
     public GUISkin StyleSkin => styleSkin;
 
-    /// <summary>Sets the identifier. Internal to the editor workflow.</summary>
-    internal void SetId(int value)
-    {
-        id = value;
-    }
+    /// <summary>Sets the node id (GUID string). Intended for graph initialization.</summary>
+    public void SetId(string newId) => id = newId;
 
     /// <summary>Sets the display title. Internal to the editor workflow.</summary>
     internal void SetTitle(string value)

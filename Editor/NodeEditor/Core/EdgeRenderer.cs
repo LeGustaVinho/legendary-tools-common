@@ -39,9 +39,9 @@ public class EdgeRenderer
         }
 
         // Rubber-band while creating a new connection
-        if (ctx.PendingFromNodeId.HasValue)
+        if (!string.IsNullOrEmpty(ctx.PendingFromNodeId))
         {
-            IDagNode from = ctx.Graph.Nodes.FirstOrDefault(n => n != null && n.Id == ctx.PendingFromNodeId.Value);
+            IDagNode from = ctx.Graph.Nodes.FirstOrDefault(n => n != null && n.Id == ctx.PendingFromNodeId);
             if (from != null)
             {
                 Rect srcRect = _nodeAppearance.GetNodeRect(from, ctx.ShowInNodeCache);

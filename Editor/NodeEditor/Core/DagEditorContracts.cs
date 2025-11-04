@@ -20,8 +20,8 @@ public class DagEditorContext
     /// <summary>Virtual canvas extent for clamping scroll.</summary>
     public Vector2 VirtualCanvasSize = new(8000f, 8000f);
 
-    /// <summary>Currently pending edge source node id (rubber-band), if any.</summary>
-    public int? PendingFromNodeId;
+    /// <summary>Current connection source node id (GUID string). Null when not connecting.</summary>
+    public string PendingFromNodeId;
 
     /// <summary>Nodes selected (abstractions to keep LSP).</summary>
     public readonly HashSet<IDagNode> SelectedNodes = new();

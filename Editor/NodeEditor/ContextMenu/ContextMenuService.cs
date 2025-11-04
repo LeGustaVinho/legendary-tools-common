@@ -14,15 +14,13 @@ public static class ContextMenuService
     /// <param name="graph">Graph asset.</param>
     /// <param name="nodes">Selected nodes.</param>
     /// <param name="startConnection">Callback to start connection mode from a given node id.</param>
-    public static void ShowNodeMenu(DagGraph graph, IReadOnlyList<IDagNode> nodes, Action<int> startConnection)
+    public static void ShowNodeMenu(DagGraph graph, IReadOnlyList<IDagNode> nodes, System.Action<string> startConnection)
     {
-        MenuBuilder builder = new();
-        NodeMenuContext ctx = new(graph, nodes, startConnection);
+        var builder = new MenuBuilder();
+        var ctx = new NodeMenuContext(graph, nodes, startConnection);
 
-        foreach (INodeContextMenuProvider p in ContextMenuRegistry.NodeProviders)
-        {
+        foreach (var p in ContextMenuRegistry.NodeProviders)
             p.Build(ctx, builder);
-        }
 
         builder.Show();
     }
@@ -30,13 +28,11 @@ public static class ContextMenuService
     /// <summary>Builds and shows the Edge context menu using all registered providers.</summary>
     public static void ShowEdgeMenu(DagGraph graph, IReadOnlyList<IDagEdge<IDagNode>> edges)
     {
-        MenuBuilder builder = new();
-        EdgeMenuContext ctx = new(graph, edges);
+        var builder = new MenuBuilder();
+        var ctx = new EdgeMenuContext(graph, edges);
 
-        foreach (IEdgeContextMenuProvider p in ContextMenuRegistry.EdgeProviders)
-        {
+        foreach (var p in ContextMenuRegistry.EdgeProviders)
             p.Build(ctx, builder);
-        }
 
         builder.Show();
     }

@@ -48,10 +48,10 @@ public sealed class NodeMenuContext
     /// Callback injected by the editor window to start the "connection mode" from a given node id.
     /// Providers should call this instead of touching editor state directly.
     /// </summary>
-    public Action<int> StartConnection { get; }
+    /// <summary>Callback to start the connection mode from a given node id (GUID string).</summary>
+    public Action<string> StartConnection { get; }
 
-    /// <summary>Creates a new node menu context.</summary>
-    public NodeMenuContext(DagGraph graph, IReadOnlyList<IDagNode> nodes, Action<int> startConnection)
+    public NodeMenuContext(DagGraph graph, IReadOnlyList<IDagNode> nodes, Action<string> startConnection)
     {
         Graph = graph;
         Nodes = nodes;

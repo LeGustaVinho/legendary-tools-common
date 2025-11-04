@@ -11,7 +11,6 @@ public class DagGraph : ScriptableObject, IReadOnlyDag<IDagNode, IDagEdge<IDagNo
 {
     [SerializeField] private List<DagNode> nodes = new();
     [SerializeField] private List<DagEdge> edges = new();
-    [SerializeField] private int nextNodeId = 1;
 
     /// <summary>Read-only nodes view.</summary>
     public virtual IReadOnlyList<IDagNode> Nodes => nodes;
@@ -28,9 +27,9 @@ public class DagGraph : ScriptableObject, IReadOnlyDag<IDagNode, IDagEdge<IDagNo
     }
 
     /// <summary>Moves a node to a new position.</summary>
-    public virtual void MoveNode(int nodeId, Vector2 newPosition)
+    public virtual void MoveNode(string nodeId, Vector2 newPosition)
     {
-        DagNode n = nodes.Find(x => x != null && x.Id == nodeId);
+        var n = nodes.Find(x => x != null && x.Id == nodeId);
         if (n != null) n.SetPosition(newPosition);
     }
 
@@ -38,7 +37,7 @@ public class DagGraph : ScriptableObject, IReadOnlyDag<IDagNode, IDagEdge<IDagNo
     /// Tries to add an edge; refuses duplicates, self-loops and any edge that would create a cycle.
     /// Returns false with an error message on failure.
     /// </summary>
-    public virtual bool TryAddEdge(int fromId, int toId, out string error)
+    public virtual bool TryAddEdge(string fromId, string toId, out string error)
     {
         error = null;
 
@@ -48,8 +47,8 @@ public class DagGraph : ScriptableObject, IReadOnlyDag<IDagNode, IDagEdge<IDagNo
             return false;
         }
 
-        DagNode from = nodes.Find(x => x != null && x.Id == fromId);
-        DagNode to = nodes.Find(x => x != null && x.Id == toId);
+        var from = nodes.Find(x => x != null && x.Id == fromId);
+        var to   = nodes.Find(x => x != null && x.Id == toId);
         if (from == null || to == null)
         {
             error = "Endpoints not found.";
@@ -75,7 +74,7 @@ public class DagGraph : ScriptableObject, IReadOnlyDag<IDagNode, IDagEdge<IDagNo
     }
 
     /// <summary>Removes a node and any incident edges.</summary>
-    public virtual void RemoveNode(int nodeId)
+    public virtual void RemoveNode(string nodeId)
     {
         DagNode n = nodes.Find(x => x != null && x.Id == nodeId);
         if (n == null) return;
@@ -90,7 +89,7 @@ public class DagGraph : ScriptableObject, IReadOnlyDag<IDagNode, IDagEdge<IDagNo
     }
 
     /// <summary>Removes an edge by endpoints.</summary>
-    public virtual void RemoveEdge(int fromId, int toId)
+    public virtual void RemoveEdge(string fromId, string toId)
     {
         DagNode from = nodes.Find(x => x != null && x.Id == fromId);
         DagNode to = nodes.Find(x => x != null && x.Id == toId);
@@ -154,7 +153,7 @@ public class DagGraph : ScriptableObject, IReadOnlyDag<IDagNode, IDagEdge<IDagNo
     /// </summary>
     private void InitNewNode(DagNode n, string title, Vector2 position)
     {
-        n.SetId(nextNodeId++);
+        n.SetId(Guid.NewGuid().ToString("N"));
         n.SetTitle(title);
         n.SetPosition(position);
 

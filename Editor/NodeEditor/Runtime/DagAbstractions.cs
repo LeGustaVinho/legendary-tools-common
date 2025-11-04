@@ -28,7 +28,7 @@ public interface IReadOnlyDag<TNode, TEdge>
 public interface IDagNode
 {
     /// <summary>Gets the unique identifier of this node within its graph.</summary>
-    int Id { get; }
+    string Id { get; }
 
     /// <summary>Gets the display title.</summary>
     string Title { get; }
