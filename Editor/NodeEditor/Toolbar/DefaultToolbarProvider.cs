@@ -2,49 +2,52 @@
 using UnityEditor;
 using UnityEngine;
 
-/// <summary>
-/// Built-in toolbar provider that reproduces the previous default toolbar:
-/// - Graph object field
-/// - "New Asset" button
-/// - "Add Node" button
-/// - Connection-mode status label (dynamic)
-/// </summary>
-public sealed class DefaultToolbarProvider : IToolbarProvider
+namespace LegendaryTools.NodeEditor
 {
-    public void Build(ToolbarContext context, IToolbarBuilder toolbar)
+    /// <summary>
+    /// Built-in toolbar provider that reproduces the previous default toolbar:
+    /// - Graph object field
+    /// - "New Asset" button
+    /// - "Add Node" button
+    /// - Connection-mode status label (dynamic)
+    /// </summary>
+    public sealed class DefaultToolbarProvider : IToolbarProvider
     {
-        // Graph asset field (350px)
-        toolbar.AddObjectField<DagGraph>(
-            () => context.Graph,
-            obj => context.Graph = obj as DagGraph,
-            350f,
-            "Graph Asset");
+        public void Build(ToolbarContext context, IToolbarBuilder toolbar)
+        {
+            // Graph asset field (350px)
+            toolbar.AddObjectField<Graph>(
+                () => context.Graph,
+                obj => context.Graph = obj as Graph,
+                350f,
+                "Graph Asset");
 
-        toolbar.AddSeparator();
+            toolbar.AddSeparator();
 
-        // New Asset
-        toolbar.AddButton("New Asset", () => context.CreateNewAsset?.Invoke());
+            // New Asset
+            toolbar.AddButton("New Asset", () => context.CreateNewAsset?.Invoke());
 
-        // Add Node
-        toolbar.AddButton("Add Node", () => context.AddNodeAtViewportCenter?.Invoke());
+            // Add Node
+            toolbar.AddButton("Add Node", () => context.AddNodeAtViewportCenter?.Invoke());
 
-        // Right-aligned dynamic info
-        toolbar.AddFlexibleSpace();
+            // Right-aligned dynamic info
+            toolbar.AddFlexibleSpace();
 
-        if (context.IsConnectionMode)
-            toolbar.AddLabel(() => "Connection mode: click a destination node or press Esc to cancel");
+            if (context.IsConnectionMode)
+                toolbar.AddLabel(() => "Connection mode: click a destination node or press Esc to cancel");
+        }
     }
-}
 
-/// <summary>
-/// Auto-registers default toolbar provider on load.
-/// </summary>
-[InitializeOnLoad]
-internal static class DefaultToolbarProviderBootstrap
-{
-    static DefaultToolbarProviderBootstrap()
+    /// <summary>
+    /// Auto-registers default toolbar provider on load.
+    /// </summary>
+    [InitializeOnLoad]
+    internal static class DefaultToolbarProviderBootstrap
     {
-        ToolbarService.Register(new DefaultToolbarProvider());
+        static DefaultToolbarProviderBootstrap()
+        {
+            ToolbarService.Register(new DefaultToolbarProvider());
+        }
     }
 }
 #endif

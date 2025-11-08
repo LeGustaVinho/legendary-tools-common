@@ -15,6 +15,6 @@ namespace LegendaryTools.GraphV2
         INodeConnection ConnectTo(INode to, NodeConnectionDirection newDirection);
         bool RemoveConnection(INodeConnection nodeConnection);
         INodeConnection FindConnectionBetweenNodes(INode from, INode to);
-        internal void SetOwner(IGraph owner);
+        public void SetOwner(IGraph owner);
     }
 }
