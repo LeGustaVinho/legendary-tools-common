@@ -1,4 +1,5 @@
 ﻿#if UNITY_EDITOR
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
@@ -8,6 +9,7 @@ namespace LegendaryTools.NodeEditor
 {
     /// <summary>
     /// Main editor window for visual graph editor authoring. Draw-only; delegates all input to InputController.
+    /// This version binds context menu and toolbar providers from the current Graph asset.
     /// </summary>
     public class VisualGraphEditorWindow : EditorWindow
     {
@@ -20,7 +22,7 @@ namespace LegendaryTools.NodeEditor
         private readonly ResizeController _resize = new();
         private readonly InspectorPanel _inspector = new();
 
-        // NEW: Input controller
+        // Input controller with provider-based menu delegates
         private readonly InputController _input = new();
 
         // Shared context
@@ -28,6 +30,13 @@ namespace LegendaryTools.NodeEditor
 
         // Shared state bag for toolbar providers (optional use).
         private readonly Dictionary<string, object> _toolbarState = new();
+
+        // Bound Graph and its resolved providers
+        private Graph _boundGraph;
+        private INodeContextMenuProvider _nodeMenuProvider;
+        private IEdgeContextMenuProvider _edgeMenuProvider;
+        private IGraphContextMenuProvider _graphMenuProvider;
+        private IToolbarProvider _toolbarProvider;
 
         /// <summary>
         /// Opens the editor window.
@@ -46,8 +55,12 @@ namespace LegendaryTools.NodeEditor
         {
             _ctx.Zoom = 1f; // hard-lock to 1:1 (no zoom)
 
-            // Initialize input controller with services
-            _input.Initialize(_grid, _appearance, _edges, _panOnly, _marquee, _resize);
+            // Initialize input controller with services and menu delegates (placeholders until we bind a Graph).
+            _input.Initialize(
+                _grid, _appearance, _edges, _panOnly, _marquee, _resize,
+                _ => { },
+                _ => { },
+                _ => { });
         }
 
         /// <summary>
@@ -57,6 +70,7 @@ namespace LegendaryTools.NodeEditor
         {
             if (_ctx.CachedNodeEditor != null) DestroyImmediate(_ctx.CachedNodeEditor);
             if (_ctx.CachedEdgeEditor != null) DestroyImmediate(_ctx.CachedEdgeEditor);
+            UnbindGraph();
         }
 
         /// <summary>
@@ -109,7 +123,7 @@ namespace LegendaryTools.NodeEditor
             _edges.DrawEdges(_ctx, canvasRect);
 
             // Nodes (draw + node-local input through controller)
-            BeginWindows(); // IMPORTANT: must live in the window class
+            BeginWindows();
             for (int i = 0; i < _ctx.Graph.Nodes.Count; i++)
             {
                 IEditorNode node = _ctx.Graph.Nodes[i];
@@ -143,7 +157,7 @@ namespace LegendaryTools.NodeEditor
                 }
             }
 
-            EndWindows(); // IMPORTANT: must live in the window class
+            EndWindows();
 
             GUI.EndGroup(); // contentRect
             GUI.EndGroup(); // canvasRect
@@ -156,28 +170,68 @@ namespace LegendaryTools.NodeEditor
         }
 
         /// <summary>
-        /// Renders the toolbar using the extensible ToolbarService. This is the only place that uses EditorStyles.toolbar scope.
+        /// Renders the toolbar using the provider indicated by the current Graph.
+        /// Always shows the Graph ObjectField on the left.
         /// </summary>
         private void DrawToolbar()
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                ToolbarContext ctx = new(
+                // Host-level Graph field is always present
+                Graph newGraph = (Graph)EditorGUILayout.ObjectField(
+                    GUIContent.none,
                     _ctx.Graph,
-                    _ctx.SelectedNodes,
-                    _ctx.SelectedEdges,
-                    _ctx.VirtualCanvasSize,
-                    !string.IsNullOrEmpty(_ctx.PendingFromNodeId),
-                    CreateNewAsset,
-                    AddNodeAtViewportCenter,
-                    Repaint,
-                    (msg) => ShowNotification(new GUIContent(msg)),
-                    _toolbarState
-                );
+                    typeof(Graph),
+                    false,
+                    GUILayout.Width(350f));
 
-                // Draw and sync back any changes to the graph reference made by providers
-                ToolbarService.Draw(ctx);
-                _ctx.Graph = ctx.Graph;
+                // Tooltip behavior equivalent to provider's option
+                GUIContent assetLabel = new("Graph Asset");
+                Rect helpRect = GUILayoutUtility.GetRect(0, 0, GUILayout.ExpandWidth(false));
+                if (helpRect.width > 0)
+                    // Spacer to carry tooltip; no visual element.
+                    GUI.Label(new Rect(helpRect.x, helpRect.y, 1, EditorGUIUtility.singleLineHeight), assetLabel,
+                        EditorStyles.toolbarButton);
+
+                // Bind/unbind lifecycle when Graph changes
+                if (newGraph != _ctx.Graph)
+                {
+                    _ctx.Graph = newGraph;
+                    if (_ctx.Graph != null) BindGraph(_ctx.Graph);
+                    else UnbindGraph();
+                }
+
+                // If we have a provider, render its items (it will add separators/flex/etc.)
+                if (_toolbarProvider != null && _ctx.Graph != null)
+                {
+                    ToolbarContext ctx = new(
+                        _ctx.Graph,
+                        _ctx.SelectedNodes,
+                        _ctx.SelectedEdges,
+                        _ctx.VirtualCanvasSize,
+                        !string.IsNullOrEmpty(_ctx.PendingFromNodeId),
+                        CreateNewAsset,
+                        AddNodeAtViewportCenter,
+                        Repaint,
+                        (msg) => ShowNotification(new GUIContent(msg)),
+                        _toolbarState
+                    );
+
+                    ToolbarBuilder builder = new(ctx);
+                    try
+                    {
+                        _toolbarProvider.Build(ctx, builder);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogException(ex);
+                    }
+                }
+                else
+                {
+                    // Even without provider, keep layout stable
+                    GUILayout.FlexibleSpace();
+                }
             }
         }
 
@@ -198,6 +252,7 @@ namespace LegendaryTools.NodeEditor
                 _ctx.Zoom = 1f;
                 _ctx.SelectedNodes.Clear();
                 _ctx.SelectedEdges.Clear();
+                BindGraph(asset);
                 Repaint();
             }
         }
@@ -215,7 +270,6 @@ namespace LegendaryTools.NodeEditor
             // Draw inline contents
             using (new EditorGUILayout.VerticalScope())
             {
-                // Inline [ShowInNode] fields
                 _appearance.DrawInlineFields(node, _ctx.ShowInNodeCache);
             }
 
@@ -278,12 +332,96 @@ namespace LegendaryTools.NodeEditor
             float vpHeight = position.height - NodeEditorLayout.ToolbarHeight - NodeEditorLayout.ScrollbarThickness;
             Vector2 center = _ctx.Scroll + new Vector2(vpWidth, vpHeight) * 0.5f;
 
-            Node n = _ctx.Graph.CreateNode("Node " + Random.Range(0, 9999), center);
+            Node n = _ctx.Graph.CreateNode("Node " + UnityEngine.Random.Range(0, 9999), center);
             _ctx.SelectedEdges.Clear();
             _ctx.SelectedNodes.Clear();
             _ctx.SelectedNodes.Add(n);
             EditorUtility.SetDirty(_ctx.Graph);
             Repaint();
+        }
+
+        // -------------------- Bind/Unbind Providers --------------------
+
+        /// <summary>
+        /// Binds providers from the Graph and wires menu delegates.
+        /// </summary>
+        private void BindGraph(Graph g)
+        {
+            UnbindGraph();
+
+            _boundGraph = g;
+
+            // Resolve providers (Graph guarantees default fallback)
+            _nodeMenuProvider = g.NodeMenuProvider;
+            _edgeMenuProvider = g.EdgeMenuProvider;
+            _graphMenuProvider = g.GraphMenuProvider;
+            _toolbarProvider = g.ToolbarProvider;
+
+            // Reconfigure input controller menu delegates
+            _input.Initialize(
+                _grid, _appearance, _edges, _panOnly, _marquee, _resize,
+                (nodeCtx) =>
+                {
+                    ContextMenuBuilder mb = new();
+                    try
+                    {
+                        _nodeMenuProvider?.Build(nodeCtx, mb);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogException(ex);
+                    }
+
+                    mb.Show();
+                },
+                (edgeCtx) =>
+                {
+                    ContextMenuBuilder mb = new();
+                    try
+                    {
+                        _edgeMenuProvider?.Build(edgeCtx, mb);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogException(ex);
+                    }
+
+                    mb.Show();
+                },
+                (graphCtx) =>
+                {
+                    ContextMenuBuilder mb = new();
+                    try
+                    {
+                        _graphMenuProvider?.Build(graphCtx, mb);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogException(ex);
+                    }
+
+                    mb.Show();
+                });
+
+            Repaint();
+        }
+
+        /// <summary>
+        /// Unbinds current providers and resets menu delegates to no-ops.
+        /// </summary>
+        private void UnbindGraph()
+        {
+            _boundGraph = null;
+            _nodeMenuProvider = null;
+            _edgeMenuProvider = null;
+            _graphMenuProvider = null;
+            _toolbarProvider = null;
+
+            _input.Initialize(
+                _grid, _appearance, _edges, _panOnly, _marquee, _resize,
+                _ => { },
+                _ => { },
+                _ => { });
         }
     }
 }

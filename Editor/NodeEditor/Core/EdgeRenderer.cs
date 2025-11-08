@@ -63,7 +63,8 @@ namespace LegendaryTools.NodeEditor
         public IEditorNodeEdge<IEditorNode> HitTestEdge(NodeEditorContext ctx, Vector2 mouseLogical)
         {
             float tolerance = 8f; // constant in logical space
-            IEnumerable<IEditorNodeEdge<IEditorNode>> order = ctx.SelectedEdges.Concat(ctx.Graph.Edges.Except(ctx.SelectedEdges));
+            IEnumerable<IEditorNodeEdge<IEditorNode>> order =
+                ctx.SelectedEdges.Concat(ctx.Graph.Edges.Except(ctx.SelectedEdges));
 
             foreach (IEditorNodeEdge<IEditorNode> e in order)
             {

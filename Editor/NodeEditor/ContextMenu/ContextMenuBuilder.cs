@@ -8,7 +8,7 @@ namespace LegendaryTools.NodeEditor
     /// <summary>
     /// Concrete menu builder used by both context menus and toolbar dropdowns.
     /// </summary>
-    public class MenuBuilder : IMenuBuilder
+    public class ContextMenuBuilder : IMenuBuilder
     {
         private readonly GenericMenu _menu = new();
 

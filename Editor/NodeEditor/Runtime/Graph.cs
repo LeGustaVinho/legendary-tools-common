@@ -19,13 +19,37 @@ namespace LegendaryTools.NodeEditor
     {
         [SerializeField] private string id;
 
-        // Unity cannot serialize interface fields, so we keep concrete storage,
-        // exposing interface views via properties.
+        // Unity cannot serialize interface fields without SerializeReference.
+        // These fields allow the Graph to "indicate" which providers should be used by the editor.
+        [SerializeReference] private INodeContextMenuProvider nodeMenuProvider;
+        [SerializeReference] private IEdgeContextMenuProvider edgeMenuProvider;
+        [SerializeReference] private IGraphContextMenuProvider graphMenuProvider;
+        [SerializeReference] private IToolbarProvider toolbarProvider;
+
+        // Unity concrete storage; interface views are exposed via properties.
         [SerializeField] private List<Node> nodes = new();
         [SerializeField] private List<Edge> edges = new();
 
         [SerializeField] private Graph parentGraph;
         [SerializeField] private List<Graph> childGraphs = new();
+
+        // -------------------- Provider Accessors --------------------
+
+        /// <summary>Gets the node menu provider or a default if not assigned.</summary>
+        public INodeContextMenuProvider NodeMenuProvider =>
+            nodeMenuProvider ??= new DefaultNodeMenuProvider();
+
+        /// <summary>Gets the edge menu provider or a default if not assigned.</summary>
+        public IEdgeContextMenuProvider EdgeMenuProvider =>
+            edgeMenuProvider ??= new DefaultEdgeMenuProvider();
+
+        /// <summary>Gets the graph (canvas) menu provider or a default if not assigned.</summary>
+        public IGraphContextMenuProvider GraphMenuProvider =>
+            graphMenuProvider ??= new DefaultGraphMenuProvider();
+
+        /// <summary>Gets the toolbar provider or a default if not assigned.</summary>
+        public IToolbarProvider ToolbarProvider =>
+            toolbarProvider ??= new DefaultToolbarProvider();
 
         // -------------------- IGraph --------------------
 

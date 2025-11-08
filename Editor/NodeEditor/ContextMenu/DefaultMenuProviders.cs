@@ -99,16 +99,5 @@ namespace LegendaryTools.NodeEditor
             }, true);
         }
     }
-
-    [InitializeOnLoad]
-    internal static class DefaultMenuProvidersBootstrap
-    {
-        static DefaultMenuProvidersBootstrap()
-        {
-            ContextMenuRegistry.Register(new DefaultNodeMenuProvider());
-            ContextMenuRegistry.Register(new DefaultEdgeMenuProvider());
-            ContextMenuRegistry.Register(new DefaultGraphMenuProvider());
-        }
-    }
 }
 #endif

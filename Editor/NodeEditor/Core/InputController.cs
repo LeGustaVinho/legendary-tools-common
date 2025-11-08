@@ -8,21 +8,26 @@ using UnityEngine;
 namespace LegendaryTools.NodeEditor
 {
     /// <summary>
-    /// Handles all keyboard/mouse input for the node editor window.
-    /// This class must not use GUILayout/EditorGUILayout to avoid layout mismatches during Repaint.
+    /// Centralizes keyboard/mouse handling for the editor canvas.
+    /// This class must not use GUILayout/EditorGUILayout to avoid layout mismatches.
     /// </summary>
     public sealed class InputController
     {
         // Services (injected)
-        private GridRenderer _grid; // kept for parity/future
+        private GridRenderer _grid;
         private NodeAppearance _appearance;
         private EdgeRenderer _edges;
         private PanController _panOnly;
         private MarqueeController _marquee;
         private ResizeController _resize;
 
+        // Context-menu delegates (provided by the window when a Graph is bound)
+        private Action<NodeMenuContext> _showNodeMenu;
+        private Action<EdgeMenuContext> _showEdgeMenu;
+        private Action<GraphMenuContext> _showGraphMenu;
+
         /// <summary>
-        /// Initializes the controller with the rendering and interaction services.
+        /// Initializes the controller with rendering/interaction services and context-menu delegates.
         /// </summary>
         public void Initialize(
             GridRenderer grid,
@@ -30,7 +35,10 @@ namespace LegendaryTools.NodeEditor
             EdgeRenderer edges,
             PanController panOnly,
             MarqueeController marquee,
-            ResizeController resize)
+            ResizeController resize,
+            Action<NodeMenuContext> showNodeMenu,
+            Action<EdgeMenuContext> showEdgeMenu,
+            Action<GraphMenuContext> showGraphMenu)
         {
             _grid = grid;
             _appearance = appearance;
@@ -38,22 +46,24 @@ namespace LegendaryTools.NodeEditor
             _panOnly = panOnly;
             _marquee = marquee;
             _resize = resize;
+
+            _showNodeMenu = showNodeMenu ?? (_ => { });
+            _showEdgeMenu = showEdgeMenu ?? (_ => { });
+            _showGraphMenu = showGraphMenu ?? (_ => { });
         }
 
         /// <summary>
-        /// Per-frame input handling (outside of node window callbacks).
+        /// Per-frame input handling (called once per OnGUI before drawing the canvas).
         /// </summary>
-        /// <param name="ctx">Shared editor context.</param>
-        /// <param name="canvasRect">Canvas viewport rectangle.</param>
-        /// <param name="window">Owner window (for Repaint/ShowNotification).</param>
         public void HandleFrameInputs(NodeEditorContext ctx, Rect canvasRect, EditorWindow window)
         {
-            // Always keep zoom locked
+            // Hard-lock zoom to 1f
             ctx.Zoom = 1f;
 
             Event e = Event.current;
+            if (e == null) return;
 
-            // Global cancel for connection mode
+            // Global cancel: Esc exits connection mode
             if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape)
                 if (!string.IsNullOrEmpty(ctx.PendingFromNodeId))
                 {
@@ -63,41 +73,43 @@ namespace LegendaryTools.NodeEditor
                     return;
                 }
 
-            // Shortcuts
+            // Global shortcuts (copy/paste/duplicate)
             HandleShortcuts(ctx, canvasRect, window);
 
-            // Delete key
+            // Global delete (nodes/edges)
             SelectionUtil.HandleDeleteShortcut(ctx);
 
-            // Hover checks (logical space)
-            bool overNode = IsMouseOverAnyNode(ctx, canvasRect);
-            bool overEdge = _edges.HitTestEdge(ctx,
-                CoordinateSystem.ScreenToLogical(e.mousePosition, canvasRect, ctx.Scroll, 1f)) != null;
+            // Hover checks in logical space
+            bool mouseInsideCanvas = canvasRect.Contains(e.mousePosition);
+            bool overNode = mouseInsideCanvas && IsMouseOverAnyNode(ctx, canvasRect);
+            bool overEdge = false;
+            if (mouseInsideCanvas && !overNode)
+            {
+                Vector2 logical = CoordinateSystem.ScreenToLogical(e.mousePosition, canvasRect, ctx.Scroll, 1f);
+                overEdge = _edges.HitTestEdge(ctx, logical) != null;
+            }
 
-            // Input routing
-            _panOnly.HandlePan(ctx, canvasRect, !(overNode || overEdge));
+            // Route inputs
+            _panOnly.HandlePan(ctx, canvasRect, mouseInsideCanvas && !(overNode || overEdge));
             HandleEdgeClickSelection(ctx, canvasRect);
             HandleMarquee(ctx, canvasRect, overNode, overEdge);
             _resize.HandleResize(ctx, canvasRect, n => _appearance.GetNodeRect(n, ctx.ShowInNodeCache));
             HandleGraphContextMenu(ctx, canvasRect, overNode, overEdge);
 
-            // Deselect on empty click
+            // Deselect all on empty LMB inside canvas
             SelectionUtil.HandleEmptyLeftClick(ctx, canvasRect, () => IsMouseOverAnyNode(ctx, canvasRect));
         }
 
         /// <summary>
-        /// Handles inputs that occur inside each node window callback, before drawing content.
-        /// Must not use GUILayout/EditorGUILayout here.
+        /// Handles inputs inside each node's window. Must not use GUILayout here.
+        /// Returns true if the event was consumed and drawing should early-out.
         /// </summary>
-        /// <param name="ctx">Shared context.</param>
-        /// <param name="node">Node whose window is being processed.</param>
-        /// <param name="repaint">Repaint callback.</param>
-        /// <returns>True if event was consumed and drawing should early-out.</returns>
         public bool HandleNodeWindowInput(NodeEditorContext ctx, IEditorNode node, Action repaint)
         {
             Event e = Event.current;
+            if (e == null) return false;
 
-            // Finalize connection by clicking a destination node
+            // Finalize connection by clicking a destination node (LMB)
             if (!string.IsNullOrEmpty(ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0)
             {
                 string fromId = ctx.PendingFromNodeId;
@@ -105,101 +117,101 @@ namespace LegendaryTools.NodeEditor
                 {
                     Undo.RecordObject(ctx.Graph, "Add Edge");
                     if (!ctx.Graph.TryAddEdge(fromId, node.Id, out string err))
-                        // Notify the user about the error.
                         EditorWindow.focusedWindow?.ShowNotification(new GUIContent(err));
                     else
                         EditorUtility.SetDirty(ctx.Graph);
 
                     ctx.PendingFromNodeId = null;
-                    e.Use();
-                    return true; // prevent selection/drag on this click
+                    e.Use(); // consume so we don't start drag/selection on this click
+                    return true;
                 }
+                // If user clicked the same node, ignore and let selection logic proceed (connection cancels on Esc)
             }
 
-            // Selection and node context menu (disabled during resize drag)
-            if (!(ctx.Resize.Active && ReferenceEquals(ctx.Resize.Node, node)))
+            // Block selection/menus while this node is actively resizing
+            if (ctx.Resize.Active && ReferenceEquals(ctx.Resize.Node, node))
+                return false;
+
+            // LMB: selection (do not Use here to allow DragWindow to start)
+            if (e.type == EventType.MouseDown && e.button == 0)
             {
-                // LMB select — DO NOT consume the event, so DragWindow can start on MouseDown (matches original behavior)
-                if (e.type == EventType.MouseDown && e.button == 0)
+                if (!e.shift) ctx.SelectedEdges.Clear();
+
+                if (e.shift)
                 {
-                    if (!e.shift) ctx.SelectedEdges.Clear();
-
-                    if (e.shift)
-                    {
-                        if (!ctx.SelectedNodes.Add(node)) ctx.SelectedNodes.Remove(node);
-                    }
-                    else
-                    {
-                        if (!ctx.SelectedNodes.Contains(node))
-                        {
-                            ctx.SelectedNodes.Clear();
-                            ctx.SelectedNodes.Add(node);
-                        }
-                    }
-
-                    // Important: Do not e.Use() here; allow DragWindow to see the MouseDown.
-                    repaint?.Invoke();
+                    // Toggle in selection set
+                    if (!ctx.SelectedNodes.Add(node)) ctx.SelectedNodes.Remove(node);
                 }
-
-                // RMB / Context menu — consume the event
-                if (e.type == EventType.ContextClick || (e.type == EventType.MouseDown && e.button == 1))
+                else
                 {
-                    if (!ctx.SelectedNodes.Contains(node) && !e.shift)
+                    if (!ctx.SelectedNodes.Contains(node))
                     {
                         ctx.SelectedNodes.Clear();
                         ctx.SelectedNodes.Add(node);
                     }
-                    else
-                    {
-                        ctx.SelectedNodes.Add(node);
-                    }
+                }
 
-                    ctx.SelectedEdges.Clear();
+                repaint?.Invoke();
+            }
 
-                    // Inject connection-mode starter into Node menu
-                    ContextMenuService.ShowNodeMenu(
+            // RMB or ContextClick: open Node context menu
+            if ((e.type == EventType.MouseDown && e.button == 1) || e.type == EventType.ContextClick)
+            {
+                // Ensure node is part of the selection (respect Shift to multi-select)
+                if (!ctx.SelectedNodes.Contains(node) && !e.shift)
+                {
+                    ctx.SelectedNodes.Clear();
+                    ctx.SelectedNodes.Add(node);
+                }
+                else
+                {
+                    ctx.SelectedNodes.Add(node);
+                }
+
+                ctx.SelectedEdges.Clear();
+
+                // Build menu via provider; inject connection starter
+                _showNodeMenu?.Invoke(
+                    new NodeMenuContext(
                         ctx.Graph,
                         ctx.SelectedNodes.ToList(),
-                        (fromId) =>
+                        fromId =>
                         {
                             ctx.PendingFromNodeId = fromId;
                             repaint?.Invoke();
-                        });
+                        }));
 
-                    e.Use();
-                    return true;
-                }
+                e.Use();
+                return true;
             }
 
             return false;
         }
 
-        // -----------------------
-        // Private helpers (input)
-        // -----------------------
-
         /// <summary>
-        /// Handles Ctrl+C / Ctrl+V / Ctrl+D shortcuts.
+        /// Handles Ctrl/Cmd+C, Ctrl/Cmd+V, Ctrl/Cmd+D.
         /// </summary>
         private void HandleShortcuts(NodeEditorContext ctx, Rect canvasRect, EditorWindow window)
         {
             Event e = Event.current;
-            if (e.type != EventType.KeyDown) return;
+            if (e == null || e.type != EventType.KeyDown) return;
 
-            bool action = e.control || e.command; // Ctrl on Windows/Linux, Cmd on macOS
+            bool action = e.control || e.command;
             if (!action) return;
 
             if (e.keyCode == KeyCode.C)
             {
-                // Copy selection
                 if (ctx.SelectedNodes.Count > 0)
                 {
                     GraphClipboardService.Copy(ctx.Graph, ctx.SelectedNodes.ToList());
                     window.ShowNotification(new GUIContent($"Copied {ctx.SelectedNodes.Count} node(s)"));
                     e.Use();
                 }
+
+                return;
             }
-            else if (e.keyCode == KeyCode.V)
+
+            if (e.keyCode == KeyCode.V)
             {
                 // Paste at viewport center
                 Vector2 vp = new(canvasRect.width, canvasRect.height);
@@ -221,15 +233,15 @@ namespace LegendaryTools.NodeEditor
                 }
 
                 e.Use();
+                return;
             }
-            else if (e.keyCode == KeyCode.D)
-            {
-                // Duplicate with offset
+
+            if (e.keyCode == KeyCode.D)
                 if (ctx.SelectedNodes.Count > 0)
                 {
                     Undo.RecordObject(ctx.Graph, "Duplicate Nodes");
-                    List<Node> created =
-                        GraphClipboardService.Duplicate(ctx.Graph, ctx.SelectedNodes.ToList(), new Vector2(24f, 24f));
+                    List<Node> created = GraphClipboardService.Duplicate(ctx.Graph, ctx.SelectedNodes.ToList(),
+                        new Vector2(24f, 24f));
                     if (created != null && created.Count > 0)
                     {
                         ctx.SelectedEdges.Clear();
@@ -245,26 +257,31 @@ namespace LegendaryTools.NodeEditor
 
                     e.Use();
                 }
-            }
         }
 
         /// <summary>
-        /// Handles edge click selection and shows Edge context menu.
-        /// Blocks LMB selection while in connection mode to avoid confusion.
+        /// Handles edge selection (LMB) and edge context menu (RMB).
+        /// Blocks LMB selection when in connection mode to avoid confusion.
         /// </summary>
         private void HandleEdgeClickSelection(NodeEditorContext ctx, Rect canvasRect)
         {
             Event e = Event.current;
+            if (e == null) return;
             if (!canvasRect.Contains(e.mousePosition)) return;
 
-            if (!string.IsNullOrEmpty(ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0) return;
+            // Do not treat LMB while connecting (click should finish connection on node only)
+            if (!string.IsNullOrEmpty(ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0)
+                return;
 
-            Vector2 mouseLogical = CoordinateSystem.ScreenToLogical(e.mousePosition, canvasRect, ctx.Scroll, 1f);
+            // If mouse is over a node, edge hit-test is ignored (nodes take precedence)
             if (IsMouseOverAnyNode(ctx, canvasRect)) return;
 
+            Vector2 mouseLogical = CoordinateSystem.ScreenToLogical(e.mousePosition, canvasRect, ctx.Scroll, 1f);
             IEditorNodeEdge<IEditorNode> hit = _edges.HitTestEdge(ctx, mouseLogical);
 
+            // LMB selects edges
             if (e.type == EventType.MouseDown && e.button == 0)
+            {
                 if (hit != null)
                 {
                     if (!e.shift) ctx.SelectedNodes.Clear();
@@ -283,6 +300,10 @@ namespace LegendaryTools.NodeEditor
                     e.Use();
                 }
 
+                return;
+            }
+
+            // RMB opens edge context menu
             if ((e.type == EventType.MouseDown && e.button == 1) || e.type == EventType.ContextClick)
                 if (hit != null)
                 {
@@ -298,46 +319,50 @@ namespace LegendaryTools.NodeEditor
 
                     if (!e.shift) ctx.SelectedNodes.Clear();
 
-                    ContextMenuService.ShowEdgeMenu(ctx.Graph, ctx.SelectedEdges.ToList());
+                    _showEdgeMenu?.Invoke(new EdgeMenuContext(ctx.Graph, ctx.SelectedEdges.ToList()));
                     e.Use();
                 }
         }
 
         /// <summary>
-        /// Shows Graph (canvas) context menu when RMB on empty canvas.
+        /// Shows graph (canvas) context menu on RMB in empty canvas space.
         /// </summary>
         private void HandleGraphContextMenu(NodeEditorContext ctx, Rect canvasRect, bool overNode, bool overEdge)
         {
             Event e = Event.current;
+            if (e == null) return;
             if (!canvasRect.Contains(e.mousePosition)) return;
 
-            bool rmb = (e.type == EventType.MouseDown && e.button == 1) || e.type == EventType.ContextClick;
-            if (!rmb) return;
+            bool rightClick = (e.type == EventType.MouseDown && e.button == 1) || e.type == EventType.ContextClick;
+            if (!rightClick) return;
 
             if (!(overNode || overEdge))
             {
                 Vector2 logical = CoordinateSystem.ScreenToLogical(e.mousePosition, canvasRect, ctx.Scroll, 1f);
-                ContextMenuService.ShowGraphMenu(ctx.Graph, logical);
+                _showGraphMenu?.Invoke(new GraphMenuContext(ctx.Graph, logical));
                 e.Use();
             }
         }
 
         /// <summary>
-        /// Handles marquee selection start/update and prevents starting while connecting.
+        /// Handles marquee selection start/update. Blocks starting while in connection mode.
         /// </summary>
         private void HandleMarquee(NodeEditorContext ctx, Rect canvasRect, bool overNode, bool overEdge)
         {
             Event e = Event.current;
+            if (e == null) return;
             if (!canvasRect.Contains(e.mousePosition)) return;
 
-            if (!string.IsNullOrEmpty(ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0 &&
+            // Block marquee on LMB when connecting and not over a node/edge
+            if (!string.IsNullOrEmpty(ctx.PendingFromNodeId) &&
+                e.type == EventType.MouseDown && e.button == 0 &&
                 !(overNode || overEdge))
             {
-                // Block marquee start while connecting
                 e.Use();
                 return;
             }
 
+            // Start/update marquee only when starting on empty canvas
             if (e.type == EventType.MouseDown && e.button == 0 && !(overNode || overEdge))
             {
                 _marquee.HandleMarquee(ctx, canvasRect, n => _appearance.GetNodeRect(n, ctx.ShowInNodeCache));
@@ -349,14 +374,15 @@ namespace LegendaryTools.NodeEditor
         }
 
         /// <summary>
-        /// Tests whether the mouse is over any node (logical space).
+        /// Tests whether the current mouse position (logical) is over any node.
         /// </summary>
         private bool IsMouseOverAnyNode(NodeEditorContext ctx, Rect canvasRect)
         {
             Vector2 mouseLogical =
                 CoordinateSystem.ScreenToLogical(Event.current.mousePosition, canvasRect, ctx.Scroll, 1f);
-            return ctx.Graph.Nodes.Any(n =>
-                n != null && _appearance.GetNodeRect(n, ctx.ShowInNodeCache).Contains(mouseLogical));
+            return ctx.Graph != null &&
+                   ctx.Graph.Nodes.Any(n =>
+                       n != null && _appearance.GetNodeRect(n, ctx.ShowInNodeCache).Contains(mouseLogical));
         }
     }
 }
