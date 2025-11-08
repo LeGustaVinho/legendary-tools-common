@@ -5,12 +5,11 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// Main editor window for DAG authoring. This now focuses on layout and rendering.
-/// All input responsibilities are delegated to DagInputController.
+/// Main editor window for DAG authoring. Draw-only; delegates all input to DagInputController.
 /// </summary>
 public class DagGraphEditorWindow : EditorWindow
 {
-    // Services (composition over inheritance)
+    // Services (composition)
     private readonly GridRenderer _grid = new();
     private readonly NodeAppearance _appearance = new();
     private readonly EdgeRenderer _edges = new();
@@ -20,7 +19,7 @@ public class DagGraphEditorWindow : EditorWindow
     private readonly InspectorPanel _inspector = new();
 
     // NEW: Input controller
-    private DagInputController _input;
+    private readonly DagInputController _input = new();
 
     // Shared context
     private readonly DagEditorContext _ctx = new();
@@ -45,16 +44,8 @@ public class DagGraphEditorWindow : EditorWindow
     {
         _ctx.Zoom = 1f; // hard-lock to 1:1 (no zoom)
 
-        // Initialize input controller once we can reference window callbacks
-        _input = new DagInputController(
-            _grid,
-            _appearance,
-            _edges,
-            _panOnly,
-            _marquee,
-            _resize,
-            Repaint,
-            (msg) => ShowNotification(new GUIContent(msg)));
+        // Initialize input controller with services
+        _input.Initialize(_grid, _appearance, _edges, _panOnly, _marquee, _resize);
     }
 
     /// <summary>
@@ -88,13 +79,17 @@ public class DagGraphEditorWindow : EditorWindow
             fullRect.width - DagEditorLayout.InspectorWidth - DagEditorLayout.ScrollbarThickness,
             fullRect.height - DagEditorLayout.ScrollbarThickness);
 
-        Rect inspectorRect = new(canvasRect.xMax + DagEditorLayout.ScrollbarThickness, fullRect.y,
-            DagEditorLayout.InspectorWidth, fullRect.height);
+        // Keep inspector to the right of vertical scrollbar (prevents overlap)
+        Rect inspectorRect = new(
+            canvasRect.xMax + DagEditorLayout.ScrollbarThickness,
+            fullRect.y,
+            DagEditorLayout.InspectorWidth,
+            fullRect.height);
 
-        // ---- INPUT HANDLING ----
-        _input.Process(_ctx, canvasRect);
+        // --- INPUT (no GUILayout here) ---
+        _input.HandleFrameInputs(_ctx, canvasRect, this);
 
-        // ---- DRAWING ----
+        // --- DRAW ---
 
         // Background grid
         _grid.Draw(canvasRect, _ctx.Scroll);
@@ -104,14 +99,14 @@ public class DagGraphEditorWindow : EditorWindow
         // Outer group clips to the viewport (canvasRect). Inner group is the full virtual canvas
         // shifted by -Scroll, so windows are NOT clipped by the viewport size while we pan.
         // -----------------------------------------------------------------------------------------
-        GUI.BeginGroup(canvasRect); // viewport clipping
+        GUI.BeginGroup(canvasRect); // viewport clipping only
         Rect contentRect = new(-_ctx.Scroll.x, -_ctx.Scroll.y, _ctx.VirtualCanvasSize.x, _ctx.VirtualCanvasSize.y);
-        GUI.BeginGroup(contentRect); // logical canvas translated by scroll
+        GUI.BeginGroup(contentRect); // full logical canvas, translated by scroll
 
         // Edges behind nodes
         _edges.DrawEdges(_ctx, canvasRect);
 
-        // Nodes
+        // Nodes (draw + node-local input through controller)
         BeginWindows(); // IMPORTANT: must live in the window class
         for (int i = 0; i < _ctx.Graph.Nodes.Count; i++)
         {
@@ -122,9 +117,7 @@ public class DagGraphEditorWindow : EditorWindow
             Vector2 beforePos = node.Position;
             Rect nodeRect = _appearance.GetNodeRect(node, _ctx.ShowInNodeCache);
 
-            // Delegate window body input to input controller
-            Rect windowRect = GUI.Window(i, nodeRect, id => _input.DrawNodeWindowBody(id, node, _ctx), node.Title,
-                style);
+            Rect windowRect = GUI.Window(i, nodeRect, id => DrawNodeWindowBody(id, node), node.Title, style);
 
             // Move single or multi-selection when window is dragged (no resize active)
             if (!_ctx.Resize.Active && windowRect.position != beforePos)
@@ -149,7 +142,6 @@ public class DagGraphEditorWindow : EditorWindow
         }
 
         EndWindows(); // IMPORTANT: must live in the window class
-        EndWindows();
 
         GUI.EndGroup(); // contentRect
         GUI.EndGroup(); // canvasRect
@@ -181,6 +173,7 @@ public class DagGraphEditorWindow : EditorWindow
                 _toolbarState
             );
 
+            // Draw and sync back any changes to the graph reference made by providers
             ToolbarService.Draw(ctx);
             _ctx.Graph = ctx.Graph;
         }
@@ -205,6 +198,28 @@ public class DagGraphEditorWindow : EditorWindow
             _ctx.SelectedEdges.Clear();
             Repaint();
         }
+    }
+
+    /// <summary>
+    /// Node window body. Draws content and delegates input to DagInputController.
+    /// </summary>
+    private void DrawNodeWindowBody(int windowId, IDagNode node)
+    {
+        // Input first (no GUILayout inside)
+        bool consumed = _input.HandleNodeWindowInput(_ctx, node, Repaint);
+        if (consumed)
+            return;
+
+        // Draw inline contents
+        using (new EditorGUILayout.VerticalScope())
+        {
+            // Inline [ShowInNode] fields
+            _appearance.DrawInlineFields(node, _ctx.ShowInNodeCache);
+        }
+
+        // Allow dragging (provided no resize on this node is active)
+        if (!(_ctx.Resize.Active && ReferenceEquals(_ctx.Resize.Node, node)))
+            GUI.DragWindow();
     }
 
     private void DrawConnectionModeOverlay(Rect canvasRect)
@@ -248,6 +263,9 @@ public class DagGraphEditorWindow : EditorWindow
             _ctx.Scroll.y = Mathf.Clamp(newY, 0f, maxY);
     }
 
+    /// <summary>
+    /// Adds a node at the logical center of the current viewport.
+    /// </summary>
     private void AddNodeAtViewportCenter()
     {
         if (_ctx.Graph == null) return;

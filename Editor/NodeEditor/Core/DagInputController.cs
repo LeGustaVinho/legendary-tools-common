@@ -6,36 +6,29 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// Centralizes and handles all input responsibilities for the DAG editor:
-/// keyboard shortcuts, mouse routing, selection, context menus, connection mode,
-/// pan, marquee and resize interactions.
+/// Handles all keyboard/mouse input for the DAG editor window.
+/// This class must not use GUILayout/EditorGUILayout to avoid layout mismatches during Repaint.
 /// </summary>
 public sealed class DagInputController
 {
-    // Services
-    private readonly GridRenderer _grid;
-    private readonly NodeAppearance _appearance;
-    private readonly EdgeRenderer _edges;
-    private readonly PanController _panOnly;
-    private readonly MarqueeController _marquee;
-    private readonly ResizeController _resize;
-
-    // Window callbacks
-    private readonly Action _repaint;
-    private readonly Action<string> _notify;
+    // Services (injected)
+    private GridRenderer _grid; // kept for parity/future
+    private NodeAppearance _appearance;
+    private EdgeRenderer _edges;
+    private PanController _panOnly;
+    private MarqueeController _marquee;
+    private ResizeController _resize;
 
     /// <summary>
-    /// Initializes a new instance of the input controller with the required services and callbacks.
+    /// Initializes the controller with the rendering and interaction services.
     /// </summary>
-    public DagInputController(
+    public void Initialize(
         GridRenderer grid,
         NodeAppearance appearance,
         EdgeRenderer edges,
         PanController panOnly,
         MarqueeController marquee,
-        ResizeController resize,
-        Action repaint,
-        Action<string> notify)
+        ResizeController resize)
     {
         _grid = grid;
         _appearance = appearance;
@@ -43,50 +36,62 @@ public sealed class DagInputController
         _panOnly = panOnly;
         _marquee = marquee;
         _resize = resize;
-        _repaint = repaint;
-        _notify = notify;
     }
 
     /// <summary>
-    /// Entry-point to handle all per-frame input for the editor.
-    /// Must be called from OnGUI after layout rects are computed.
+    /// Per-frame input handling (outside of node window callbacks).
     /// </summary>
-    public void Process(DagEditorContext ctx, Rect canvasRect)
+    /// <param name="ctx">Shared editor context.</param>
+    /// <param name="canvasRect">Canvas viewport rectangle.</param>
+    /// <param name="window">Owner window (for Repaint/ShowNotification).</param>
+    public void HandleFrameInputs(DagEditorContext ctx, Rect canvasRect, EditorWindow window)
     {
-        // Global cancel for connection mode (Esc)
-        HandleGlobalEscape(ctx);
+        // Always keep zoom locked
+        ctx.Zoom = 1f;
 
-        // Shortcuts: copy/paste/duplicate
-        HandleShortcuts(ctx, canvasRect);
+        Event e = Event.current;
 
-        // Delete shortcut
+        // Global cancel for connection mode
+        if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape)
+            if (!string.IsNullOrEmpty(ctx.PendingFromNodeId))
+            {
+                ctx.PendingFromNodeId = null;
+                window.Repaint();
+                e.Use();
+                return;
+            }
+
+        // Shortcuts
+        HandleShortcuts(ctx, canvasRect, window);
+
+        // Delete key
         SelectionUtil.HandleDeleteShortcut(ctx);
 
         // Hover checks (logical space)
         bool overNode = IsMouseOverAnyNode(ctx, canvasRect);
         bool overEdge = _edges.HitTestEdge(ctx,
-            CoordinateSystem.ScreenToLogical(Event.current.mousePosition, canvasRect, ctx.Scroll, 1f)) != null;
+            CoordinateSystem.ScreenToLogical(e.mousePosition, canvasRect, ctx.Scroll, 1f)) != null;
 
-        // Route inputs
+        // Input routing
         _panOnly.HandlePan(ctx, canvasRect, !(overNode || overEdge));
-
-        HandleEdgeClickSelection(ctx, canvasRect, overNode);
+        HandleEdgeClickSelection(ctx, canvasRect);
         HandleMarquee(ctx, canvasRect, overNode, overEdge);
-
-        // Resize (mouse) — provide node rect resolver
         _resize.HandleResize(ctx, canvasRect, n => _appearance.GetNodeRect(n, ctx.ShowInNodeCache));
-
         HandleGraphContextMenu(ctx, canvasRect, overNode, overEdge);
 
-        // Deselect on empty LMB click
+        // Deselect on empty click
         SelectionUtil.HandleEmptyLeftClick(ctx, canvasRect, () => IsMouseOverAnyNode(ctx, canvasRect));
     }
 
     /// <summary>
-    /// Node window body used by GUI.Window. Contains only node-specific input concerns
-    /// (selection toggling, node context menu and finalizing connection).
+    /// Handles inputs that occur inside each node window callback, before drawing content.
+    /// Must not use GUILayout/EditorGUILayout here.
     /// </summary>
-    public void DrawNodeWindowBody(int windowId, IDagNode node, DagEditorContext ctx)
+    /// <param name="ctx">Shared context.</param>
+    /// <param name="node">Node whose window is being processed.</param>
+    /// <param name="repaint">Repaint callback.</param>
+    /// <returns>True if event was consumed and drawing should early-out.</returns>
+    public bool HandleNodeWindowInput(DagEditorContext ctx, IDagNode node, Action repaint)
     {
         Event e = Event.current;
 
@@ -98,27 +103,28 @@ public sealed class DagInputController
             {
                 Undo.RecordObject(ctx.Graph, "Add Edge");
                 if (!ctx.Graph.TryAddEdge(fromId, node.Id, out string err))
-                    _notify?.Invoke(err);
+                    // Notify the user about the error.
+                    EditorWindow.focusedWindow?.ShowNotification(new GUIContent(err));
                 else
                     EditorUtility.SetDirty(ctx.Graph);
 
                 ctx.PendingFromNodeId = null;
                 e.Use();
-                return; // prevent selection on this click
+                return true; // prevent selection/drag on this click
             }
         }
 
         // Selection and node context menu (disabled during resize drag)
         if (!(ctx.Resize.Active && ReferenceEquals(ctx.Resize.Node, node)))
         {
+            // LMB select — DO NOT consume the event, so DragWindow can start on MouseDown (matches original behavior)
             if (e.type == EventType.MouseDown && e.button == 0)
             {
                 if (!e.shift) ctx.SelectedEdges.Clear();
 
                 if (e.shift)
                 {
-                    if (!ctx.SelectedNodes.Add(node))
-                        ctx.SelectedNodes.Remove(node);
+                    if (!ctx.SelectedNodes.Add(node)) ctx.SelectedNodes.Remove(node);
                 }
                 else
                 {
@@ -129,9 +135,11 @@ public sealed class DagInputController
                     }
                 }
 
-                _repaint?.Invoke();
+                // Important: Do not e.Use() here; allow DragWindow to see the MouseDown.
+                repaint?.Invoke();
             }
 
+            // RMB / Context menu — consume the event
             if (e.type == EventType.ContextClick || (e.type == EventType.MouseDown && e.button == 1))
             {
                 if (!ctx.SelectedNodes.Contains(node) && !e.shift)
@@ -153,39 +161,25 @@ public sealed class DagInputController
                     (fromId) =>
                     {
                         ctx.PendingFromNodeId = fromId;
-                        _repaint?.Invoke();
+                        repaint?.Invoke();
                     });
 
                 e.Use();
+                return true;
             }
         }
 
-        using (new EditorGUILayout.VerticalScope())
-        {
-            // Inline [ShowInNode] fields
-            _appearance.DrawInlineFields(node, ctx.ShowInNodeCache);
-        }
-
-        if (!(ctx.Resize.Active && ReferenceEquals(ctx.Resize.Node, node)))
-            GUI.DragWindow();
+        return false;
     }
 
-    // -----------------------------
-    // Internal helpers (input only)
-    // -----------------------------
+    // -----------------------
+    // Private helpers (input)
+    // -----------------------
 
-    private static void HandleGlobalEscape(DagEditorContext ctx)
-    {
-        Event e = Event.current;
-        if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape)
-            if (!string.IsNullOrEmpty(ctx.PendingFromNodeId))
-            {
-                ctx.PendingFromNodeId = null;
-                e.Use();
-            }
-    }
-
-    private void HandleShortcuts(DagEditorContext ctx, Rect canvasRect)
+    /// <summary>
+    /// Handles Ctrl+C / Ctrl+V / Ctrl+D shortcuts.
+    /// </summary>
+    private void HandleShortcuts(DagEditorContext ctx, Rect canvasRect, EditorWindow window)
     {
         Event e = Event.current;
         if (e.type != EventType.KeyDown) return;
@@ -199,7 +193,7 @@ public sealed class DagInputController
             if (ctx.SelectedNodes.Count > 0)
             {
                 GraphClipboardService.Copy(ctx.Graph, ctx.SelectedNodes.ToList());
-                _notify?.Invoke($"Copied {ctx.SelectedNodes.Count} node(s)");
+                window.ShowNotification(new GUIContent($"Copied {ctx.SelectedNodes.Count} node(s)"));
                 e.Use();
             }
         }
@@ -221,7 +215,7 @@ public sealed class DagInputController
                 }
 
                 EditorUtility.SetDirty(ctx.Graph);
-                _notify?.Invoke($"Pasted {created.Count} node(s)");
+                window.ShowNotification(new GUIContent($"Pasted {created.Count} node(s)"));
             }
 
             e.Use();
@@ -244,7 +238,7 @@ public sealed class DagInputController
                     }
 
                     EditorUtility.SetDirty(ctx.Graph);
-                    _notify?.Invoke($"Duplicated {created.Count} node(s)");
+                    window.ShowNotification(new GUIContent($"Duplicated {created.Count} node(s)"));
                 }
 
                 e.Use();
@@ -252,16 +246,19 @@ public sealed class DagInputController
         }
     }
 
-    private void HandleEdgeClickSelection(DagEditorContext ctx, Rect canvasRect, bool overNode)
+    /// <summary>
+    /// Handles edge click selection and shows Edge context menu.
+    /// Blocks LMB selection while in connection mode to avoid confusion.
+    /// </summary>
+    private void HandleEdgeClickSelection(DagEditorContext ctx, Rect canvasRect)
     {
         Event e = Event.current;
         if (!canvasRect.Contains(e.mousePosition)) return;
 
-        // Block LMB selection while in connection mode to avoid confusion
         if (!string.IsNullOrEmpty(ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0) return;
 
         Vector2 mouseLogical = CoordinateSystem.ScreenToLogical(e.mousePosition, canvasRect, ctx.Scroll, 1f);
-        if (overNode) return;
+        if (IsMouseOverAnyNode(ctx, canvasRect)) return;
 
         IDagEdge<IDagNode> hit = _edges.HitTestEdge(ctx, mouseLogical);
 
@@ -272,8 +269,7 @@ public sealed class DagInputController
 
                 if (e.shift)
                 {
-                    if (!ctx.SelectedEdges.Add(hit))
-                        ctx.SelectedEdges.Remove(hit);
+                    if (!ctx.SelectedEdges.Add(hit)) ctx.SelectedEdges.Remove(hit);
                 }
                 else
                 {
@@ -281,7 +277,7 @@ public sealed class DagInputController
                     ctx.SelectedEdges.Add(hit);
                 }
 
-                _repaint?.Invoke();
+                EditorWindow.focusedWindow?.Repaint();
                 e.Use();
             }
 
@@ -305,6 +301,9 @@ public sealed class DagInputController
             }
     }
 
+    /// <summary>
+    /// Shows Graph (canvas) context menu when RMB on empty canvas.
+    /// </summary>
     private void HandleGraphContextMenu(DagEditorContext ctx, Rect canvasRect, bool overNode, bool overEdge)
     {
         Event e = Event.current;
@@ -321,15 +320,18 @@ public sealed class DagInputController
         }
     }
 
+    /// <summary>
+    /// Handles marquee selection start/update and prevents starting while connecting.
+    /// </summary>
     private void HandleMarquee(DagEditorContext ctx, Rect canvasRect, bool overNode, bool overEdge)
     {
         Event e = Event.current;
         if (!canvasRect.Contains(e.mousePosition)) return;
 
-        // Block marquee start while connecting (LMB on empty space)
         if (!string.IsNullOrEmpty(ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0 &&
             !(overNode || overEdge))
         {
+            // Block marquee start while connecting
             e.Use();
             return;
         }
@@ -344,6 +346,9 @@ public sealed class DagInputController
             _marquee.HandleMarquee(ctx, canvasRect, n => _appearance.GetNodeRect(n, ctx.ShowInNodeCache));
     }
 
+    /// <summary>
+    /// Tests whether the mouse is over any node (logical space).
+    /// </summary>
     private bool IsMouseOverAnyNode(DagEditorContext ctx, Rect canvasRect)
     {
         Vector2 mouseLogical =
