@@ -5,8 +5,8 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// Main editor window for DAG authoring. This orchestrates input handling, drawing, selection,
-/// context menus and clipboard/duplication features. The canvas runs at 1:1 scale (no zoom).
+/// Main editor window for DAG authoring. This now focuses on layout and rendering.
+/// All input responsibilities are delegated to DagInputController.
 /// </summary>
 public class DagGraphEditorWindow : EditorWindow
 {
@@ -19,11 +19,14 @@ public class DagGraphEditorWindow : EditorWindow
     private readonly ResizeController _resize = new();
     private readonly InspectorPanel _inspector = new();
 
+    // NEW: Input controller
+    private DagInputController _input;
+
     // Shared context
     private readonly DagEditorContext _ctx = new();
 
     // Shared state bag for toolbar providers (optional use).
-    private readonly System.Collections.Generic.Dictionary<string, object> _toolbarState = new();
+    private readonly Dictionary<string, object> _toolbarState = new();
 
     /// <summary>
     /// Opens the editor window.
@@ -41,6 +44,17 @@ public class DagGraphEditorWindow : EditorWindow
     private void OnEnable()
     {
         _ctx.Zoom = 1f; // hard-lock to 1:1 (no zoom)
+
+        // Initialize input controller once we can reference window callbacks
+        _input = new DagInputController(
+            _grid,
+            _appearance,
+            _edges,
+            _panOnly,
+            _marquee,
+            _resize,
+            Repaint,
+            (msg) => ShowNotification(new GUIContent(msg)));
     }
 
     /// <summary>
@@ -69,41 +83,18 @@ public class DagGraphEditorWindow : EditorWindow
         // Layout: canvas + inspector + scrollbars
         Rect fullRect = new(0, DagEditorLayout.ToolbarHeight, position.width,
             position.height - DagEditorLayout.ToolbarHeight);
+
         Rect canvasRect = new(fullRect.x, fullRect.y,
             fullRect.width - DagEditorLayout.InspectorWidth - DagEditorLayout.ScrollbarThickness,
             fullRect.height - DagEditorLayout.ScrollbarThickness);
-        Rect inspectorRect = new(canvasRect.xMax, fullRect.y, DagEditorLayout.InspectorWidth,
-            canvasRect.height + DagEditorLayout.ScrollbarThickness);
 
-        // Global cancel for connection mode
-        Event e = Event.current;
-        if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape)
-        {
-            if (!string.IsNullOrEmpty(_ctx.PendingFromNodeId))
-            {
-                _ctx.PendingFromNodeId = null;
-                Repaint();
-                e.Use();
-            }
-        }
+        Rect inspectorRect = new(canvasRect.xMax + DagEditorLayout.ScrollbarThickness, fullRect.y,
+            DagEditorLayout.InspectorWidth, fullRect.height);
 
-        // Shortcuts
-        HandleShortcuts(canvasRect);
+        // ---- INPUT HANDLING ----
+        _input.Process(_ctx, canvasRect);
 
-        // Delete key
-        SelectionUtil.HandleDeleteShortcut(_ctx);
-
-        // Hover checks
-        bool overNode = IsMouseOverAnyNode(canvasRect);
-        bool overEdge = _edges.HitTestEdge(_ctx,
-            CoordinateSystem.ScreenToLogical(Event.current.mousePosition, canvasRect, _ctx.Scroll, 1f)) != null;
-
-        // Input routing
-        _panOnly.HandlePan(_ctx, canvasRect, !(overNode || overEdge));
-        HandleEdgeClickSelection(canvasRect);
-        HandleMarquee(canvasRect, overNode, overEdge);
-        _resize.HandleResize(_ctx, canvasRect, n => _appearance.GetNodeRect(n, _ctx.ShowInNodeCache));
-        HandleGraphContextMenu(canvasRect, overNode, overEdge);
+        // ---- DRAWING ----
 
         // Background grid
         _grid.Draw(canvasRect, _ctx.Scroll);
@@ -113,9 +104,9 @@ public class DagGraphEditorWindow : EditorWindow
         // Outer group clips to the viewport (canvasRect). Inner group is the full virtual canvas
         // shifted by -Scroll, so windows are NOT clipped by the viewport size while we pan.
         // -----------------------------------------------------------------------------------------
-        GUI.BeginGroup(canvasRect); // viewport clipping only
+        GUI.BeginGroup(canvasRect); // viewport clipping
         Rect contentRect = new(-_ctx.Scroll.x, -_ctx.Scroll.y, _ctx.VirtualCanvasSize.x, _ctx.VirtualCanvasSize.y);
-        GUI.BeginGroup(contentRect); // full logical canvas, translated by scroll
+        GUI.BeginGroup(contentRect); // logical canvas translated by scroll
 
         // Edges behind nodes
         _edges.DrawEdges(_ctx, canvasRect);
@@ -131,7 +122,9 @@ public class DagGraphEditorWindow : EditorWindow
             Vector2 beforePos = node.Position;
             Rect nodeRect = _appearance.GetNodeRect(node, _ctx.ShowInNodeCache);
 
-            Rect windowRect = GUI.Window(i, nodeRect, id => DrawNodeWindowBody(id, node), node.Title, style);
+            // Delegate window body input to input controller
+            Rect windowRect = GUI.Window(i, nodeRect, id => _input.DrawNodeWindowBody(id, node, _ctx), node.Title,
+                style);
 
             // Move single or multi-selection when window is dragged (no resize active)
             if (!_ctx.Resize.Active && windowRect.position != beforePos)
@@ -156,6 +149,7 @@ public class DagGraphEditorWindow : EditorWindow
         }
 
         EndWindows(); // IMPORTANT: must live in the window class
+        EndWindows();
 
         GUI.EndGroup(); // contentRect
         GUI.EndGroup(); // canvasRect
@@ -165,9 +159,6 @@ public class DagGraphEditorWindow : EditorWindow
         _marquee.DrawOverlay(_ctx, canvasRect);
         DrawScrollbars(canvasRect);
         _inspector.Draw(_ctx, inspectorRect);
-
-        // Deselect on empty click
-        SelectionUtil.HandleEmptyLeftClick(_ctx, canvasRect, () => IsMouseOverAnyNode(canvasRect));
     }
 
     /// <summary>
@@ -190,7 +181,6 @@ public class DagGraphEditorWindow : EditorWindow
                 _toolbarState
             );
 
-            // Draw and sync back any changes to the graph reference made by providers
             ToolbarService.Draw(ctx);
             _ctx.Graph = ctx.Graph;
         }
@@ -217,206 +207,6 @@ public class DagGraphEditorWindow : EditorWindow
         }
     }
 
-    /// <summary>
-    /// Node window body. Handles selection, node context menu and finalizes connection mode.
-    /// </summary>
-    private void DrawNodeWindowBody(int windowId, IDagNode node)
-    {
-        Event e = Event.current;
-
-        // Finalize connection by clicking a destination node
-        if (!string.IsNullOrEmpty(_ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0)
-        {
-            string fromId = _ctx.PendingFromNodeId;
-            if (fromId != node.Id)
-            {
-                Undo.RecordObject(_ctx.Graph, "Add Edge");
-                if (!_ctx.Graph.TryAddEdge(fromId, node.Id, out var err))
-                    ShowNotification(new GUIContent(err));
-                else
-                    EditorUtility.SetDirty(_ctx.Graph);
-
-                _ctx.PendingFromNodeId = null;
-                e.Use();
-                return; // prevent selection on this click
-                return;
-            }
-        }
-
-        // Selection and node context menu (disabled during resize drag)
-        if (!(_ctx.Resize.Active && ReferenceEquals(_ctx.Resize.Node, node)))
-        {
-            if (e.type == EventType.MouseDown && e.button == 0)
-            {
-                if (!e.shift) _ctx.SelectedEdges.Clear();
-
-                if (e.shift)
-                {
-                    if (!_ctx.SelectedNodes.Add(node)) _ctx.SelectedNodes.Remove(node);
-                }
-                else
-                {
-                    if (!_ctx.SelectedNodes.Contains(node))
-                    {
-                        _ctx.SelectedNodes.Clear();
-                        _ctx.SelectedNodes.Add(node);
-                    }
-                }
-
-                Repaint();
-            }
-
-            if (e.type == EventType.ContextClick || (e.type == EventType.MouseDown && e.button == 1))
-            {
-                if (!_ctx.SelectedNodes.Contains(node) && !e.shift)
-                {
-                    _ctx.SelectedNodes.Clear();
-                    _ctx.SelectedNodes.Add(node);
-                }
-                else
-                {
-                    _ctx.SelectedNodes.Add(node);
-                }
-
-                _ctx.SelectedEdges.Clear();
-
-                // Inject connection-mode starter into Node menu
-                ContextMenuService.ShowNodeMenu(
-                    _ctx.Graph,
-                    _ctx.SelectedNodes.ToList(),
-                    (fromId) =>
-                    {
-                        _ctx.PendingFromNodeId = fromId;
-                        Repaint();
-                    });
-
-                e.Use();
-            }
-        }
-
-        using (new EditorGUILayout.VerticalScope())
-        {
-            // Inline [ShowInNode] fields
-            _appearance.DrawInlineFields(node, _ctx.ShowInNodeCache);
-        }
-
-        if (!(_ctx.Resize.Active && ReferenceEquals(_ctx.Resize.Node, node)))
-            GUI.DragWindow();
-    }
-
-    /// <summary>
-    /// Handles edge click selection and shows Edge context menu.
-    /// Blocks LMB selection while in connection mode to avoid confusion.
-    /// </summary>
-    private void HandleEdgeClickSelection(Rect canvasRect)
-    {
-        Event e = Event.current;
-        if (!canvasRect.Contains(e.mousePosition)) return;
-
-        if (!string.IsNullOrEmpty(_ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0) return;
-
-        Vector2 mouseLogical = CoordinateSystem.ScreenToLogical(e.mousePosition, canvasRect, _ctx.Scroll, 1f);
-        if (IsMouseOverAnyNode(canvasRect)) return;
-
-        IDagEdge<IDagNode> hit = _edges.HitTestEdge(_ctx, mouseLogical);
-
-        if (e.type == EventType.MouseDown && e.button == 0)
-            if (hit != null)
-            {
-                if (!e.shift) _ctx.SelectedNodes.Clear();
-
-                if (e.shift)
-                {
-                    if (!_ctx.SelectedEdges.Add(hit)) _ctx.SelectedEdges.Remove(hit);
-                }
-                else
-                {
-                    _ctx.SelectedEdges.Clear();
-                    _ctx.SelectedEdges.Add(hit);
-                }
-
-                Repaint();
-                e.Use();
-            }
-
-        if ((e.type == EventType.MouseDown && e.button == 1) || e.type == EventType.ContextClick)
-            if (hit != null)
-            {
-                if (!_ctx.SelectedEdges.Contains(hit) && !e.shift)
-                {
-                    _ctx.SelectedEdges.Clear();
-                    _ctx.SelectedEdges.Add(hit);
-                }
-                else
-                {
-                    _ctx.SelectedEdges.Add(hit);
-                }
-
-                if (!e.shift) _ctx.SelectedNodes.Clear();
-
-                ContextMenuService.ShowEdgeMenu(_ctx.Graph, _ctx.SelectedEdges.ToList());
-                e.Use();
-            }
-    }
-
-    /// <summary>
-    /// Shows Graph (canvas) context menu when RMB on empty canvas.
-    /// </summary>
-    private void HandleGraphContextMenu(Rect canvasRect, bool overNode, bool overEdge)
-    {
-        Event e = Event.current;
-        if (!canvasRect.Contains(e.mousePosition)) return;
-
-        bool rmb = (e.type == EventType.MouseDown && e.button == 1) || e.type == EventType.ContextClick;
-        if (!rmb) return;
-
-        if (!(overNode || overEdge))
-        {
-            Vector2 logical = CoordinateSystem.ScreenToLogical(e.mousePosition, canvasRect, _ctx.Scroll, 1f);
-            ContextMenuService.ShowGraphMenu(_ctx.Graph, logical);
-            e.Use();
-        }
-    }
-
-    /// <summary>
-    /// Handles marquee selection start/update and prevents starting while connecting.
-    /// </summary>
-    private void HandleMarquee(Rect canvasRect, bool overNode, bool overEdge)
-    {
-        Event e = Event.current;
-        if (!canvasRect.Contains(e.mousePosition)) return;
-
-        if (!string.IsNullOrEmpty(_ctx.PendingFromNodeId) && e.type == EventType.MouseDown && e.button == 0 && !(overNode || overEdge))
-        {
-            // Block marquee start while connecting
-            e.Use();
-            return;
-        }
-
-        if (e.type == EventType.MouseDown && e.button == 0 && !(overNode || overEdge))
-        {
-            _marquee.HandleMarquee(_ctx, canvasRect, n => _appearance.GetNodeRect(n, _ctx.ShowInNodeCache));
-            return;
-        }
-
-        if (_ctx.Marquee.Active)
-            _marquee.HandleMarquee(_ctx, canvasRect, n => _appearance.GetNodeRect(n, _ctx.ShowInNodeCache));
-    }
-
-    /// <summary>
-    /// Tests whether the mouse is over any node (logical space).
-    /// </summary>
-    private bool IsMouseOverAnyNode(Rect canvasRect)
-    {
-        Vector2 mouseLogical =
-            CoordinateSystem.ScreenToLogical(Event.current.mousePosition, canvasRect, _ctx.Scroll, 1f);
-        return _ctx.Graph.Nodes.Any(n =>
-            n != null && _appearance.GetNodeRect(n, _ctx.ShowInNodeCache).Contains(mouseLogical));
-    }
-
-    /// <summary>
-    /// Draws a subtle overlay banner when the editor is in connection mode.
-    /// </summary>
     private void DrawConnectionModeOverlay(Rect canvasRect)
     {
         if (string.IsNullOrEmpty(_ctx.PendingFromNodeId)) return;
@@ -458,79 +248,6 @@ public class DagGraphEditorWindow : EditorWindow
             _ctx.Scroll.y = Mathf.Clamp(newY, 0f, maxY);
     }
 
-    /// <summary>
-    /// Handles Ctrl+C (copy), Ctrl+V (paste at viewport center) and Ctrl+D (duplicate with offset).
-    /// </summary>
-    private void HandleShortcuts(Rect canvasRect)
-    {
-        Event e = Event.current;
-        if (e.type != EventType.KeyDown) return;
-
-        bool action = e.control || e.command; // Ctrl on Windows/Linux, Cmd on macOS
-        if (!action) return;
-
-        if (e.keyCode == KeyCode.C)
-        {
-            // Copy selection
-            if (_ctx.SelectedNodes.Count > 0)
-            {
-                GraphClipboardService.Copy(_ctx.Graph, _ctx.SelectedNodes.ToList());
-                ShowNotification(new GUIContent($"Copied {_ctx.SelectedNodes.Count} node(s)"));
-                e.Use();
-            }
-        }
-        else if (e.keyCode == KeyCode.V)
-        {
-            // Paste at viewport center
-            Vector2 vp = new(canvasRect.width, canvasRect.height);
-            Vector2 origin = _ctx.Scroll + vp * 0.5f;
-
-            Undo.RecordObject(_ctx.Graph, "Paste Nodes");
-            List<DagNode> created = GraphClipboardService.TryPaste(_ctx.Graph, origin);
-            if (created != null && created.Count > 0)
-            {
-                _ctx.SelectedEdges.Clear();
-                _ctx.SelectedNodes.Clear();
-                foreach (DagNode n in created)
-                {
-                    _ctx.SelectedNodes.Add(n);
-                }
-
-                EditorUtility.SetDirty(_ctx.Graph);
-                ShowNotification(new GUIContent($"Pasted {created.Count} node(s)"));
-            }
-
-            e.Use();
-        }
-        else if (e.keyCode == KeyCode.D)
-        {
-            // Duplicate with offset
-            if (_ctx.SelectedNodes.Count > 0)
-            {
-                Undo.RecordObject(_ctx.Graph, "Duplicate Nodes");
-                List<DagNode> created =
-                    GraphClipboardService.Duplicate(_ctx.Graph, _ctx.SelectedNodes.ToList(), new Vector2(24f, 24f));
-                if (created != null && created.Count > 0)
-                {
-                    _ctx.SelectedEdges.Clear();
-                    _ctx.SelectedNodes.Clear();
-                    foreach (DagNode n in created)
-                    {
-                        _ctx.SelectedNodes.Add(n);
-                    }
-
-                    EditorUtility.SetDirty(_ctx.Graph);
-                    ShowNotification(new GUIContent($"Duplicated {created.Count} node(s)"));
-                }
-
-                e.Use();
-            }
-        }
-    }
-
-    /// <summary>
-    /// Adds a node at the logical center of the current viewport.
-    /// </summary>
     private void AddNodeAtViewportCenter()
     {
         if (_ctx.Graph == null) return;

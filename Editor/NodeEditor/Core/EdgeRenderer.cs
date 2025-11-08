@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// Renders straight edges (line segments) and performs edge hit-testing (no zoom).
+/// Renders straight edges (line segments) and performs edge hit-testing (zoom-aware).
 /// Supports optional styling via <see cref="IStyledEdge"/>:
 /// – colored line
 /// – multiple direction arrows placed along the segment
@@ -28,6 +28,7 @@ public class EdgeRenderer
 
     /// <summary>
     /// Draws all edges behind the node windows, including arrows and optional center labels.
+    /// Expect to be called under the zoomed GUI.matrix (logical coordinates).
     /// </summary>
     public void DrawEdges(DagEditorContext ctx, Rect canvasRect)
     {
@@ -38,7 +39,7 @@ public class EdgeRenderer
             DrawEdgeInternal(e, sel, ctx);
         }
 
-        // Rubber-band while creating a new connection
+        // Rubber-band while creating a new connection (convert mouse to logical using ctx.Zoom)
         if (!string.IsNullOrEmpty(ctx.PendingFromNodeId))
         {
             IDagNode from = ctx.Graph.Nodes.FirstOrDefault(n => n != null && n.Id == ctx.PendingFromNodeId);
@@ -46,9 +47,8 @@ public class EdgeRenderer
             {
                 Rect srcRect = _nodeAppearance.GetNodeRect(from, ctx.ShowInNodeCache);
                 Vector2 start = srcRect.center;
-                // Logical = screen because there's no zoom; convert to logical with zoom=1 for consistency
                 Vector2 mouseInCanvas =
-                    CoordinateSystem.ScreenToLogical(Event.current.mousePosition, canvasRect, ctx.Scroll, 1f);
+                    CoordinateSystem.ScreenToLogical(Event.current.mousePosition, canvasRect, ctx.Scroll, ctx.Zoom);
                 DrawLineWithWidth(start, mouseInCanvas, Color.white, 2f);
             }
         }
@@ -60,7 +60,7 @@ public class EdgeRenderer
     /// </summary>
     public IDagEdge<IDagNode> HitTestEdge(DagEditorContext ctx, Vector2 mouseLogical)
     {
-        float tolerance = 8f; // constant — no zoom scaling
+        float tolerance = 8f; // constant in logical space
         IEnumerable<IDagEdge<IDagNode>> order = ctx.SelectedEdges.Concat(ctx.Graph.Edges.Except(ctx.SelectedEdges));
 
         foreach (IDagEdge<IDagNode> e in order)
@@ -141,10 +141,10 @@ public class EdgeRenderer
 
         dir /= len;
 
-        int arrows = Mathf.Clamp(Mathf.FloorToInt(len / 120f), 1, 8); // ~1 arrow every 120 px
+        int arrows = Mathf.Clamp(Mathf.FloorToInt(len / 120f), 1, 8); // ~1 arrow every 120 px (logical)
         if (len < 80f) arrows = 1;
 
-        float size = 12f; // fixed — independent of zoom
+        float size = 12f; // logical size
 
         float tStart = 0.15f;
         float tEnd = 0.85f;
