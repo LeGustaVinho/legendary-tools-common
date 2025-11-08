@@ -42,13 +42,25 @@ namespace LegendaryTools.NodeEditor
         // -------------------- IEditorNode --------------------
 
         /// <summary>Unique node identifier (GUID string).</summary>
-        public string Id => id;
+        public string Id
+        {
+            get => id;
+            set => id = value;
+        }
 
         /// <summary>Gets the display title.</summary>
-        public string Title => title;
+        public string Title
+        {
+            get => title;
+            set => title = value;
+        }
 
         /// <summary>Gets the logical canvas position.</summary>
-        public Vector2 Position => position;
+        public Vector2 Position
+        {
+            get => position;
+            set => position = value;
+        }
 
         /// <summary>Gets a value indicating whether a custom size is in use.</summary>
         public bool HasCustomNodeSize => overrideSize;
@@ -73,7 +85,7 @@ namespace LegendaryTools.NodeEditor
         string INode.Id
         {
             get => Id;
-            set => SetId(value);
+            set => Id = value;
         }
 
         /// <summary>
@@ -149,24 +161,6 @@ namespace LegendaryTools.NodeEditor
         }
 
         // -------------------- Internal setters used by the graph/editor --------------------
-
-        /// <summary>Sets the node id (GUID string). Intended for graph initialization.</summary>
-        public void SetId(string newId)
-        {
-            id = newId;
-        }
-
-        /// <summary>Sets the display title. Internal to the editor workflow.</summary>
-        internal void SetTitle(string value)
-        {
-            title = value;
-        }
-
-        /// <summary>Sets the canvas position. Internal to the editor workflow.</summary>
-        internal void SetPosition(Vector2 value)
-        {
-            position = value;
-        }
 
         /// <summary>Sets the owning graph (abstraction).</summary>
         internal void SetOwner(IGraph newOwner)

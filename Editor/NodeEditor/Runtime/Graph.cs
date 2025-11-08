@@ -184,7 +184,7 @@ namespace LegendaryTools.NodeEditor
         public virtual void MoveNode(string nodeId, Vector2 newPosition)
         {
             Node n = nodes.Find(x => x != null && x.Id == nodeId);
-            if (n != null) n.SetPosition(newPosition);
+            if (n != null) n.Position = newPosition;
         }
 
         /// <summary>
@@ -198,7 +198,7 @@ namespace LegendaryTools.NodeEditor
         /// <summary>
         /// Attempts to add a connection between two nodes by Ids.
         /// </summary>
-        public bool TryAddEdge(string fromId, string toId, NodeConnectionDirection direction, out string error)
+        public virtual bool TryAddEdge(string fromId, string toId, NodeConnectionDirection direction, out string error)
         {
             Node from = nodes.Find(x => x != null && x.Id == fromId);
             Node to = nodes.Find(x => x != null && x.Id == toId);
@@ -209,7 +209,7 @@ namespace LegendaryTools.NodeEditor
         /// Attempts to add a connection between two INode endpoints.
         /// Returns the created INodeConnection on success.
         /// </summary>
-        public bool TryAddEdge(INode from, INode to, NodeConnectionDirection direction,
+        public virtual bool TryAddEdge(INode from, INode to, NodeConnectionDirection direction,
             out INodeConnection connection, out string error)
         {
             connection = null;
@@ -296,14 +296,14 @@ namespace LegendaryTools.NodeEditor
         private void EnsureNodeIdentity(Node n)
         {
             if (string.IsNullOrEmpty(n.Id))
-                n.SetId(Guid.NewGuid().ToString("N"));
+                n.Id = Guid.NewGuid().ToString("N");
         }
 
         private void InitNewNode(Node n, string title, Vector2 position)
         {
-            n.SetId(Guid.NewGuid().ToString("N"));
-            n.SetTitle(title);
-            n.SetPosition(position);
+            n.Id = Guid.NewGuid().ToString("N");
+            n.Title = title;
+            n.Position = position;
             n.SetOwner(this);
 
 #if UNITY_EDITOR
