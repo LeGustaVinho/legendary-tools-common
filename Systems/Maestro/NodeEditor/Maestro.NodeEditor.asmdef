@@ -1,0 +1,19 @@
+{
+  "name": "Maestro.NodeEditor",
+  "rootNamespace": "",
+  "references": [
+    "GUID:c88be210acf02bb4bbeb4132dec717c5",
+    "GUID:2247f345c1389cb428906dc038800b93"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

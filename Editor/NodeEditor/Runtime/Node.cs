@@ -17,13 +17,7 @@ namespace LegendaryTools.NodeEditor
         [SerializeField] private string id;
         [SerializeField] private string title = "Node";
         [SerializeField] private Vector2 position;
-
-        // Example serialized data visible in the editor UI
-        [ShowInNode] [SerializeField] public string note;
-        [ShowInNode] [SerializeField] public int someInt;
-        [SerializeField] public float someFloat;
-        [ShowInNode] [SerializeField] public UnityEngine.Object reference;
-
+        
         // Optional appearance overrides for the editor
         [Header("Appearance (Optional)")] [SerializeField]
         private bool overrideSize = false;

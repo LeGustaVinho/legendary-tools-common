@@ -78,18 +78,29 @@ namespace LegendaryTools.NodeEditor
 
     public sealed class DefaultGraphMenuProvider : IGraphContextMenuProvider
     {
+        public bool ShowDefaultCreateNodeMenu { get; set; }
+
+        public DefaultGraphMenuProvider(bool showDefaultCreateNodeMenu = true)
+        {
+            ShowDefaultCreateNodeMenu = showDefaultCreateNodeMenu;
+        }
+
         public void Build(GraphMenuContext context, IMenuBuilder menu)
         {
-            // Create Node
-            menu.AddItem("Create/Add Node Here", () =>
+            //Create Node
+            if (ShowDefaultCreateNodeMenu)
             {
-                Undo.RecordObject(context.Graph, "Add Node");
-                context.Graph.CreateNode($"Node {Random.Range(0, 9999)}", context.LogicalClickPosition);
-                EditorUtility.SetDirty(context.Graph);
-            });
+                menu.AddItem("Create/Add Node Here", () =>
+                {
+                    Undo.RecordObject(context.Graph, "Add Node");
+                    context.Graph.CreateNode($"Node {Random.Range(0, 9999)}", context.LogicalClickPosition);
+                    EditorUtility.SetDirty(context.Graph);
+                });
 
-            // Paste at click
-            menu.AddSeparator("");
+                // Paste at click
+                menu.AddSeparator("");
+            }
+
             menu.AddItem("Edit/Paste Here", () =>
             {
                 Undo.RecordObject(context.Graph, "Paste Nodes");
