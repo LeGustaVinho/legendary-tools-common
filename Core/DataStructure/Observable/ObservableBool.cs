@@ -5,6 +5,5 @@ namespace LegendaryTools
     [Serializable]
     public class ObservableBool : Observable<bool>
     {
-        
     }
 }

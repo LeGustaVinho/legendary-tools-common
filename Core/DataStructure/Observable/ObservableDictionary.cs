@@ -30,8 +30,8 @@ namespace LegendaryTools
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
 #endif
-        private Dictionary<TKey, TValue> dictionary = new Dictionary<TKey, TValue>();
-        
+        private Dictionary<TKey, TValue> dictionary = new();
+
         public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
         {
             return dictionary.GetEnumerator();
@@ -50,6 +50,7 @@ namespace LegendaryTools
 
         public void Clear()
         {
+            if (dictionary.Count == 0) return;
             dictionary.Clear();
             OnClear?.Invoke(this);
         }
@@ -66,11 +67,17 @@ namespace LegendaryTools
 
         public bool Remove(KeyValuePair<TKey, TValue> item)
         {
-            bool result = (dictionary as IDictionary<TKey, TValue>).Remove(item);
-            OnRemove?.Invoke(this, item.Key, item.Value);
-            return result;
+            if (dictionary.TryGetValue(item.Key, out TValue existing) &&
+                EqualityComparer<TValue>.Default.Equals(existing, item.Value) &&
+                (dictionary as IDictionary<TKey, TValue>).Remove(item))
+            {
+                OnRemove?.Invoke(this, item.Key, existing);
+                return true;
+            }
+
+            return false;
         }
-        
+
         public void Add(TKey key, TValue value)
         {
             dictionary.Add(key, value);
@@ -84,10 +91,13 @@ namespace LegendaryTools
 
         public bool Remove(TKey key)
         {
-            TValue removed = dictionary[key];
-            bool result = dictionary.Remove(key);
-            OnRemove?.Invoke(this, key, removed);
-            return result;
+            if (dictionary.TryGetValue(key, out TValue removed) && dictionary.Remove(key))
+            {
+                OnRemove?.Invoke(this, key, removed);
+                return true;
+            }
+
+            return false;
         }
 
         public bool TryGetValue(TKey key, out TValue value)

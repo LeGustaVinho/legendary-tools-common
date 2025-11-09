@@ -21,19 +21,19 @@ namespace LegendaryTools
 
         public int Count => collection.Count;
         public bool IsReadOnly => (collection as IList<T>).IsReadOnly;
-        
+
         public event Action<ObservableList<T>, T> OnAdd;
         public event Action<ObservableList<T>, T, T> OnUpdate;
         public event Action<ObservableList<T>, T> OnRemove;
         public event Action<ObservableList<T>> OnClear;
-        
-        [SerializeField] private List<T> collection = new List<T>();
-        
+
+        [SerializeField] private List<T> collection = new();
+
         public int IndexOf(T item)
         {
             return collection.IndexOf(item);
         }
-        
+
         public IEnumerator<T> GetEnumerator()
         {
             return collection.GetEnumerator();
@@ -68,9 +68,12 @@ namespace LegendaryTools
 
         public bool Remove(T item)
         {
-            bool result = collection.Remove(item);
-            OnRemove?.Invoke(this, item);
-            return result;
+            int idx = collection.IndexOf(item);
+            if (idx < 0) return false;
+            T removed = collection[idx];
+            collection.RemoveAt(idx);
+            OnRemove?.Invoke(this, removed);
+            return true;
         }
 
         public void Insert(int index, T item)

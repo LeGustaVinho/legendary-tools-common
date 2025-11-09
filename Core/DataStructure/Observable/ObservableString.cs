@@ -5,26 +5,24 @@ using System.Collections.Generic;
 namespace LegendaryTools
 {
     [Serializable]
-    public class ObservableString : Observable<string>, 
+    public class ObservableString : Observable<string>,
         IEnumerable<char>,
         ICloneable
     {
         public IEnumerator<char> GetEnumerator()
         {
-            return Value.GetEnumerator();
+            // Null-safe enumeration
+            return (Value ?? string.Empty).GetEnumerator();
         }
 
         IEnumerator IEnumerable.GetEnumerator()
         {
-            return (Value as IEnumerable).GetEnumerator();
+            return ((IEnumerable)(Value ?? string.Empty)).GetEnumerator();
         }
 
         public object Clone()
         {
-            return new ObservableString()
-            {
-                value = value
-            };
+            return new ObservableString { value = value };
         }
     }
 }

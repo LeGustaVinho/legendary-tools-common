@@ -10,6 +10,7 @@ namespace LegendaryTools
         [UnityEngine.HideInInspector]
 #endif
         [UnityEngine.SerializeField] protected T value;
+
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
 #endif
@@ -18,23 +19,28 @@ namespace LegendaryTools
             get => value;
             set
             {
-                if (value.Equals(this.value))
+                // Avoid spurious notifications on equal values
+                if (this.value is null)
+                {
+                    if (value is null) return;
+                }
+                else if (this.value.Equals(value))
                 {
                     return;
                 }
- 
+
                 T oldValue = this.value;
                 this.value = value;
                 OnChanged?.Invoke(this, oldValue, value);
             }
         }
-        
+
         public event Action<Observable<T>, T, T> OnChanged;
- 
+
         public Observable()
         {
         }
- 
+
         public Observable(T value)
         {
             this.value = value;
@@ -42,61 +48,85 @@ namespace LegendaryTools
 
         public void SilentSet(T valueToSet)
         {
-            this.value = valueToSet;
+            value = valueToSet;
         }
-        
-        public static implicit operator Observable<T>(T observable)
+
+        public static implicit operator Observable<T>(T v)
         {
-            return new Observable<T>(observable);
+            return new Observable<T>(v);
         }
- 
-        public static explicit operator T(Observable<T> observable)
+
+        public static explicit operator T(Observable<T> o)
         {
-            return observable.value;
+            return o.value;
         }
- 
+
         public override string ToString()
         {
-            return value.ToString();
+            return value?.ToString() ?? string.Empty;
         }
 
+        // IComparable (object)
         public int CompareTo(object obj)
         {
-            return value.CompareTo(obj as Observable<T>);
+            if (obj is null) return 1; // any instance > null
+
+            if (obj is Observable<T> otherObs)
+                // Compare underlying values
+                return CompareTo(otherObs);
+
+            if (obj is T otherValue) return value.CompareTo(otherValue);
+
+            throw new ArgumentException($"Object must be of type {typeof(Observable<T>)} or {typeof(T)}");
         }
 
-        public bool Equals(Observable<T> other)
-        {
-            return other != null && other.value.Equals(value);
-        }
-
+        // IComparable<Observable<T>>
         public int CompareTo(Observable<T> other)
         {
-            return other.value.CompareTo(other.value);
+            if (other is null) return 1;
+            return value.CompareTo(other.value);
         }
 
-        public override bool Equals(object other)
+        // IEquatable<Observable<T>>
+        public bool Equals(Observable<T> other)
         {
-            Observable<T> observable = other as Observable<T>;
-            return other != null
-                   && observable != null && observable.value.Equals(value);
+            if (ReferenceEquals(this, other)) return true;
+            if (other is null) return false;
+
+            if (value is null) return other.value is null;
+            return value.Equals(other.value);
         }
- 
+
+        public override bool Equals(object obj)
+        {
+            if (obj is Observable<T> otherObs) return Equals(otherObs);
+            if (obj is T otherValue)
+            {
+                if (value is null) return otherValue is null;
+                return value.Equals(otherValue);
+            }
+
+            return false;
+        }
+
         public override int GetHashCode()
         {
-            return value.GetHashCode();
+            return value?.GetHashCode() ?? 0;
         }
-        
+
         public static bool operator ==(Observable<T> a, Observable<T> b)
         {
-            return a != null && a.Equals(b);
+            if (ReferenceEquals(a, b)) return true;
+            if (a is null || b is null) return false;
+            return a.Equals(b);
         }
 
         public static bool operator !=(Observable<T> a, Observable<T> b)
         {
-            return a != null && !a.Equals(b);
+            return !(a == b);
         }
 
+        // IConvertible pass-throughs
         public TypeCode GetTypeCode()
         {
             return value.GetTypeCode();
