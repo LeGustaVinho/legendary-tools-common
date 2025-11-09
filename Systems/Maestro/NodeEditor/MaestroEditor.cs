@@ -5,15 +5,17 @@ using LegendaryTools.GraphV2;
 using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
-using System.IO;
 #endif
 using LegendaryTools.NodeEditor;
-using Node = LegendaryTools.NodeEditor.Node;
 
 namespace LegendaryTools.Maestro.NodeEditor
 {
+    /// <summary>
+    /// Maestro graph: inherits generic node/config management from DefaultGraph and
+    /// synchronizes InitStepConfig dependencies via Graph events (EdgeAdded/EdgeRemoved/NodeRemoved).
+    /// </summary>
     [CreateAssetMenu(menuName = "LegendaryTools/Maestro/MaestroEditor")]
-    public class MaestroEditor : LegendaryTools.NodeEditor.Graph
+    public class MaestroEditor : DefaultGraph<InitStepNodeEditor, InitStepConfig>
     {
         public Maestro Maestro;
 
@@ -22,203 +24,140 @@ namespace LegendaryTools.Maestro.NodeEditor
         public override IGraphContextMenuProvider GraphMenuProvider => maestroNodeEditorMenu;
         public override IToolbarProvider ToolbarProvider => maestroNodeEditorMenu;
 
-        /// <summary>
-        /// Creates an InitStepNodeEditor at the given position. If a specific InitStepConfig
-        /// subtype is provided, an instance of that type is created and assigned.
-        /// </summary>
-        public InitStepNodeEditor CreateStepNode(Type initStepConfigType, string title, Vector2 position)
+        // -------------------- Lifecycle: subscribe to graph events --------------------
+
+        protected override void OnEnable()
         {
-            // Create InitStepNodeEditor.
-            InitStepNodeEditor node = CreateInstance<InitStepNodeEditor>();
+            base.OnEnable();
 
-            // Set basic metadata prior to registration in the graph.
-            node.Id = Guid.NewGuid().ToString("N");
-            node.name = string.IsNullOrEmpty(title) ? "InitStep" : title;
-            node.Title = node.name;
-            node.Position = position;
+            // Unsubscribe first to avoid duplicates after domain reloads
+            EdgeAdded -= HandleEdgeAdded;
+            EdgeRemoved -= HandleEdgeRemoved;
+            NodeRemoved -= HandleNodeRemovedDependencies;
 
-            // Add to graph using the safe API.
-            Add(node);
-
-#if UNITY_EDITOR
-            // Ensure the desired Config exists and is saved as a sibling asset (not a sub-asset).
-            InitStepConfig cfg = CreateInitStepConfigAsset(this, node, initStepConfigType);
-            node.InitStepConfig = cfg;
-            EditorUtility.SetDirty(this);
-            EditorUtility.SetDirty(node);
-            EditorUtility.SetDirty(cfg);
-            AssetDatabase.SaveAssets();
-#endif
-            return node;
+            EdgeAdded += HandleEdgeAdded;
+            EdgeRemoved += HandleEdgeRemoved;
+            NodeRemoved += HandleNodeRemovedDependencies;
         }
 
-        /// <summary>
-        /// Creates a default InitStepNodeEditor when the generic CreateNode(...) is used.
-        /// </summary>
-        public override Node CreateNode(string title, Vector2 position)
+        protected override void OnDisable()
         {
-            InitStepNodeEditor node = CreateInstance<InitStepNodeEditor>();
-            node.Id = Guid.NewGuid().ToString("N");
-            node.name = string.IsNullOrEmpty(title) ? "InitStep" : title;
-            node.Title = node.name;
-            node.Position = position;
+            base.OnDisable();
 
-            Add(node);
-
-#if UNITY_EDITOR
-            // Always ensure a config asset (sibling) is present and wired.
-            InitStepConfig cfg = CreateInitStepConfigAsset(this, node, null);
-            node.InitStepConfig = cfg;
-            EditorUtility.SetDirty(this);
-            EditorUtility.SetDirty(node);
-            EditorUtility.SetDirty(cfg);
-            AssetDatabase.SaveAssets();
-#endif
-            return node;
+            EdgeAdded -= HandleEdgeAdded;
+            EdgeRemoved -= HandleEdgeRemoved;
+            NodeRemoved -= HandleNodeRemovedDependencies;
         }
 
-        /// <summary>
-        /// Creates a deep clone of an existing InitStepNodeEditor and clears dependencies on the new config.
-        /// </summary>
-        public override Node CreateNodeClone(Node template, Vector2 position)
-        {
-            if (template == null) return null;
-
-            // If not an InitStepNodeEditor, delegate to base implementation.
-            if (template is not InitStepNodeEditor src)
-                return base.CreateNodeClone(template, position);
-
-            // Create a new InitStepNodeEditor “blank”.
-            InitStepNodeEditor clone = CreateInstance<InitStepNodeEditor>();
-
-            // Copy serialized data (except external asset refs).
-            JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(src), clone);
-
-            // Reassign identity, title and position.
-            clone.Id = Guid.NewGuid().ToString("N");
-            clone.name = $"{src.name}_Copy";
-            clone.Title = clone.name;
-            clone.Position = position;
-
-            // Register in graph.
-            Add(clone);
-
-#if UNITY_EDITOR
-            // Create a NEW config sibling asset (never reuse).
-            Type sourceType = src.InitStepConfig != null && !src.InitStepConfig.GetType().IsAbstract
-                ? src.InitStepConfig.GetType()
-                : null;
-
-            InitStepConfig newCfg = CreateInitStepConfigAsset(this, clone, sourceType);
-            clone.InitStepConfig = newCfg;
-
-            // Clear dependencies on clone’s config.
-            clone.InitStepConfig.StepDependencies = Array.Empty<InitStepConfig>();
-
-            EditorUtility.SetDirty(this);
-            EditorUtility.SetDirty(clone);
-            EditorUtility.SetDirty(newCfg);
-            AssetDatabase.SaveAssets();
-#endif
-
-            return clone;
-        }
-
-#if UNITY_EDITOR
-        /// <summary>
-        /// Finds a default non-abstract InitStepConfig subtype to instantiate when none is explicitly provided.
-        /// </summary>
-        private static Type FindDefaultInitStepConfigConcreteTypeOrThrow()
-        {
-            Type concrete = TypeCache
-                .GetTypesDerivedFrom<InitStepConfig>()
-                .FirstOrDefault(t => t != null && !t.IsAbstract && typeof(InitStepConfig).IsAssignableFrom(t));
-
-            if (concrete == null)
-                throw new InvalidOperationException(
-                    "No concrete InitStepConfig types were found in the project. " +
-                    "Create a non-abstract class deriving from InitStepConfig.");
-
-            return concrete;
-        }
+        // -------------------- Dependency sync handlers --------------------
 
         /// <summary>
-        /// Creates an InitStepConfig as a sibling asset in the same folder as the MaestroEditor asset.
+        /// When an edge is added, mirror dependency: From depends on To.
+        /// Bidirectional edges will arrive as a single Edge with Direction == Bidirectional;
+        /// we record both A->B and B->A.
         /// </summary>
-        private static InitStepConfig CreateInitStepConfigAsset(MaestroEditor ownerGraph, InitStepNodeEditor node,
-            Type cfgTypeOrNull)
+        protected virtual void HandleEdgeAdded(LegendaryTools.NodeEditor.Graph graph, Edge edge)
         {
-            if (ownerGraph == null) throw new ArgumentNullException(nameof(ownerGraph));
-            if (node == null) throw new ArgumentNullException(nameof(node));
+            if (graph != this || edge == null) return;
 
-            Type chosen =
-                cfgTypeOrNull != null && typeof(InitStepConfig).IsAssignableFrom(cfgTypeOrNull) &&
-                !cfgTypeOrNull.IsAbstract
-                    ? cfgTypeOrNull
-                    : FindDefaultInitStepConfigConcreteTypeOrThrow();
+            InitStepNodeEditor a = edge.From as InitStepNodeEditor;
+            InitStepNodeEditor b = edge.To as InitStepNodeEditor;
+            if (a == null || b == null) return;
 
-            InitStepConfig cfg = (InitStepConfig)CreateInstance(chosen);
-            cfg.name = $"{node.name}_Config";
-
-            // Compute folder path of the MaestroEditor asset.
-            string graphPath = AssetDatabase.GetAssetPath(ownerGraph);
-            if (string.IsNullOrEmpty(graphPath))
-                throw new InvalidOperationException(
-                    "Owner MaestroEditor must be saved as an asset before creating step configs.");
-
-            string folder = Path.GetDirectoryName(graphPath).Replace('\\', '/');
-            string fileName = $"{cfg.name}.asset";
-            string candidatePath = AssetDatabase.GenerateUniqueAssetPath($"{folder}/{fileName}");
-
-            AssetDatabase.CreateAsset(cfg, candidatePath);
-            return cfg;
-        }
-#endif
-
-        // -------------------- Node/Config removal & cleanup --------------------
-
-        /// <summary>
-        /// Removes a node by Id, deletes its config asset, and purges references
-        /// from other nodes' StepDependencies. Also relies on base.RemoveNode to
-        /// remove incident edges from the graph.
-        /// </summary>
-        public override void RemoveNode(string nodeId)
-        {
-            // Find before removal; we need the config reference.
-            InitStepNodeEditor n = Nodes.OfType<InitStepNodeEditor>().FirstOrDefault(x => x != null && x.Id == nodeId);
-            InitStepConfig removedCfg = n != null ? n.InitStepConfig : null;
-
-            // Let the base remove edges and the node registration (and sub-assets of node if any).
-            base.RemoveNode(nodeId);
-
-#if UNITY_EDITOR
-            // Delete the node's config sibling asset.
-            if (removedCfg != null)
+            if (edge.Direction == NodeConnectionDirection.Unidirectional)
             {
-                // Remove dependency references in *other* configs.
-                PurgeConfigFromAllDependencies(removedCfg);
-
-                try
-                {
-                    string cfgPath = AssetDatabase.GetAssetPath(removedCfg);
-                    if (!string.IsNullOrEmpty(cfgPath)) AssetDatabase.DeleteAsset(cfgPath);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogException(ex);
-                }
-
-                EditorUtility.SetDirty(this);
-                AssetDatabase.SaveAssets();
-                AssetDatabase.Refresh();
+                AddDependency(a, b);
             }
+            else // Bidirectional
+            {
+                AddDependency(a, b);
+                AddDependency(b, a);
+            }
+
+#if UNITY_EDITOR
+            EditorUtility.SetDirty(this);
+            AssetDatabase.SaveAssets();
 #endif
         }
 
         /// <summary>
-        /// Removes occurrences of a config from every other InitStepConfig.StepDependencies array.
+        /// When an edge is removed, remove both A->B and B->A to cover bidirectional cases.
         /// </summary>
-        private void PurgeConfigFromAllDependencies(InitStepConfig toRemove)
+        protected virtual void HandleEdgeRemoved(LegendaryTools.NodeEditor.Graph graph, Edge edge)
+        {
+            if (graph != this || edge == null) return;
+
+            InitStepNodeEditor a = edge.From as InitStepNodeEditor;
+            InitStepNodeEditor b = edge.To as InitStepNodeEditor;
+            if (a == null || b == null) return;
+
+            RemoveDependency(a, b);
+            RemoveDependency(b, a);
+
+#if UNITY_EDITOR
+            EditorUtility.SetDirty(this);
+            AssetDatabase.SaveAssets();
+#endif
+        }
+
+        /// <summary>
+        /// When a node is removed, purge its config from other nodes' dependency arrays.
+        /// </summary>
+        protected virtual void HandleNodeRemovedDependencies(LegendaryTools.NodeEditor.Graph graph,
+            LegendaryTools.NodeEditor.Node node)
+        {
+            if (graph != this) return;
+            InitStepNodeEditor step = node as InitStepNodeEditor;
+            InitStepConfig cfg = step != null ? step.InitStepConfig : null;
+            if (cfg == null) return;
+
+            PurgeConfigFromAllDependencies(cfg);
+#if UNITY_EDITOR
+            EditorUtility.SetDirty(this);
+            AssetDatabase.SaveAssets();
+#endif
+        }
+
+        // -------------------- Dependency utilities --------------------
+
+        protected virtual void AddDependency(InitStepNodeEditor from, InitStepNodeEditor to)
+        {
+            if (from == null || to == null) return;
+
+            InitStepConfig fromCfg = from.InitStepConfig;
+            InitStepConfig toCfg = to.InitStepConfig;
+            if (fromCfg == null || toCfg == null) return;
+
+            List<InitStepConfig> list = new(fromCfg.StepDependencies ?? Array.Empty<InitStepConfig>());
+            if (!list.Contains(toCfg))
+            {
+                list.Add(toCfg);
+                fromCfg.StepDependencies = list.ToArray();
+#if UNITY_EDITOR
+                EditorUtility.SetDirty(fromCfg);
+#endif
+            }
+        }
+
+        protected virtual void RemoveDependency(InitStepNodeEditor from, InitStepNodeEditor to)
+        {
+            if (from == null || to == null) return;
+
+            InitStepConfig fromCfg = from.InitStepConfig;
+            InitStepConfig toCfg = to.InitStepConfig;
+            if (fromCfg == null || toCfg == null) return;
+
+            List<InitStepConfig> list = new(fromCfg.StepDependencies ?? Array.Empty<InitStepConfig>());
+            if (list.Remove(toCfg))
+            {
+                fromCfg.StepDependencies = list.ToArray();
+#if UNITY_EDITOR
+                EditorUtility.SetDirty(fromCfg);
+#endif
+            }
+        }
+
+        protected virtual void PurgeConfigFromAllDependencies(InitStepConfig toRemove)
         {
             InitStepNodeEditor[] allStepNodes = Nodes.OfType<InitStepNodeEditor>().ToArray();
             foreach (InitStepNodeEditor stepNode in allStepNodes)
@@ -235,160 +174,6 @@ namespace LegendaryTools.Maestro.NodeEditor
                     EditorUtility.SetDirty(cfg);
 #endif
                 }
-            }
-        }
-
-        // -------------------- Edge dependency synchronization --------------------
-
-        /// <summary>
-        /// Legacy helper: unidirectional by default.
-        /// </summary>
-        public override bool TryAddEdge(string fromId, string toId, out string error)
-        {
-            return TryAddEdge(fromId, toId, NodeConnectionDirection.Unidirectional, out error);
-        }
-
-        /// <summary>
-        /// Tries to add an edge by string Ids (redirects to INode overload which syncs dependencies).
-        /// </summary>
-        public override bool TryAddEdge(string fromId, string toId, NodeConnectionDirection direction, out string error)
-        {
-            // Resolve endpoints before calling the INode overload.
-            Node from = Nodes.OfType<Node>().FirstOrDefault(n => n.Id == fromId);
-            Node to = Nodes.OfType<Node>().FirstOrDefault(n => n.Id == toId);
-
-            // Delegate to the INode overload that already synchronizes dependencies.
-            bool ok = TryAddEdge(from, to, direction, out _, out error);
-            return ok;
-        }
-
-        /// <summary>
-        /// Ensures StepDependencies reflect an added edge: From -> To means From depends on To.
-        /// </summary>
-        private static void OnEdgeCreated(InitStepNodeEditor from, InitStepNodeEditor to)
-        {
-            if (from == null || to == null) return;
-            InitStepConfig fromCfg = from.InitStepConfig;
-            InitStepConfig toCfg = to.InitStepConfig;
-            if (fromCfg == null || toCfg == null) return;
-
-            List<InitStepConfig> list = new(fromCfg.StepDependencies ?? Array.Empty<InitStepConfig>());
-            if (!list.Contains(toCfg))
-            {
-                list.Add(toCfg);
-                fromCfg.StepDependencies = list.ToArray();
-#if UNITY_EDITOR
-                EditorUtility.SetDirty(fromCfg);
-#endif
-            }
-        }
-
-        /// <summary>
-        /// Removes a single directed dependency From -> To when an edge is removed.
-        /// </summary>
-        private static void OnEdgeRemoved(InitStepNodeEditor from, InitStepNodeEditor to)
-        {
-            if (from == null || to == null) return;
-            InitStepConfig fromCfg = from.InitStepConfig;
-            InitStepConfig toCfg = to.InitStepConfig;
-            if (fromCfg == null || toCfg == null) return;
-
-            List<InitStepConfig> deps = new(fromCfg.StepDependencies ?? Array.Empty<InitStepConfig>());
-            if (deps.Remove(toCfg))
-            {
-                fromCfg.StepDependencies = deps.ToArray();
-#if UNITY_EDITOR
-                EditorUtility.SetDirty(fromCfg);
-#endif
-            }
-        }
-
-        /// <summary>
-        /// Intercepts all edge creations (including the normal UI flow via Node.ConnectTo)
-        /// to synchronize InitStepConfig.StepDependencies.
-        /// </summary>
-        public override bool TryAddEdge(
-            INode from,
-            INode to,
-            NodeConnectionDirection direction,
-            out INodeConnection connection,
-            out string error)
-        {
-            bool ok = base.TryAddEdge(from, to, direction, out connection, out error);
-            if (!ok) return false;
-
-            InitStepNodeEditor a = from as InitStepNodeEditor;
-            InitStepNodeEditor b = to as InitStepNodeEditor;
-
-            if (a != null && b != null)
-            {
-                if (direction == NodeConnectionDirection.Unidirectional)
-                {
-                    OnEdgeCreated(a, b); // A -> B: A depends on B
-                }
-                else if (direction == NodeConnectionDirection.Bidirectional)
-                {
-                    OnEdgeCreated(a, b);
-                    OnEdgeCreated(b, a);
-                }
-
-#if UNITY_EDITOR
-                EditorUtility.SetDirty(this);
-                AssetDatabase.SaveAssets();
-#endif
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// When pasting/duplicating edges via the clipboard utility, Graph calls this hook.
-        /// We mirror dependency creation here as well.
-        /// </summary>
-        public override void AddEdgeBetween(INode from, INode to, NodeConnectionDirection direction)
-        {
-            base.AddEdgeBetween(from, to, direction);
-
-            if (direction == NodeConnectionDirection.Unidirectional &&
-                from is InitStepNodeEditor a && to is InitStepNodeEditor b)
-            {
-                OnEdgeCreated(a, b);
-            }
-            else if (direction == NodeConnectionDirection.Bidirectional &&
-                     from is InitStepNodeEditor ab && to is InitStepNodeEditor ba)
-            {
-                OnEdgeCreated(ab, ba);
-                OnEdgeCreated(ba, ab);
-            }
-
-#if UNITY_EDITOR
-            EditorUtility.SetDirty(this);
-            AssetDatabase.SaveAssets();
-#endif
-        }
-
-        /// <summary>
-        /// Removes a graph edge and keeps InitStepConfig.StepDependencies in sync.
-        /// Also removes inverse dependency to cover potential bidirectional edges.
-        /// </summary>
-        public override void RemoveEdge(string fromId, string toId)
-        {
-            // Obtain node references before removal.
-            InitStepNodeEditor fromNode = Nodes?.OfType<InitStepNodeEditor>().FirstOrDefault(n => n.Id == fromId);
-            InitStepNodeEditor toNode = Nodes?.OfType<InitStepNodeEditor>().FirstOrDefault(n => n.Id == toId);
-
-            base.RemoveEdge(fromId, toId);
-
-            if (fromNode != null && toNode != null)
-            {
-                // Remove dependency A->B
-                OnEdgeRemoved(fromNode, toNode);
-                // Remove dependency B->A (covers bidirectional; if not present, no change)
-                OnEdgeRemoved(toNode, fromNode);
-#if UNITY_EDITOR
-                EditorUtility.SetDirty(this);
-                AssetDatabase.SaveAssets();
-#endif
             }
         }
     }

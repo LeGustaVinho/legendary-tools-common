@@ -12,11 +12,37 @@ namespace LegendaryTools.NodeEditor
     /// <summary>
     /// Graph asset that stores nodes/edges as sub-assets for Unity serialization,
     /// but exposes only abstractions to callers. Enforces graph constraints when requested.
+    /// Now observable (event-driven) using Action-based events for extensibility.
     /// </summary>
     public class Graph : ScriptableObject,
         IGraph,
         IReadOnlyGraph<IEditorNode, IEditorNodeEdge<IEditorNode>>
     {
+        // -------------------- Action-based events --------------------
+        /// <summary>Invoked after a node is added to this graph.</summary>
+        public event Action<Graph, Node> NodeAdded;
+
+        /// <summary>Invoked after a node is removed from this graph.</summary>
+        public event Action<Graph, Node> NodeRemoved;
+
+        /// <summary>Invoked after a node is moved. (graph, node, oldPosition, newPosition)</summary>
+        public event Action<Graph, Node, Vector2, Vector2> NodeMoved;
+
+        /// <summary>Invoked after an edge is added to this graph.</summary>
+        public event Action<Graph, Edge> EdgeAdded;
+
+        /// <summary>Invoked after an edge is removed from this graph.</summary>
+        public event Action<Graph, Edge> EdgeRemoved;
+
+        /// <summary>Invoked after a child graph is attached to this graph. (graph, child)</summary>
+        public event Action<Graph, Graph> ChildGraphAdded;
+
+        /// <summary>Invoked after a child graph is detached from this graph. (graph, child)</summary>
+        public event Action<Graph, Graph> ChildGraphRemoved;
+
+        /// <summary>Invoked after any structural mutation (add/remove node/edge/child, move node).</summary>
+        public event Action<Graph> GraphChanged;
+
         [SerializeField] private string id;
 
         protected INodeContextMenuProvider nodeMenuProvider;
@@ -118,6 +144,10 @@ namespace LegendaryTools.NodeEditor
             EnsureNodeIdentity(dn);
             AddNodeSubAsset(dn);
             dn.SetOwner(this);
+
+            // Events
+            OnNodeAdded(dn);
+            OnGraphChanged();
         }
 
         public bool Remove(INode node)
@@ -141,7 +171,20 @@ namespace LegendaryTools.NodeEditor
             if (dn != null) AssetDatabase.RemoveObjectFromAsset(dn);
 #endif
             bool removed = nodes.Remove(dn);
-            if (removed) dn.SetOwner(null);
+            if (removed)
+            {
+                dn.SetOwner(null);
+
+                // Fire edge-removed events for all incident edges that were deleted.
+                foreach (Edge e in incident)
+                {
+                    if (e != null) OnEdgeRemoved(e);
+                }
+
+                OnNodeRemoved(dn);
+                OnGraphChanged();
+            }
+
             return removed;
         }
 
@@ -153,13 +196,22 @@ namespace LegendaryTools.NodeEditor
             {
                 childGraphs.Add(cg);
                 cg.parentGraph = this;
+
+                OnChildGraphAdded(cg);
+                OnGraphChanged();
             }
         }
 
         public void RemoveGraph(IGraph child)
         {
             if (child is not Graph cg) return;
-            if (childGraphs.Remove(cg)) cg.parentGraph = null;
+            if (childGraphs.Remove(cg))
+            {
+                cg.parentGraph = null;
+
+                OnChildGraphRemoved(cg);
+                OnGraphChanged();
+            }
         }
 
         public bool Contains(INode node)
@@ -216,7 +268,14 @@ namespace LegendaryTools.NodeEditor
         public virtual void MoveNode(string nodeId, Vector2 newPosition)
         {
             Node n = nodes.Find(x => x != null && x.Id == nodeId);
-            if (n != null) n.Position = newPosition;
+            if (n != null)
+            {
+                Vector2 old = n.Position;
+                n.Position = newPosition;
+
+                OnNodeMoved(n, old, newPosition);
+                OnGraphChanged();
+            }
         }
 
         /// <summary>
@@ -289,6 +348,9 @@ namespace LegendaryTools.NodeEditor
 
             Edge e = CreateEdgeInternal(f, t, direction);
             connection = e;
+
+            OnEdgeAdded(e);
+            OnGraphChanged();
             return true;
         }
 
@@ -331,6 +393,12 @@ namespace LegendaryTools.NodeEditor
                 if (e != null) DestroyEdgeAsset(e);
             }
 #endif
+            foreach (Edge e in toRemove)
+            {
+                if (e != null) OnEdgeRemoved(e);
+            }
+
+            if (toRemove.Count > 0) OnGraphChanged();
         }
 
         /// <summary>Removes a node by Id and its incident edges.</summary>
@@ -355,8 +423,19 @@ namespace LegendaryTools.NodeEditor
             // Remove node sub-asset.
             AssetDatabase.RemoveObjectFromAsset(n);
 #endif
-            nodes.Remove(n);
-            n.SetOwner(null);
+            bool nodeRemoved = nodes.Remove(n);
+            if (nodeRemoved)
+            {
+                n.SetOwner(null);
+
+                foreach (Edge e in incident)
+                {
+                    if (e != null) OnEdgeRemoved(e);
+                }
+
+                OnNodeRemoved(n);
+                OnGraphChanged();
+            }
         }
 
         /// <summary>
@@ -364,7 +443,10 @@ namespace LegendaryTools.NodeEditor
         /// </summary>
         public virtual void AddEdgeBetween(INode from, INode to, NodeConnectionDirection direction)
         {
-            TryAddEdge(from, to, direction, out _, out _);
+            if (TryAddEdge(from, to, direction, out _, out _))
+            {
+                // No-op: TryAddEdge already fired events on success.
+            }
         }
 
         // -------------------- Internals --------------------
@@ -386,6 +468,9 @@ namespace LegendaryTools.NodeEditor
             AssetDatabase.AddObjectToAsset(n, this);
 #endif
             nodes.Add(n);
+
+            OnNodeAdded(n);
+            OnGraphChanged();
         }
 
         private Edge CreateEdgeInternal(Node from, Node to, NodeConnectionDirection direction)
@@ -532,6 +617,7 @@ namespace LegendaryTools.NodeEditor
                 Node a = Find(f);
                 Node b = Find(t);
                 if (a == b) return true; // found a cycle
+                if (a == b) return true;
                 Union(a, b);
             }
 
@@ -544,6 +630,56 @@ namespace LegendaryTools.NodeEditor
             AssetDatabase.AddObjectToAsset(n, this);
 #endif
             if (!nodes.Contains(n)) nodes.Add(n);
+        }
+
+        // -------------------- Event invokers (protected virtual) --------------------
+
+        /// <summary>Invoked after a node is added.</summary>
+        protected virtual void OnNodeAdded(Node node)
+        {
+            NodeAdded?.Invoke(this, node);
+        }
+
+        /// <summary>Invoked after a node is removed.</summary>
+        protected virtual void OnNodeRemoved(Node node)
+        {
+            NodeRemoved?.Invoke(this, node);
+        }
+
+        /// <summary>Invoked after a node is moved.</summary>
+        protected virtual void OnNodeMoved(Node node, Vector2 oldPos, Vector2 newPos)
+        {
+            NodeMoved?.Invoke(this, node, oldPos, newPos);
+        }
+
+        /// <summary>Invoked after an edge is added.</summary>
+        protected virtual void OnEdgeAdded(Edge edge)
+        {
+            EdgeAdded?.Invoke(this, edge);
+        }
+
+        /// <summary>Invoked after an edge is removed.</summary>
+        protected virtual void OnEdgeRemoved(Edge edge)
+        {
+            EdgeRemoved?.Invoke(this, edge);
+        }
+
+        /// <summary>Invoked after a child graph is attached.</summary>
+        protected virtual void OnChildGraphAdded(Graph child)
+        {
+            ChildGraphAdded?.Invoke(this, child);
+        }
+
+        /// <summary>Invoked after a child graph is detached.</summary>
+        protected virtual void OnChildGraphRemoved(Graph child)
+        {
+            ChildGraphRemoved?.Invoke(this, child);
+        }
+
+        /// <summary>Invoked after any structural change.</summary>
+        protected virtual void OnGraphChanged()
+        {
+            GraphChanged?.Invoke(this);
         }
     }
 }
