@@ -18,7 +18,7 @@ namespace LegendaryTools.NodeEditor
         IReadOnlyGraph<IEditorNode, IEditorNodeEdge<IEditorNode>>
     {
         [SerializeField] private string id;
-        
+
         protected INodeContextMenuProvider nodeMenuProvider;
         protected IEdgeContextMenuProvider edgeMenuProvider;
         protected IGraphContextMenuProvider graphMenuProvider;
@@ -124,10 +124,20 @@ namespace LegendaryTools.NodeEditor
         {
             if (node is not Node dn) return false;
 
-            // Remove incident edges first
+            // Collect incident edges first.
+            List<Edge> incident = edges.Where(e => e == null || e.FromNode == dn || e.ToNode == dn).ToList();
+
+            // Remove from list.
             edges.RemoveAll(e => e == null || e.FromNode == dn || e.ToNode == dn);
 
 #if UNITY_EDITOR
+            // Destroy edge sub-assets.
+            foreach (Edge e in incident)
+            {
+                if (e != null) DestroyEdgeAsset(e);
+            }
+
+            // Remove node sub-asset as before.
             if (dn != null) AssetDatabase.RemoveObjectFromAsset(dn);
 #endif
             bool removed = nodes.Remove(dn);
@@ -282,12 +292,45 @@ namespace LegendaryTools.NodeEditor
             return true;
         }
 
+#if UNITY_EDITOR
+        /// <summary>
+        /// Destroys an edge sub-asset from this Graph asset safely.
+        /// </summary>
+        private static void DestroyEdgeAsset(Edge e)
+        {
+            if (e == null) return;
+            try
+            {
+                // Remove from parent asset and destroy the sub-asset object.
+                AssetDatabase.RemoveObjectFromAsset(e);
+                DestroyImmediate(e, true);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+#endif
+
         /// <summary>Removes an edge by endpoints (Ids).</summary>
         public virtual void RemoveEdge(string fromId, string toId)
         {
             Node from = nodes.Find(x => x != null && x.Id == fromId);
             Node to = nodes.Find(x => x != null && x.Id == toId);
+
+            // Collect matching edges.
+            List<Edge> toRemove = edges.Where(e => e == null || (e.FromNode == from && e.ToNode == to)).ToList();
+
+            // Remove from list.
             edges.RemoveAll(e => e == null || (e.FromNode == from && e.ToNode == to));
+
+#if UNITY_EDITOR
+            // Destroy edge sub-assets.
+            foreach (Edge e in toRemove)
+            {
+                if (e != null) DestroyEdgeAsset(e);
+            }
+#endif
         }
 
         /// <summary>Removes a node by Id and its incident edges.</summary>
@@ -296,9 +339,20 @@ namespace LegendaryTools.NodeEditor
             Node n = nodes.Find(x => x != null && x.Id == nodeId);
             if (n == null) return;
 
+            // Collect incident edges first.
+            List<Edge> incident = edges.Where(e => e == null || e.FromNode == n || e.ToNode == n).ToList();
+
+            // Remove edges from list.
             edges.RemoveAll(e => e == null || e.FromNode == n || e.ToNode == n);
 
 #if UNITY_EDITOR
+            // Destroy edge sub-assets.
+            foreach (Edge e in incident)
+            {
+                if (e != null) DestroyEdgeAsset(e);
+            }
+
+            // Remove node sub-asset.
             AssetDatabase.RemoveObjectFromAsset(n);
 #endif
             nodes.Remove(n);

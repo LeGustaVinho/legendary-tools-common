@@ -25,8 +25,8 @@ namespace LegendaryTools.Maestro.NodeEditor
         // Delegates to reuse default behaviors and then extend with Maestro-specific items.
         private readonly DefaultNodeMenuProvider _defaultNodeMenu = new();
         private readonly DefaultEdgeMenuProvider _defaultEdgeMenu = new();
-        private readonly DefaultGraphMenuProvider _defaultGraphMenu = new(false);
-        private readonly DefaultToolbarProvider _defaultToolbar = new();
+        private readonly DefaultGraphMenuProvider _defaultGraphMenu = new (false);
+        private readonly DefaultToolbarProvider _defaultToolbar = new(false);
 
         /// <summary>
         /// Builds a list of non-abstract types derived from InitStepConfig.

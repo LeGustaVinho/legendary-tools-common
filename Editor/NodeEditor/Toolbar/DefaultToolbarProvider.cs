@@ -13,22 +13,32 @@ namespace LegendaryTools.NodeEditor
     /// </summary>
     public sealed class DefaultToolbarProvider : IToolbarProvider
     {
+        public bool ShowDefaultButtons { get; set; }
+
+        public DefaultToolbarProvider(bool showDefaultButtons = true)
+        {
+            ShowDefaultButtons = showDefaultButtons;
+        }
+        
         public void Build(ToolbarContext context, IToolbarBuilder toolbar)
         {
-            // Separator after the Graph ObjectField that is always present.
-            toolbar.AddSeparator();
+            if (ShowDefaultButtons)
+            {
+                // Separator after the Graph ObjectField that is always present.
+                toolbar.AddSeparator();
 
-            // New Asset
-            toolbar.AddButton("New Asset", () => context.CreateNewAsset?.Invoke());
+                // New Asset
+                toolbar.AddButton("New Asset", () => context.CreateNewAsset?.Invoke());
 
-            // Add Node
-            toolbar.AddButton("Add Node", () => context.AddNodeAtViewportCenter?.Invoke());
+                // Add Node
+                toolbar.AddButton("Add Node", () => context.AddNodeAtViewportCenter?.Invoke());
 
-            // Right-aligned dynamic info
-            toolbar.AddFlexibleSpace();
+                // Right-aligned dynamic info
+                toolbar.AddFlexibleSpace();
 
-            if (context.IsConnectionMode)
-                toolbar.AddLabel(() => "Connection mode: click a destination node or press Esc to cancel");
+                if (context.IsConnectionMode)
+                    toolbar.AddLabel(() => "Connection mode: click a destination node or press Esc to cancel");
+            }
         }
     }
 }

@@ -5,8 +5,8 @@ using LegendaryTools.GraphV2;
 using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
+using System.IO;
 #endif
-using LegendaryTools.Maestro;
 using LegendaryTools.NodeEditor;
 using Node = LegendaryTools.NodeEditor.Node;
 
@@ -28,7 +28,7 @@ namespace LegendaryTools.Maestro.NodeEditor
         /// </summary>
         public InitStepNodeEditor CreateStepNode(Type initStepConfigType, string title, Vector2 position)
         {
-            // Create InitStepNodeEditor instead of a plain Node.
+            // Create InitStepNodeEditor.
             InitStepNodeEditor node = CreateInstance<InitStepNodeEditor>();
 
             // Set basic metadata prior to registration in the graph.
@@ -41,9 +41,10 @@ namespace LegendaryTools.Maestro.NodeEditor
             Add(node);
 
 #if UNITY_EDITOR
-            // Ensure the desired Config exists and is attached as a sub-asset.
-            InitStepConfig cfg = CreateInitStepConfigSubAsset(node, initStepConfigType);
+            // Ensure the desired Config exists and is saved as a sibling asset (not a sub-asset).
+            InitStepConfig cfg = CreateInitStepConfigAsset(this, node, initStepConfigType);
             node.InitStepConfig = cfg;
+            EditorUtility.SetDirty(this);
             EditorUtility.SetDirty(node);
             EditorUtility.SetDirty(cfg);
             AssetDatabase.SaveAssets();
@@ -65,9 +66,10 @@ namespace LegendaryTools.Maestro.NodeEditor
             Add(node);
 
 #if UNITY_EDITOR
-            // Always ensure a config sub-asset is present and wired.
-            InitStepConfig cfg = CreateInitStepConfigSubAsset(node, null);
+            // Always ensure a config asset (sibling) is present and wired.
+            InitStepConfig cfg = CreateInitStepConfigAsset(this, node, null);
             node.InitStepConfig = cfg;
+            EditorUtility.SetDirty(this);
             EditorUtility.SetDirty(node);
             EditorUtility.SetDirty(cfg);
             AssetDatabase.SaveAssets();
@@ -89,7 +91,7 @@ namespace LegendaryTools.Maestro.NodeEditor
             // Create a new InitStepNodeEditor “blank”.
             InitStepNodeEditor clone = CreateInstance<InitStepNodeEditor>();
 
-            // Copy serialized data (except sub-asset references).
+            // Copy serialized data (except external asset refs).
             JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(src), clone);
 
             // Reassign identity, title and position.
@@ -102,17 +104,18 @@ namespace LegendaryTools.Maestro.NodeEditor
             Add(clone);
 
 #if UNITY_EDITOR
-            // Always generate a NEW clean InitStepConfig sub-asset.
+            // Create a NEW config sibling asset (never reuse).
             Type sourceType = src.InitStepConfig != null && !src.InitStepConfig.GetType().IsAbstract
                 ? src.InitStepConfig.GetType()
                 : null;
 
-            InitStepConfig newCfg = CreateInitStepConfigSubAsset(clone, sourceType);
+            InitStepConfig newCfg = CreateInitStepConfigAsset(this, clone, sourceType);
             clone.InitStepConfig = newCfg;
 
-            // Clear dependencies on clone’s config (do not inherit from source).
+            // Clear dependencies on clone’s config.
             clone.InitStepConfig.StepDependencies = Array.Empty<InitStepConfig>();
 
+            EditorUtility.SetDirty(this);
             EditorUtility.SetDirty(clone);
             EditorUtility.SetDirty(newCfg);
             AssetDatabase.SaveAssets();
@@ -140,11 +143,14 @@ namespace LegendaryTools.Maestro.NodeEditor
         }
 
         /// <summary>
-        /// Creates an InitStepConfig sub-asset under the node. If a specific subtype is passed,
-        /// it will be used. Otherwise a concrete default subtype is discovered via TypeCache.
+        /// Creates an InitStepConfig as a sibling asset in the same folder as the MaestroEditor asset.
         /// </summary>
-        private static InitStepConfig CreateInitStepConfigSubAsset(InitStepNodeEditor node, Type cfgTypeOrNull)
+        private static InitStepConfig CreateInitStepConfigAsset(MaestroEditor ownerGraph, InitStepNodeEditor node,
+            Type cfgTypeOrNull)
         {
+            if (ownerGraph == null) throw new ArgumentNullException(nameof(ownerGraph));
+            if (node == null) throw new ArgumentNullException(nameof(node));
+
             Type chosen =
                 cfgTypeOrNull != null && typeof(InitStepConfig).IsAssignableFrom(cfgTypeOrNull) &&
                 !cfgTypeOrNull.IsAbstract
@@ -153,7 +159,18 @@ namespace LegendaryTools.Maestro.NodeEditor
 
             InitStepConfig cfg = (InitStepConfig)CreateInstance(chosen);
             cfg.name = $"{node.name}_Config";
-            AssetDatabase.AddObjectToAsset(cfg, node);
+
+            // Compute folder path of the MaestroEditor asset.
+            string graphPath = AssetDatabase.GetAssetPath(ownerGraph);
+            if (string.IsNullOrEmpty(graphPath))
+                throw new InvalidOperationException(
+                    "Owner MaestroEditor must be saved as an asset before creating step configs.");
+
+            string folder = Path.GetDirectoryName(graphPath).Replace('\\', '/');
+            string fileName = $"{cfg.name}.asset";
+            string candidatePath = AssetDatabase.GenerateUniqueAssetPath($"{folder}/{fileName}");
+
+            AssetDatabase.CreateAsset(cfg, candidatePath);
             return cfg;
         }
 #endif
@@ -161,31 +178,30 @@ namespace LegendaryTools.Maestro.NodeEditor
         // -------------------- Node/Config removal & cleanup --------------------
 
         /// <summary>
-        /// Removes a node by Id, deletes its config sub-asset, and purges references
+        /// Removes a node by Id, deletes its config asset, and purges references
         /// from other nodes' StepDependencies. Also relies on base.RemoveNode to
         /// remove incident edges from the graph.
         /// </summary>
         public override void RemoveNode(string nodeId)
         {
-            // Find the concrete node before calling base (we still need its config reference).
+            // Find before removal; we need the config reference.
             InitStepNodeEditor n = Nodes.OfType<InitStepNodeEditor>().FirstOrDefault(x => x != null && x.Id == nodeId);
             InitStepConfig removedCfg = n != null ? n.InitStepConfig : null;
 
-            // Let the base remove edges and the node registration.
+            // Let the base remove edges and the node registration (and sub-assets of node if any).
             base.RemoveNode(nodeId);
 
 #if UNITY_EDITOR
-            // Delete the node's config sub-asset.
-            if (n != null && removedCfg != null)
+            // Delete the node's config sibling asset.
+            if (removedCfg != null)
             {
                 // Remove dependency references in *other* configs.
                 PurgeConfigFromAllDependencies(removedCfg);
 
-                // Remove sub-asset from the node and destroy.
                 try
                 {
-                    AssetDatabase.RemoveObjectFromAsset(removedCfg);
-                    DestroyImmediate(removedCfg, true);
+                    string cfgPath = AssetDatabase.GetAssetPath(removedCfg);
+                    if (!string.IsNullOrEmpty(cfgPath)) AssetDatabase.DeleteAsset(cfgPath);
                 }
                 catch (Exception ex)
                 {

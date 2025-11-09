@@ -38,10 +38,15 @@ namespace LegendaryTools.NodeEditor
         private IGraphContextMenuProvider _graphMenuProvider;
         private IToolbarProvider _toolbarProvider;
 
+        // Popup data for Graph assets
+        private readonly List<Graph> _availableGraphs = new();
+        private string[] _availableGraphNames = Array.Empty<string>();
+        private int _selectedGraphIndex = -1; // -1 means "None"
+
         /// <summary>
         /// Opens the editor window.
         /// </summary>
-        [MenuItem("Tools/LegendaryTool/Graphs/NodeEditor")]
+        [MenuItem("Tools/LegendaryTools/Graphs/NodeEditor")]
         public static void Open()
         {
             VisualGraphEditorWindow win = GetWindow<VisualGraphEditorWindow>("Node Editor");
@@ -61,6 +66,10 @@ namespace LegendaryTools.NodeEditor
                 _ => { },
                 _ => { },
                 _ => { });
+
+            // Build initial list for popup and sync the selection with the current context Graph
+            RefreshGraphList();
+            SyncSelectedIndexWithContext();
         }
 
         /// <summary>
@@ -171,34 +180,60 @@ namespace LegendaryTools.NodeEditor
 
         /// <summary>
         /// Renders the toolbar using the provider indicated by the current Graph.
-        /// Always shows the Graph ObjectField on the left.
+        /// Always shows the Graph selector popup on the left.
         /// </summary>
         private void DrawToolbar()
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                // Host-level Graph field is always present
-                Graph newGraph = (Graph)EditorGUILayout.ObjectField(
-                    GUIContent.none,
-                    _ctx.Graph,
-                    typeof(Graph),
-                    false,
-                    GUILayout.Width(350f));
+                // --- Graph selector popup (replaces ObjectField) ---
+                // Build a list with a leading "None" option for clarity.
+                string[] namesWithNone;
+                if (_availableGraphNames == null || _availableGraphNames.Length == 0)
+                {
+                    namesWithNone = new[] { "None" };
+                }
+                else
+                {
+                    namesWithNone = new string[_availableGraphNames.Length + 1];
+                    namesWithNone[0] = "None";
+                    Array.Copy(_availableGraphNames, 0, namesWithNone, 1, _availableGraphNames.Length);
+                }
 
-                // Tooltip behavior equivalent to provider's option
+                int popupIndex = Mathf.Clamp(_selectedGraphIndex + 1, 0, namesWithNone.Length - 1);
+                int newPopupIndex = EditorGUILayout.Popup(popupIndex, namesWithNone, EditorStyles.toolbarPopup,
+                    GUILayout.Width(350f));
+                int newSelectedIndex = newPopupIndex - 1; // convert back to [-1..n)
+
+                // Tooltip area for the selector (layout stable, no visible element)
                 GUIContent assetLabel = new("Graph Asset");
                 Rect helpRect = GUILayoutUtility.GetRect(0, 0, GUILayout.ExpandWidth(false));
                 if (helpRect.width > 0)
-                    // Spacer to carry tooltip; no visual element.
                     GUI.Label(new Rect(helpRect.x, helpRect.y, 1, EditorGUIUtility.singleLineHeight), assetLabel,
                         EditorStyles.toolbarButton);
 
-                // Bind/unbind lifecycle when Graph changes
-                if (newGraph != _ctx.Graph)
+                // "Refresh" button to rebuild the asset list manually
+                if (GUILayout.Button(EditorGUIUtility.IconContent("d_Refresh"),
+                        EditorStyles.toolbarButton, GUILayout.Width(28)))
                 {
-                    _ctx.Graph = newGraph;
-                    if (_ctx.Graph != null) BindGraph(_ctx.Graph);
-                    else UnbindGraph();
+                    RefreshGraphList();
+                    SyncSelectedIndexWithContext();
+                }
+
+                // Selection changed -> bind/unbind through popup
+                if (newSelectedIndex != _selectedGraphIndex)
+                {
+                    _selectedGraphIndex = newSelectedIndex;
+                    Graph selected = _selectedGraphIndex >= 0 && _selectedGraphIndex < _availableGraphs.Count
+                        ? _availableGraphs[_selectedGraphIndex]
+                        : null;
+
+                    if (selected != _ctx.Graph)
+                    {
+                        _ctx.Graph = selected;
+                        if (_ctx.Graph != null) BindGraph(_ctx.Graph);
+                        else UnbindGraph();
+                    }
                 }
 
                 // If we have a provider, render its items (it will add separators/flex/etc.)
@@ -247,11 +282,18 @@ namespace LegendaryTools.NodeEditor
                 Graph asset = CreateInstance<Graph>();
                 AssetDatabase.CreateAsset(asset, path);
                 AssetDatabase.SaveAssets();
+
+                // Reset context and bind newly created asset
                 _ctx.Graph = asset;
                 _ctx.Scroll = Vector2.zero;
                 _ctx.Zoom = 1f;
                 _ctx.SelectedNodes.Clear();
                 _ctx.SelectedEdges.Clear();
+
+                // Ensure popup list contains the new asset and is selected
+                RefreshGraphList();
+                SyncSelectedIndexWithContext();
+
                 BindGraph(asset);
                 Repaint();
             }
@@ -403,6 +445,9 @@ namespace LegendaryTools.NodeEditor
                     mb.Show();
                 });
 
+            // Keep popup selection in sync if binding was triggered externally.
+            SyncSelectedIndexWithContext();
+
             Repaint();
         }
 
@@ -422,6 +467,63 @@ namespace LegendaryTools.NodeEditor
                 _ => { },
                 _ => { },
                 _ => { });
+
+            // Keep popup selection in sync with cleared context.
+            _selectedGraphIndex = -1;
+        }
+
+        // -------------------- Helpers: Asset List & Selection Sync --------------------
+
+        /// <summary>
+        /// Rebuilds the list of available Graph assets for the popup selector.
+        /// </summary>
+        private void RefreshGraphList()
+        {
+            _availableGraphs.Clear();
+
+            // Find all ScriptableObjects inheriting from Graph
+            string[] guids = AssetDatabase.FindAssets($"t:{typeof(Graph).Name}");
+            foreach (string guid in guids)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                Graph g = AssetDatabase.LoadAssetAtPath<Graph>(path);
+                if (g != null)
+                    _availableGraphs.Add(g);
+            }
+
+            // Sort by name then path for a stable, predictable order
+            _availableGraphs.Sort((a, b) =>
+            {
+                int nameCmp = string.Compare(a.name, b.name, StringComparison.OrdinalIgnoreCase);
+                if (nameCmp != 0) return nameCmp;
+                string pa = AssetDatabase.GetAssetPath(a);
+                string pb = AssetDatabase.GetAssetPath(b);
+                return string.Compare(pa, pb, StringComparison.OrdinalIgnoreCase);
+            });
+
+            // Build display names as "Name (Assets/..path..)"
+            _availableGraphNames = _availableGraphs
+                .Select(g =>
+                {
+                    string path = AssetDatabase.GetAssetPath(g);
+                    return $"{g.name} ({path})";
+                })
+                .ToArray();
+        }
+
+        /// <summary>
+        /// Synchronizes the popup selection index with the current context Graph.
+        /// </summary>
+        private void SyncSelectedIndexWithContext()
+        {
+            if (_ctx.Graph == null)
+            {
+                _selectedGraphIndex = -1;
+                return;
+            }
+
+            int idx = _availableGraphs.IndexOf(_ctx.Graph);
+            _selectedGraphIndex = idx; // remains -1 if not found
         }
     }
 }
