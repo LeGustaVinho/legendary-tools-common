@@ -14,7 +14,7 @@ namespace LegendaryTools.Maestro.NodeEditor
     /// Maestro graph: inherits generic node/config management from DefaultGraph and
     /// synchronizes InitStepConfig dependencies via Graph events (EdgeAdded/EdgeRemoved/NodeRemoved).
     /// </summary>
-    [CreateAssetMenu(menuName = "LegendaryTools/Maestro/MaestroEditor")]
+    [CreateAssetMenu(menuName = "Tools/Maestro/MaestroEditor")]
     public class MaestroEditor : DefaultGraph<InitStepNodeEditor, InitStepConfig>
     {
         public Maestro Maestro;
