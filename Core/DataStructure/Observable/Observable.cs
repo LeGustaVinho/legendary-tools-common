@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace LegendaryTools
 {
@@ -7,13 +8,16 @@ namespace LegendaryTools
     /// Notifies subscribers when the value changes to a different value.
     /// </summary>
     /// <typeparam name="T">
-    /// The underlying value type. Must support equality and comparison to
-    /// allow efficient change detection and comparisons.
+    /// The underlying value type. Works with classes, structs, and enums.
+    /// Equality and comparison rely on EqualityComparer<T>.Default and Comparer<T>.Default.
     /// </typeparam>
     [Serializable]
-    public class Observable<T> : IObservable<T>, IEquatable<Observable<T>>, IComparable<Observable<T>>, IComparable,
+    public class Observable<T> :
+        IObservable<T>,
+        IEquatable<Observable<T>>,
+        IComparable<Observable<T>>,
+        IComparable,
         IConvertible
-        where T : IEquatable<T>, IComparable<T>, IComparable, IConvertible
     {
 #if ODIN_INSPECTOR
         [UnityEngine.HideInInspector]
@@ -31,15 +35,9 @@ namespace LegendaryTools
             get => value;
             set
             {
-                // Avoid spurious notifications on equal values
-                if (this.value is null)
-                {
-                    if (value is null) return;
-                }
-                else if (this.value.Equals(value))
-                {
+                // Use type-appropriate equality (handles refs, structs, and enums)
+                if (EqualityComparer<T>.Default.Equals(this.value, value))
                     return;
-                }
 
                 T oldValue = this.value;
                 this.value = value;
@@ -53,14 +51,14 @@ namespace LegendaryTools
         public event Action<IObservable<T>, T, T> OnChanged;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="Observable{T}"/> class with the default value.
+        /// Initializes a new instance with the default value.
         /// </summary>
         public Observable()
         {
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="Observable{T}"/> class with the specified value.
+        /// Initializes a new instance with the specified value.
         /// </summary>
         /// <param name="value">The initial value.</param>
         public Observable(T value)
@@ -99,66 +97,30 @@ namespace LegendaryTools
             return value?.ToString() ?? string.Empty;
         }
 
-        // IComparable (object)
-        /// <summary>
-        /// Compares this instance with another object for ordering.
-        /// </summary>
-        /// <param name="obj">The object to compare.</param>
-        /// <returns>An integer indicating relative order.</returns>
-        /// <exception cref="ArgumentException">Thrown when types are incompatible.</exception>
-        public int CompareTo(object obj)
-        {
-            if (obj is null) return 1; // any instance > null
+        // -----------------------
+        // Equality and Hash Code
+        // -----------------------
 
-            if (obj is Observable<T> otherObs)
-                // Compare underlying values
-                return CompareTo(otherObs);
-
-            if (obj is T otherValue) return value.CompareTo(otherValue);
-
-            throw new ArgumentException($"Object must be of type {typeof(Observable<T>)} or {typeof(T)}");
-        }
-
-        // IComparable<Observable<T>>
-        /// <summary>
-        /// Compares this instance with another observable of the same type.
-        /// </summary>
-        public int CompareTo(Observable<T> other)
-        {
-            if (other is null) return 1;
-            return value.CompareTo(other.value);
-        }
-
-        // IEquatable<Observable<T>>
-        /// <summary>
-        /// Indicates whether this instance and another observable are equal.
-        /// </summary>
+        /// <inheritdoc/>
         public bool Equals(Observable<T> other)
         {
             if (ReferenceEquals(this, other)) return true;
             if (other is null) return false;
-
-            if (value is null) return other.value is null;
-            return value.Equals(other.value);
+            return EqualityComparer<T>.Default.Equals(value, other.value);
         }
 
         /// <inheritdoc/>
         public override bool Equals(object obj)
         {
             if (obj is Observable<T> otherObs) return Equals(otherObs);
-            if (obj is T otherValue)
-            {
-                if (value is null) return otherValue is null;
-                return value.Equals(otherValue);
-            }
-
+            if (obj is T otherValue) return EqualityComparer<T>.Default.Equals(value, otherValue);
             return false;
         }
 
         /// <inheritdoc/>
         public override int GetHashCode()
         {
-            return value?.GetHashCode() ?? 0;
+            return EqualityComparer<T>.Default.GetHashCode(value);
         }
 
         /// <summary>
@@ -179,107 +141,130 @@ namespace LegendaryTools
             return !(a == b);
         }
 
-        // IConvertible pass-throughs
-        /// <inheritdoc/>
-        public TypeCode GetTypeCode()
+        // ---------------
+        // Comparisons
+        // ---------------
+
+        /// <summary>
+        /// Compares this instance with another object for ordering.
+        /// Uses Comparer<T>.Default, which requires T to be comparable at runtime.
+        /// </summary>
+        public int CompareTo(object obj)
         {
-            return value.GetTypeCode();
+            if (obj is null) return 1; // any instance > null
+            if (obj is Observable<T> otherObs) return CompareTo(otherObs);
+            if (obj is T otherValue) return Comparer<T>.Default.Compare(value, otherValue);
+
+            throw new ArgumentException($"Object must be of type {typeof(Observable<T>)} or {typeof(T)}");
         }
 
-        /// <inheritdoc/>
-        public bool ToBoolean(IFormatProvider provider)
+        /// <summary>
+        /// Compares this instance with another observable of the same type.
+        /// Uses Comparer<T>.Default, which requires T to be comparable at runtime.
+        /// </summary>
+        public int CompareTo(Observable<T> other)
         {
-            return value.ToBoolean(provider);
+            if (other is null) return 1;
+            return Comparer<T>.Default.Compare(value, other.value);
         }
 
-        /// <inheritdoc/>
-        public byte ToByte(IFormatProvider provider)
+        // ---------------
+        // IConvertible (dynamic delegation)
+        // ---------------
+
+        /// <summary>
+        /// Gets the underlying IConvertible if available; otherwise throws.
+        /// </summary>
+        private IConvertible ConvertibleOrThrow()
         {
-            return value.ToByte(provider);
+            if (value is IConvertible c) return c;
+            throw new InvalidCastException(
+                $"Underlying type {typeof(T)} does not implement IConvertible.");
         }
 
-        /// <inheritdoc/>
-        public char ToChar(IFormatProvider provider)
+        TypeCode IConvertible.GetTypeCode()
         {
-            return value.ToChar(provider);
+            return ConvertibleOrThrow().GetTypeCode();
         }
 
-        /// <inheritdoc/>
-        public DateTime ToDateTime(IFormatProvider provider)
+        bool IConvertible.ToBoolean(IFormatProvider provider)
         {
-            return value.ToDateTime(provider);
+            return ConvertibleOrThrow().ToBoolean(provider);
         }
 
-        /// <inheritdoc/>
-        public decimal ToDecimal(IFormatProvider provider)
+        byte IConvertible.ToByte(IFormatProvider provider)
         {
-            return value.ToDecimal(provider);
+            return ConvertibleOrThrow().ToByte(provider);
         }
 
-        /// <inheritdoc/>
-        public double ToDouble(IFormatProvider provider)
+        char IConvertible.ToChar(IFormatProvider provider)
         {
-            return value.ToDouble(provider);
+            return ConvertibleOrThrow().ToChar(provider);
         }
 
-        /// <inheritdoc/>
-        public short ToInt16(IFormatProvider provider)
+        DateTime IConvertible.ToDateTime(IFormatProvider provider)
         {
-            return value.ToInt16(provider);
+            return ConvertibleOrThrow().ToDateTime(provider);
         }
 
-        /// <inheritdoc/>
-        public int ToInt32(IFormatProvider provider)
+        decimal IConvertible.ToDecimal(IFormatProvider provider)
         {
-            return value.ToInt32(provider);
+            return ConvertibleOrThrow().ToDecimal(provider);
         }
 
-        /// <inheritdoc/>
-        public long ToInt64(IFormatProvider provider)
+        double IConvertible.ToDouble(IFormatProvider provider)
         {
-            return value.ToInt64(provider);
+            return ConvertibleOrThrow().ToDouble(provider);
         }
 
-        /// <inheritdoc/>
-        public sbyte ToSByte(IFormatProvider provider)
+        short IConvertible.ToInt16(IFormatProvider provider)
         {
-            return value.ToSByte(provider);
+            return ConvertibleOrThrow().ToInt16(provider);
         }
 
-        /// <inheritdoc/>
-        public float ToSingle(IFormatProvider provider)
+        int IConvertible.ToInt32(IFormatProvider provider)
         {
-            return value.ToSingle(provider);
+            return ConvertibleOrThrow().ToInt32(provider);
         }
 
-        /// <inheritdoc/>
-        public string ToString(IFormatProvider provider)
+        long IConvertible.ToInt64(IFormatProvider provider)
         {
-            return value.ToString(provider);
+            return ConvertibleOrThrow().ToInt64(provider);
         }
 
-        /// <inheritdoc/>
-        public object ToType(Type conversionType, IFormatProvider provider)
+        sbyte IConvertible.ToSByte(IFormatProvider provider)
         {
-            return value.ToType(conversionType, provider);
+            return ConvertibleOrThrow().ToSByte(provider);
         }
 
-        /// <inheritdoc/>
-        public ushort ToUInt16(IFormatProvider provider)
+        float IConvertible.ToSingle(IFormatProvider provider)
         {
-            return value.ToUInt16(provider);
+            return ConvertibleOrThrow().ToSingle(provider);
         }
 
-        /// <inheritdoc/>
-        public uint ToUInt32(IFormatProvider provider)
+        string IConvertible.ToString(IFormatProvider provider)
         {
-            return value.ToUInt32(provider);
+            return ConvertibleOrThrow().ToString(provider);
         }
 
-        /// <inheritdoc/>
-        public ulong ToUInt64(IFormatProvider provider)
+        object IConvertible.ToType(Type conversionType, IFormatProvider provider)
         {
-            return value.ToUInt64(provider);
+            return ConvertibleOrThrow().ToType(conversionType, provider);
+        }
+
+        ushort IConvertible.ToUInt16(IFormatProvider provider)
+        {
+            return ConvertibleOrThrow().ToUInt16(provider);
+        }
+
+        uint IConvertible.ToUInt32(IFormatProvider provider)
+        {
+            return ConvertibleOrThrow().ToUInt32(provider);
+        }
+
+        ulong IConvertible.ToUInt64(IFormatProvider provider)
+        {
+            return ConvertibleOrThrow().ToUInt64(provider);
         }
     }
 }
