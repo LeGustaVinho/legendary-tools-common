@@ -1,4 +1,4 @@
-﻿namespace LegendaryTools.SOAP.Variables.Scopes
+﻿namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Scope discriminator used by ScopedReference to report active resolution.

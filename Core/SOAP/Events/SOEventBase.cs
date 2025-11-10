@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.Events
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Base ScriptableObject for all SO events.

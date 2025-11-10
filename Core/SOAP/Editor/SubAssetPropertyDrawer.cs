@@ -1,10 +1,9 @@
 ﻿#if UNITY_EDITOR
 using System.Reflection;
-using LegendaryTools.SOAP.SubAssets;
 using UnityEditor;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.SubAssetsEditor
+namespace LegendaryTools.SOAP.Editor
 {
     /// <summary>
     /// PropertyDrawer for [SubAsset]. Schedules subasset creation on next editor tick

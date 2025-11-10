@@ -1,4 +1,4 @@
-﻿namespace LegendaryTools.SOAP.Variables
+﻿namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Read-only interface for variables.

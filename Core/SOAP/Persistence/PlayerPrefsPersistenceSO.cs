@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using LegendaryTools.Persistence;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.Persistence
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// PlayerPrefs-backed persistence provider.

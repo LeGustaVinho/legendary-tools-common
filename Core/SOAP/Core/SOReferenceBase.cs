@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace LegendaryTools.SOAP.Variables
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Non-generic base for all Reference structs to enable a single PropertyDrawer.

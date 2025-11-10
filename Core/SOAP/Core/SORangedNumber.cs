@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.Variables
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Base class for ranged numeric variables. Supports clamping to [Min, Max].

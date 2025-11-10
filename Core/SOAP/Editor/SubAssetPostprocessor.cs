@@ -1,9 +1,8 @@
 ﻿#if UNITY_EDITOR
-using LegendaryTools.SOAP.SubAssetsEditor;
 using UnityEditor;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.SubAssetsEditor
+namespace LegendaryTools.SOAP.Editor
 {
     /// <summary>
     /// AssetPostprocessor to ensure [SubAsset]-marked fields are created on asset import/move.

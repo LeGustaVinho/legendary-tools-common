@@ -1,9 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using LegendaryTools.SOAP.Persistence;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.Variables
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Generic ScriptableObject-backed variable.

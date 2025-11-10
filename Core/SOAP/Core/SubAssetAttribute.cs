@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.SubAssets
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Marks a ScriptableObject field to be auto-created as a sub-asset of the owner asset when null.

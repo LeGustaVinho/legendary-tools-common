@@ -3,11 +3,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using LegendaryTools.SOAP.SubAssets;
 using UnityEditor;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.SubAssetsEditor
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Utility to ensure [SubAsset]-marked fields on a ScriptableObject are created and assigned as child assets.

@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using LegendaryTools.Persistence;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.Persistence
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Base ScriptableObject to allow Unity serialization of IPersistence providers.

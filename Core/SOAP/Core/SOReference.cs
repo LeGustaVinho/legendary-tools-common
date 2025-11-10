@@ -1,9 +1,8 @@
 ﻿using System;
-using LegendaryTools.SOAP.Variables.Scopes;
 using UnityEngine;
 using UnityEngine.Events;
 
-namespace LegendaryTools.SOAP.Variables
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Reference that can use a constant value, a variable asset, and optional scoped overrides.

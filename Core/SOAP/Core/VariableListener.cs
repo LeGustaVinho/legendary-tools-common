@@ -2,7 +2,7 @@
 using UnityEngine;
 using UnityEngine.Events;
 
-namespace LegendaryTools.SOAP.Variables
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// Binds a variable to UnityEvents in the scene.

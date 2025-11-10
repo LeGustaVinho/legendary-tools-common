@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.Variables
+namespace LegendaryTools.SOAP
 {
     [Serializable]
     public sealed class QuaternionReference : SOReference<Quaternion>

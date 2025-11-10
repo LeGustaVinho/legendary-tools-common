@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.Variables
+namespace LegendaryTools.SOAP
 {
     [CreateAssetMenu(menuName = "Tools/SOAP/Variables/Float", fileName = "FloatVariable")]
     public class FloatVariable : SOVariable<float>

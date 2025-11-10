@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace LegendaryTools.SOAP.Variables
+namespace LegendaryTools.SOAP
 {
     [Serializable]
     public sealed class ByteReference : SOReference<byte>

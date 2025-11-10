@@ -1,9 +1,8 @@
 ﻿#if UNITY_EDITOR
-using LegendaryTools.SOAP.Variables.Scopes;
 using UnityEditor;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.Variables.Editor
+namespace LegendaryTools.SOAP.Editor
 {
     /// <summary>
     /// Compact and collapsible drawer for SOReferenceBase and descendants.

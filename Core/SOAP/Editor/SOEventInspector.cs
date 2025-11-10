@@ -9,7 +9,7 @@ using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace LegendaryTools.SOAP.Events.Editor
+namespace LegendaryTools.SOAP.Editor
 {
     /// <summary>
     /// Inspector for SOEvent (0 args) and SOEvent<T1..T6>.
@@ -273,9 +273,9 @@ namespace LegendaryTools.SOAP.Events.Editor
                 return true;
             }
 
-            if (typeof(UnityEngine.Object).IsAssignableFrom(t))
+            if (typeof(Object).IsAssignableFrom(t))
             {
-                Object current = _argInputs[index] as UnityEngine.Object;
+                Object current = _argInputs[index] as Object;
                 Object next = EditorGUILayout.ObjectField(label, current, t, false);
                 _argInputs[index] = next;
                 return true;
@@ -409,7 +409,7 @@ namespace LegendaryTools.SOAP.Events.Editor
                     Delegate dlg = delegates[i] as Delegate;
                     if (dlg == null) continue;
 
-                    string row = FormatDelegateRow(dlg, out UnityEngine.Object pingObj);
+                    string row = FormatDelegateRow(dlg, out Object pingObj);
                     if (!string.IsNullOrEmpty(_search))
                     {
                         if (!row.IndexOf(_search, StringComparison.OrdinalIgnoreCase).Equals(-1))
@@ -457,14 +457,14 @@ namespace LegendaryTools.SOAP.Events.Editor
             }
         }
 
-        private string FormatDelegateRow(Delegate d, out UnityEngine.Object ping)
+        private string FormatDelegateRow(Delegate d, out Object ping)
         {
             ping = null;
             MethodInfo method = d.Method;
             object tgt = d.Target;
 
             string targetStr;
-            if (tgt is UnityEngine.Object uo && uo != null)
+            if (tgt is Object uo && uo != null)
             {
                 ping = uo;
                 targetStr = $"{uo.name} : {uo.GetType().Name}";
@@ -562,7 +562,7 @@ namespace LegendaryTools.SOAP.Events.Editor
             if (t == typeof(Color)) return Color.white;
             if (t == typeof(Quaternion)) return Quaternion.identity;
             if (t.IsEnum) return Enum.GetValues(t).GetValue(0);
-            if (typeof(UnityEngine.Object).IsAssignableFrom(t)) return null;
+            if (typeof(Object).IsAssignableFrom(t)) return null;
 
             try
             {
@@ -591,7 +591,7 @@ namespace LegendaryTools.SOAP.Events.Editor
             if (t == typeof(Color)) return "Color";
             if (t == typeof(Quaternion)) return "Quaternion";
             if (t.IsEnum) return t.Name;
-            if (typeof(UnityEngine.Object).IsAssignableFrom(t)) return t.Name;
+            if (typeof(Object).IsAssignableFrom(t)) return t.Name;
             return t.Name;
         }
 
@@ -649,7 +649,7 @@ namespace LegendaryTools.SOAP.Events.Editor
             if (t == typeof(Color)) return Color.white;
             if (t == typeof(Quaternion)) return Quaternion.identity;
             if (t.IsEnum) return Enum.GetValues(t).GetValue(0);
-            if (typeof(UnityEngine.Object).IsAssignableFrom(t)) return null;
+            if (typeof(Object).IsAssignableFrom(t)) return null;
 
             try
             {

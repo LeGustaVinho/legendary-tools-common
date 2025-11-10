@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace LegendaryTools.SOAP.Events
+namespace LegendaryTools.SOAP
 {
     /// <summary>
     /// ScriptableObject event with 5 payload parameters.

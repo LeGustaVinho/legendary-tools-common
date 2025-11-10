@@ -4,8 +4,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
-using LegendaryTools.SOAP.Variables;
-using LegendaryTools.SOAP.Variables.Scopes;
 using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
