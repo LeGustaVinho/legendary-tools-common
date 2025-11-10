@@ -1,8 +1,3 @@
-// RenderingPerformanceHubWindow.cs
-// Place under: Assets/Editor
-// Unity 6 / URP
-// Code in English; comments follow Microsoft style.
-
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
@@ -16,71 +11,73 @@ using Object = UnityEngine.Object;
 using UnityEngine.Rendering.Universal;
 #endif
 
-public sealed class RenderingPerformanceHubWindow : EditorWindow
+namespace LegendaryTools.Editor
 {
-    // Foldout keys
-    private const string kFold_Overview = "RPH_Overview";
-    private const string kFold_Quality = "RPH_Quality";
-    private const string kFold_Player = "RPH_Player";
-    private const string kFold_Graphics = "RPH_Graphics";
-    private const string kFold_Shaders = "RPH_Shaders";
-    private const string kFold_LightingBake = "RPH_LightingBake";
-    private const string kFold_Post = "RPH_PostProcessing";
-    private const string kFold_Android = "RPH_Android";
-    private const string kFold_Vulkan = "RPH_Vulkan";
+    public sealed class RenderingPerformanceHubWindow : EditorWindow
+    {
+        // Foldout keys
+        private const string kFold_Overview = "RPH_Overview";
+        private const string kFold_Quality = "RPH_Quality";
+        private const string kFold_Player = "RPH_Player";
+        private const string kFold_Graphics = "RPH_Graphics";
+        private const string kFold_Shaders = "RPH_Shaders";
+        private const string kFold_LightingBake = "RPH_LightingBake";
+        private const string kFold_Post = "RPH_PostProcessing";
+        private const string kFold_Android = "RPH_Android";
+        private const string kFold_Vulkan = "RPH_Vulkan";
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
     private const string kFold_URP = "RPH_URP";
     private const string kFold_URPLights = "RPH_URP_Lights";
     private const string kFold_URPRendererData = "RPH_URP_RendererData";
 #endif
 
-    private Vector2 _scroll;
+        private Vector2 _scroll;
 
-    private BuildTarget _activeTarget;
-    private BuildTargetGroup _activeGroup;
+        private BuildTarget _activeTarget;
+        private BuildTargetGroup _activeGroup;
 
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
     private UniversalRenderPipelineAsset _urpAsset;
 #endif
 
-    [MenuItem("Tools/Rendering/Rendering Performance Hub")]
-    public static void Open()
-    {
-        RenderingPerformanceHubWindow wnd = GetWindow<RenderingPerformanceHubWindow>();
-        wnd.titleContent = new GUIContent("Rendering Performance Hub");
-        wnd.minSize = new Vector2(520, 620);
-        wnd.Show();
-    }
+        [MenuItem("Tools/LegendaryTools/Rendering/Rendering Performance Hub")]
+        public static void Open()
+        {
+            RenderingPerformanceHubWindow wnd = GetWindow<RenderingPerformanceHubWindow>();
+            wnd.titleContent = new GUIContent("Rendering Performance Hub");
+            wnd.minSize = new Vector2(520, 620);
+            wnd.Show();
+        }
 
-    private void OnEnable()
-    {
-        _activeTarget = EditorUserBuildSettings.activeBuildTarget;
-        _activeGroup = BuildPipeline.GetBuildTargetGroup(_activeTarget);
+        private void OnEnable()
+        {
+            _activeTarget = EditorUserBuildSettings.activeBuildTarget;
+            _activeGroup = BuildPipeline.GetBuildTargetGroup(_activeTarget);
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
         _urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
 #endif
-    }
+        }
 
-    private void OnGUI()
-    {
-        _scroll = EditorGUILayout.BeginScrollView(_scroll);
+        private void OnGUI()
+        {
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
-        DrawOverview();
-        EditorGUILayout.Space(6);
-        DrawQualitySection();
-        EditorGUILayout.Space(6);
-        DrawPlayerSection();
-        EditorGUILayout.Space(6);
-        DrawGraphicsSection();
-        EditorGUILayout.Space(6);
-        DrawAlwaysIncludedShadersSection();
-        EditorGUILayout.Space(6);
-        DrawLightingBakeSection();
-        EditorGUILayout.Space(6);
-        DrawPostProcessingSection();
-        EditorGUILayout.Space(6);
-        DrawAndroidSection();
-        EditorGUILayout.Space(6);
+            DrawOverview();
+            EditorGUILayout.Space(6);
+            DrawQualitySection();
+            EditorGUILayout.Space(6);
+            DrawPlayerSection();
+            EditorGUILayout.Space(6);
+            DrawGraphicsSection();
+            EditorGUILayout.Space(6);
+            DrawAlwaysIncludedShadersSection();
+            EditorGUILayout.Space(6);
+            DrawLightingBakeSection();
+            EditorGUILayout.Space(6);
+            DrawPostProcessingSection();
+            EditorGUILayout.Space(6);
+            DrawAndroidSection();
+            EditorGUILayout.Space(6);
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
         DrawURPSection();
         EditorGUILayout.Space(6);
@@ -89,539 +86,545 @@ public sealed class RenderingPerformanceHubWindow : EditorWindow
         DrawURPRendererDataSection();
         EditorGUILayout.Space(6);
 #endif
-        EditorGUILayout.EndScrollView();
-
-        using (new EditorGUILayout.HorizontalScope())
-        {
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Refresh", GUILayout.Width(100))) OnEnable();
-        }
-    }
-
-    // Utility to build GUIContent with tooltip.
-    private static GUIContent GC(string label, string tip)
-    {
-        return new GUIContent(label, tip);
-    }
-
-    #region Overview
-
-    private void DrawOverview()
-    {
-        bool fold = GetFold(kFold_Overview, true);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Overview (Active Platform Only)");
-        SetFold(kFold_Overview, fold);
-        if (fold)
-        {
-            using (new EditorGUI.DisabledScope(true))
-            {
-                EditorGUILayout.EnumPopup(GC("Active Build Target", "Platform you are currently building for."),
-                    _activeTarget);
-                EditorGUILayout.EnumPopup(GC("Build Target Group", "Logical platform group (Android, iOS, etc.)."),
-                    _activeGroup);
-                EditorGUILayout.ObjectField(
-                    GC("Default Render Pipeline", "Project-wide render pipeline asset currently in use."),
-                    GraphicsSettings.currentRenderPipeline, typeof(RenderPipelineAsset), false);
-            }
-
-            EditorGUILayout.LabelField("Active Quality Level",
-                QualitySettings.names[QualitySettings.GetQualityLevel()]);
-            EditorGUILayout.LabelField("Color Space", PlayerSettings.colorSpace.ToString());
+            EditorGUILayout.EndScrollView();
 
             using (new EditorGUILayout.HorizontalScope())
             {
-                if (GUILayout.Button("Open Graphics Settings"))
-                    SettingsService.OpenProjectSettings("Project/Graphics");
-                if (GUILayout.Button("Open Quality Settings"))
-                    SettingsService.OpenProjectSettings("Project/Quality");
-                if (GUILayout.Button("Open Player Settings"))
-                    SettingsService.OpenProjectSettings("Project/Player");
-                if (GUILayout.Button("Open Lighting Window"))
-                    EditorApplication.ExecuteMenuItem("Window/Rendering/Lighting");
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("Refresh", GUILayout.Width(100))) OnEnable();
             }
         }
 
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
-
-    #endregion
-
-    #region Quality
-
-    private void DrawQualitySection()
-    {
-        bool fold = GetFold(kFold_Quality, true);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Quality (Active Level)");
-        SetFold(kFold_Quality, fold);
-        if (!fold)
+        // Utility to build GUIContent with tooltip.
+        private static GUIContent GC(string label, string tip)
         {
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
+            return new GUIContent(label, tip);
         }
 
-        // Current quality preset.
-        int q = QualitySettings.GetQualityLevel();
-        int newQ = EditorGUILayout.Popup(GC("Current Quality", "Quality preset that is currently active."), q,
-            QualitySettings.names);
-        if (newQ != q) QualitySettings.SetQualityLevel(newQ, true);
+        #region Overview
 
-        // Per-quality pipeline asset.
-        RenderPipelineAsset qualityRpa = (RenderPipelineAsset)EditorGUILayout.ObjectField(
-            GC("Render Pipeline Asset (Quality)",
-                "Pipeline asset assigned to this quality level. Lighter: mobile/stripped asset. Costly: feature-rich asset."),
-            QualitySettings.renderPipeline, typeof(RenderPipelineAsset), false);
-        if (qualityRpa != QualitySettings.renderPipeline)
-            QualitySettings.renderPipeline = qualityRpa;
-
-        // Rendering (common knobs).
-        QualitySettings.realtimeReflectionProbes = EditorGUILayout.Toggle(
-            GC("Realtime Reflection Probes",
-                "Updates reflection probes at runtime. Lighter: Off. Costly: On (extra rendering work)."),
-            QualitySettings.realtimeReflectionProbes);
-
-        QualitySettings.resolutionScalingFixedDPIFactor = EditorGUILayout.Slider(
-            GC("Resolution Scaling Fixed DPI Factor",
-                "Scales render resolution for fixed-DPI devices. Lighter: < 1.0. Costly: ≥ 1.0."),
-            QualitySettings.resolutionScalingFixedDPIFactor, 0.1f, 2.0f);
-
-        EnumFieldViaReflection(typeof(QualitySettings), "realtimeGICPUUsage",
-            GC("Realtime GI CPU Usage", "CPU time budget for Realtime GI updates. Lighter: Low. Costly: High."));
-
-        // VSync: IntPopup with GUIContent[] to support tooltip.
-        GUIContent[] vsLabels = new[]
-            { new GUIContent("Don't Sync"), new GUIContent("Every V Blank"), new GUIContent("Every Second V Blank") };
-        int[] vsVals = new[] { 0, 1, 2 };
-        QualitySettings.vSyncCount = EditorGUILayout.IntPopup(
-            GC("VSync Count",
-                "Synchronize frames to display refresh. Lighter: Don't Sync (tearing possible). Costly: Every V-Blank/Second V-Blank."),
-            QualitySettings.vSyncCount, vsLabels, vsVals);
-
-        // Texture & streaming.
-        IntFieldViaReflection(typeof(QualitySettings), "globalTextureMipmapLimit",
-            GC("Global Mipmap Limit",
-                "Forces lower mip globally. Lighter: Higher limit (more downscale). Costly: 0 (full resolution)."),
-            0, 6);
-
-        QualitySettings.anisotropicFiltering = (AnisotropicFiltering)EditorGUILayout.EnumPopup(
-            GC("Anisotropic Textures",
-                "Improves texture sharpness at grazing angles. Lighter: Disabled/low. Costly: Forced/high."),
-            QualitySettings.anisotropicFiltering);
-
-        QualitySettings.streamingMipmapsActive = EditorGUILayout.Toggle(
-            GC("Mipmap Streaming", "Streams mip levels based on size. Lighter: On with proper budgets. Costly: Off."),
-            QualitySettings.streamingMipmapsActive);
-
-        // Particles.
-        QualitySettings.particleRaycastBudget = Mathf.Max(4, EditorGUILayout.IntField(
-            GC("Particle Raycast Budget", "Max particle raycasts per frame. Lighter: Lower. Costly: Higher."),
-            QualitySettings.particleRaycastBudget));
-
-        // Shadows.
-#if UNITY_2020_2_OR_NEWER
-        QualitySettings.shadowmaskMode = (ShadowmaskMode)EditorGUILayout.EnumPopup(
-            GC("Shadowmask Mode",
-                "How mixed lighting handles static shadows. Lighter: Distance Shadowmask. Costly: Shadowmask."),
-            QualitySettings.shadowmaskMode);
-#endif
-
-        // Async asset upload.
-        EditorGUILayout.Space(2);
-        EditorGUILayout.LabelField("Async Asset Upload", EditorStyles.boldLabel);
-        QualitySettings.asyncUploadTimeSlice = Mathf.Max(1, EditorGUILayout.IntField(
-            GC("Time Slice (ms)", "CPU time per frame for uploads. Lighter: Lower. Costly: Higher."),
-            QualitySettings.asyncUploadTimeSlice));
-        QualitySettings.asyncUploadBufferSize = Mathf.Clamp(EditorGUILayout.IntField(
-            GC("Buffer Size (MB)", "Staging memory for uploads. Lighter: Lower MB. Costly: Higher MB."),
-            QualitySettings.asyncUploadBufferSize), 1, 1024);
-        QualitySettings.asyncUploadPersistentBuffer = EditorGUILayout.Toggle(
-            GC("Persistent Buffer", "Keeps staging buffer allocated. Lighter: Off. Costly: On."),
-            QualitySettings.asyncUploadPersistentBuffer);
-
-        // LOD / Skin weights.
-        QualitySettings.lodBias = EditorGUILayout.Slider(
-            GC("LOD Bias", "Scales LOD selection. Lighter: Lower (uses lower-detail meshes sooner). Costly: Higher."),
-            QualitySettings.lodBias, 0.1f, 5f);
-        QualitySettings.maximumLODLevel = EditorGUILayout.IntField(
-            GC("Maximum LOD Level", "Forces use of LODs ≥ value. Lighter: Higher number. Costly: 0."),
-            QualitySettings.maximumLODLevel);
-        QualitySettings.skinWeights = (SkinWeights)EditorGUILayout.EnumPopup(
-            GC("Skin Weights", "Max bones per vertex. Lighter: 1–2 bones. Costly: 4+ bones."),
-            QualitySettings.skinWeights);
-
-        EditorGUILayout.HelpBox(
-            "Terrain override sliders from the screenshot are not exposed via the public API. Adjust them in Terrain settings.",
-            MessageType.Info);
-
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
-
-    #endregion
-
-    #region Player (active platform only)
-
-    private void DrawPlayerSection()
-    {
-        bool fold = GetFold(kFold_Player, true);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, $"Player Settings ({_activeGroup})");
-        SetFold(kFold_Player, fold);
-        if (!fold)
+        private void DrawOverview()
         {
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
-        }
-
-        PlayerSettings.colorSpace = (ColorSpace)EditorGUILayout.EnumPopup(
-            GC("Color Space", "Rendering color pipeline. Lighter: Gamma. Costly: Linear."),
-            PlayerSettings.colorSpace);
-
-        // Auto Graphics API — Unity 6 expects BuildTarget (not BuildTargetGroup).
-        bool useDefault = PlayerSettings.GetUseDefaultGraphicsAPIs(_activeTarget);
-        bool newUseDefault = EditorGUILayout.Toggle(
-            GC("Auto Graphics API", "Let Unity choose APIs. Lighter: Enabled. Costly: Manual with older APIs."),
-            useDefault);
-        if (newUseDefault != useDefault)
-            PlayerSettings.SetUseDefaultGraphicsAPIs(_activeTarget, newUseDefault);
-
-        // Custom Graphics API order when Auto is disabled.
-        if (!newUseDefault)
-        {
-            List<GraphicsDeviceType> apis = new(PlayerSettings.GetGraphicsAPIs(_activeTarget));
-            using (new EditorGUI.IndentLevelScope())
+            bool fold = GetFold(kFold_Overview, true);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Overview (Active Platform Only)");
+            SetFold(kFold_Overview, fold);
+            if (fold)
             {
-                for (int i = 0; i < apis.Count; i++)
+                using (new EditorGUI.DisabledScope(true))
                 {
-                    using (new EditorGUILayout.HorizontalScope())
-                    {
-                        apis[i] = (GraphicsDeviceType)EditorGUILayout.EnumPopup(
-                            GC($"API {i + 1}", "Graphics backend order. Prefer modern APIs (Vulkan/Metal)."),
-                            apis[i]);
-                        if (GUILayout.Button("Remove", GUILayout.Width(70)))
-                        {
-                            apis.RemoveAt(i);
-                            i--;
-                        }
-                    }
+                    EditorGUILayout.EnumPopup(GC("Active Build Target", "Platform you are currently building for."),
+                        _activeTarget);
+                    EditorGUILayout.EnumPopup(GC("Build Target Group", "Logical platform group (Android, iOS, etc.)."),
+                        _activeGroup);
+                    EditorGUILayout.ObjectField(
+                        GC("Default Render Pipeline", "Project-wide render pipeline asset currently in use."),
+                        GraphicsSettings.currentRenderPipeline, typeof(RenderPipelineAsset), false);
                 }
 
-                if (GUILayout.Button("Add API")) apis.Add(GraphicsDeviceType.Vulkan);
+                EditorGUILayout.LabelField("Active Quality Level",
+                    QualitySettings.names[QualitySettings.GetQualityLevel()]);
+                EditorGUILayout.LabelField("Color Space", PlayerSettings.colorSpace.ToString());
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Open Graphics Settings"))
+                        SettingsService.OpenProjectSettings("Project/Graphics");
+                    if (GUILayout.Button("Open Quality Settings"))
+                        SettingsService.OpenProjectSettings("Project/Quality");
+                    if (GUILayout.Button("Open Player Settings"))
+                        SettingsService.OpenProjectSettings("Project/Player");
+                    if (GUILayout.Button("Open Lighting Window"))
+                        EditorApplication.ExecuteMenuItem("Window/Rendering/Lighting");
+                }
             }
 
-            PlayerSettings.SetGraphicsAPIs(_activeTarget, apis.ToArray());
-        }
-
-        // Multithreaded rendering (mobile-only guard).
-        TryMobileMTRToggle(_activeGroup,
-            "Multithreaded Rendering",
-            "Uses multiple CPU threads to feed the GPU. Lighter: Off on very low-end CPUs. Costly: On.");
-
-        // Static/Dynamic batching via internal API (reflection).
-        DrawBatchingForPlatform();
-
-        // GPU skinning.
-        PlayerSettings.gpuSkinning = EditorGUILayout.Toggle(
-            GC("GPU Skinning", "Animate skinned meshes on GPU. Lighter: On (frees CPU). Costly: Off."),
-            PlayerSettings.gpuSkinning);
-
-        // Graphics jobs (plus mode via reflection).
-        PlayerSettings.graphicsJobs = EditorGUILayout.Toggle(
-            GC("Graphics Jobs", "Multithreaded command buffer recording. Lighter: On. Costly: Off."),
-            PlayerSettings.graphicsJobs);
-        EnumFieldViaReflection(typeof(PlayerSettings), "graphicsJobMode",
-            GC("Graphics Jobs Mode", "Scheduling strategy for graphics jobs. Lighter: Native/Auto."));
-
-        // Lightmap streaming (not public in U6; expose only if present).
-        bool hasLmStream = HasPublicStatic(typeof(PlayerSettings), "lightmapStreamingEnabled", typeof(bool));
-        bool hasLmPrio = HasPublicStatic(typeof(PlayerSettings), "lightmapStreamingPriority", typeof(int));
-        if (hasLmStream || hasLmPrio)
-        {
-            EditorGUILayout.Space(2);
-            EditorGUILayout.LabelField("Lightmap Streaming", EditorStyles.boldLabel);
-            BoolFieldViaReflection(typeof(PlayerSettings), "lightmapStreamingEnabled",
-                GC("Enable Streaming", "Stream lightmaps by needed mip. Lighter: On. Costly: Off."));
-            IntFieldViaReflection(typeof(PlayerSettings), "lightmapStreamingPriority",
-                GC("Streaming Priority", "Higher keeps higher mips loaded. Lighter: Lower. Costly: Higher."),
-                -128, 127);
-        }
-
-        // Sprite batching knobs via reflection (if present).
-        IntFieldViaReflection(typeof(PlayerSettings), "spriteBatchVertexThreshold",
-            GC("Sprite Batching Threshold",
-                "Minimum vertex count for a sprite batch. Lighter: Higher threshold. Costly: Lower."),
-            0, 65535);
-        IntFieldViaReflection(typeof(PlayerSettings), "spriteBatchMaxVertexCount",
-            GC("Sprite Batching Max Vertex Count", "Max vertices per batch. Lighter: Lower. Costly: Higher."),
-            64, 65535);
-
-        // Frame timing stats.
-        BoolFieldViaReflection(typeof(PlayerSettings), "enableFrameTimingStats",
-            GC("Frame Timing Stats", "Collects GPU/CPU frame timing. Lighter: Off. Costly: On (tiny overhead)."));
-
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
-
-    // Uses reflection because batching API is internal in Unity 6.
-    private void DrawBatchingForPlatform()
-    {
-        if (TryGetBatchingForPlatform(_activeGroup, out bool enableStatic, out bool enableDynamic))
-        {
-            bool newStatic = EditorGUILayout.Toggle(
-                GC("Static Batching",
-                    "Combine static meshes to reduce draw calls. Lighter: On (more memory). Costly: Off."),
-                enableStatic);
-
-            bool newDynamic = EditorGUILayout.Toggle(
-                GC("Dynamic Batching", "Batch small dynamic meshes. Lighter: On for many tiny meshes. Costly: Off."),
-                enableDynamic);
-
-            if (newStatic != enableStatic || newDynamic != enableDynamic)
-                if (!TrySetBatchingForPlatform(_activeGroup, newStatic, newDynamic))
-                    EditorGUILayout.HelpBox("Failed to set batching flags via reflection.", MessageType.Warning);
-        }
-        else
-        {
-            EditorGUILayout.HelpBox(
-                "Batching controls are not available on this Unity version/API (internal API not found).",
-                MessageType.Info);
-        }
-    }
-
-    private static void TryMobileMTRToggle(BuildTargetGroup group, string label, string tip)
-    {
-        try
-        {
-            bool mt = PlayerSettings.GetMobileMTRendering(group);
-            bool newMt = EditorGUILayout.Toggle(GC(label, tip), mt);
-            if (mt != newMt) PlayerSettings.SetMobileMTRendering(group, newMt);
-        }
-        catch
-        {
-            /* Safe on non-mobile. */
-        }
-    }
-
-    #endregion
-
-    #region Graphics (Project)
-
-    private void DrawGraphicsSection()
-    {
-        bool fold = GetFold(kFold_Graphics, true);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Graphics Settings");
-        SetFold(kFold_Graphics, fold);
-        if (!fold)
-        {
             EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
         }
 
-        RenderPipelineAsset rpa = (RenderPipelineAsset)EditorGUILayout.ObjectField(
-            GC("Default Render Pipeline",
-                "Project-wide pipeline asset. Lighter: mobile-optimized URP asset. Costly: feature-rich."),
-            GraphicsSettings.defaultRenderPipeline, typeof(RenderPipelineAsset), false);
-        if (rpa != GraphicsSettings.defaultRenderPipeline)
+        #endregion
+
+        #region Quality
+
+        private void DrawQualitySection()
         {
-            GraphicsSettings.defaultRenderPipeline = rpa;
+            bool fold = GetFold(kFold_Quality, true);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Quality (Active Level)");
+            SetFold(kFold_Quality, fold);
+            if (!fold)
+            {
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
+
+            // Current quality preset.
+            int q = QualitySettings.GetQualityLevel();
+            int newQ = EditorGUILayout.Popup(GC("Current Quality", "Quality preset that is currently active."), q,
+                QualitySettings.names);
+            if (newQ != q) QualitySettings.SetQualityLevel(newQ, true);
+
+            // Per-quality pipeline asset.
+            RenderPipelineAsset qualityRpa = (RenderPipelineAsset)EditorGUILayout.ObjectField(
+                GC("Render Pipeline Asset (Quality)",
+                    "Pipeline asset assigned to this quality level. Lighter: mobile/stripped asset. Costly: feature-rich asset."),
+                QualitySettings.renderPipeline, typeof(RenderPipelineAsset), false);
+            if (qualityRpa != QualitySettings.renderPipeline)
+                QualitySettings.renderPipeline = qualityRpa;
+
+            // Rendering (common knobs).
+            QualitySettings.realtimeReflectionProbes = EditorGUILayout.Toggle(
+                GC("Realtime Reflection Probes",
+                    "Updates reflection probes at runtime. Lighter: Off. Costly: On (extra rendering work)."),
+                QualitySettings.realtimeReflectionProbes);
+
+            QualitySettings.resolutionScalingFixedDPIFactor = EditorGUILayout.Slider(
+                GC("Resolution Scaling Fixed DPI Factor",
+                    "Scales render resolution for fixed-DPI devices. Lighter: < 1.0. Costly: ≥ 1.0."),
+                QualitySettings.resolutionScalingFixedDPIFactor, 0.1f, 2.0f);
+
+            EnumFieldViaReflection(typeof(QualitySettings), "realtimeGICPUUsage",
+                GC("Realtime GI CPU Usage", "CPU time budget for Realtime GI updates. Lighter: Low. Costly: High."));
+
+            // VSync: IntPopup with GUIContent[] to support tooltip.
+            GUIContent[] vsLabels = new[]
+            {
+                new GUIContent("Don't Sync"), new GUIContent("Every V Blank"), new GUIContent("Every Second V Blank")
+            };
+            int[] vsVals = new[] { 0, 1, 2 };
+            QualitySettings.vSyncCount = EditorGUILayout.IntPopup(
+                GC("VSync Count",
+                    "Synchronize frames to display refresh. Lighter: Don't Sync (tearing possible). Costly: Every V-Blank/Second V-Blank."),
+                QualitySettings.vSyncCount, vsLabels, vsVals);
+
+            // Texture & streaming.
+            IntFieldViaReflection(typeof(QualitySettings), "globalTextureMipmapLimit",
+                GC("Global Mipmap Limit",
+                    "Forces lower mip globally. Lighter: Higher limit (more downscale). Costly: 0 (full resolution)."),
+                0, 6);
+
+            QualitySettings.anisotropicFiltering = (AnisotropicFiltering)EditorGUILayout.EnumPopup(
+                GC("Anisotropic Textures",
+                    "Improves texture sharpness at grazing angles. Lighter: Disabled/low. Costly: Forced/high."),
+                QualitySettings.anisotropicFiltering);
+
+            QualitySettings.streamingMipmapsActive = EditorGUILayout.Toggle(
+                GC("Mipmap Streaming",
+                    "Streams mip levels based on size. Lighter: On with proper budgets. Costly: Off."),
+                QualitySettings.streamingMipmapsActive);
+
+            // Particles.
+            QualitySettings.particleRaycastBudget = Mathf.Max(4, EditorGUILayout.IntField(
+                GC("Particle Raycast Budget", "Max particle raycasts per frame. Lighter: Lower. Costly: Higher."),
+                QualitySettings.particleRaycastBudget));
+
+            // Shadows.
+#if UNITY_2020_2_OR_NEWER
+            QualitySettings.shadowmaskMode = (ShadowmaskMode)EditorGUILayout.EnumPopup(
+                GC("Shadowmask Mode",
+                    "How mixed lighting handles static shadows. Lighter: Distance Shadowmask. Costly: Shadowmask."),
+                QualitySettings.shadowmaskMode);
+#endif
+
+            // Async asset upload.
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField("Async Asset Upload", EditorStyles.boldLabel);
+            QualitySettings.asyncUploadTimeSlice = Mathf.Max(1, EditorGUILayout.IntField(
+                GC("Time Slice (ms)", "CPU time per frame for uploads. Lighter: Lower. Costly: Higher."),
+                QualitySettings.asyncUploadTimeSlice));
+            QualitySettings.asyncUploadBufferSize = Mathf.Clamp(EditorGUILayout.IntField(
+                GC("Buffer Size (MB)", "Staging memory for uploads. Lighter: Lower MB. Costly: Higher MB."),
+                QualitySettings.asyncUploadBufferSize), 1, 1024);
+            QualitySettings.asyncUploadPersistentBuffer = EditorGUILayout.Toggle(
+                GC("Persistent Buffer", "Keeps staging buffer allocated. Lighter: Off. Costly: On."),
+                QualitySettings.asyncUploadPersistentBuffer);
+
+            // LOD / Skin weights.
+            QualitySettings.lodBias = EditorGUILayout.Slider(
+                GC("LOD Bias",
+                    "Scales LOD selection. Lighter: Lower (uses lower-detail meshes sooner). Costly: Higher."),
+                QualitySettings.lodBias, 0.1f, 5f);
+            QualitySettings.maximumLODLevel = EditorGUILayout.IntField(
+                GC("Maximum LOD Level", "Forces use of LODs ≥ value. Lighter: Higher number. Costly: 0."),
+                QualitySettings.maximumLODLevel);
+            QualitySettings.skinWeights = (SkinWeights)EditorGUILayout.EnumPopup(
+                GC("Skin Weights", "Max bones per vertex. Lighter: 1–2 bones. Costly: 4+ bones."),
+                QualitySettings.skinWeights);
+
+            EditorGUILayout.HelpBox(
+                "Terrain override sliders from the screenshot are not exposed via the public API. Adjust them in Terrain settings.",
+                MessageType.Info);
+
+            EditorGUILayout.EndFoldoutHeaderGroup();
+        }
+
+        #endregion
+
+        #region Player (active platform only)
+
+        private void DrawPlayerSection()
+        {
+            bool fold = GetFold(kFold_Player, true);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, $"Player Settings ({_activeGroup})");
+            SetFold(kFold_Player, fold);
+            if (!fold)
+            {
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
+
+            PlayerSettings.colorSpace = (ColorSpace)EditorGUILayout.EnumPopup(
+                GC("Color Space", "Rendering color pipeline. Lighter: Gamma. Costly: Linear."),
+                PlayerSettings.colorSpace);
+
+            // Auto Graphics API — Unity 6 expects BuildTarget (not BuildTargetGroup).
+            bool useDefault = PlayerSettings.GetUseDefaultGraphicsAPIs(_activeTarget);
+            bool newUseDefault = EditorGUILayout.Toggle(
+                GC("Auto Graphics API", "Let Unity choose APIs. Lighter: Enabled. Costly: Manual with older APIs."),
+                useDefault);
+            if (newUseDefault != useDefault)
+                PlayerSettings.SetUseDefaultGraphicsAPIs(_activeTarget, newUseDefault);
+
+            // Custom Graphics API order when Auto is disabled.
+            if (!newUseDefault)
+            {
+                List<GraphicsDeviceType> apis = new(PlayerSettings.GetGraphicsAPIs(_activeTarget));
+                using (new EditorGUI.IndentLevelScope())
+                {
+                    for (int i = 0; i < apis.Count; i++)
+                    {
+                        using (new EditorGUILayout.HorizontalScope())
+                        {
+                            apis[i] = (GraphicsDeviceType)EditorGUILayout.EnumPopup(
+                                GC($"API {i + 1}", "Graphics backend order. Prefer modern APIs (Vulkan/Metal)."),
+                                apis[i]);
+                            if (GUILayout.Button("Remove", GUILayout.Width(70)))
+                            {
+                                apis.RemoveAt(i);
+                                i--;
+                            }
+                        }
+                    }
+
+                    if (GUILayout.Button("Add API")) apis.Add(GraphicsDeviceType.Vulkan);
+                }
+
+                PlayerSettings.SetGraphicsAPIs(_activeTarget, apis.ToArray());
+            }
+
+            // Multithreaded rendering (mobile-only guard).
+            TryMobileMTRToggle(_activeGroup,
+                "Multithreaded Rendering",
+                "Uses multiple CPU threads to feed the GPU. Lighter: Off on very low-end CPUs. Costly: On.");
+
+            // Static/Dynamic batching via internal API (reflection).
+            DrawBatchingForPlatform();
+
+            // GPU skinning.
+            PlayerSettings.gpuSkinning = EditorGUILayout.Toggle(
+                GC("GPU Skinning", "Animate skinned meshes on GPU. Lighter: On (frees CPU). Costly: Off."),
+                PlayerSettings.gpuSkinning);
+
+            // Graphics jobs (plus mode via reflection).
+            PlayerSettings.graphicsJobs = EditorGUILayout.Toggle(
+                GC("Graphics Jobs", "Multithreaded command buffer recording. Lighter: On. Costly: Off."),
+                PlayerSettings.graphicsJobs);
+            EnumFieldViaReflection(typeof(PlayerSettings), "graphicsJobMode",
+                GC("Graphics Jobs Mode", "Scheduling strategy for graphics jobs. Lighter: Native/Auto."));
+
+            // Lightmap streaming (not public in U6; expose only if present).
+            bool hasLmStream = HasPublicStatic(typeof(PlayerSettings), "lightmapStreamingEnabled", typeof(bool));
+            bool hasLmPrio = HasPublicStatic(typeof(PlayerSettings), "lightmapStreamingPriority", typeof(int));
+            if (hasLmStream || hasLmPrio)
+            {
+                EditorGUILayout.Space(2);
+                EditorGUILayout.LabelField("Lightmap Streaming", EditorStyles.boldLabel);
+                BoolFieldViaReflection(typeof(PlayerSettings), "lightmapStreamingEnabled",
+                    GC("Enable Streaming", "Stream lightmaps by needed mip. Lighter: On. Costly: Off."));
+                IntFieldViaReflection(typeof(PlayerSettings), "lightmapStreamingPriority",
+                    GC("Streaming Priority", "Higher keeps higher mips loaded. Lighter: Lower. Costly: Higher."),
+                    -128, 127);
+            }
+
+            // Sprite batching knobs via reflection (if present).
+            IntFieldViaReflection(typeof(PlayerSettings), "spriteBatchVertexThreshold",
+                GC("Sprite Batching Threshold",
+                    "Minimum vertex count for a sprite batch. Lighter: Higher threshold. Costly: Lower."),
+                0, 65535);
+            IntFieldViaReflection(typeof(PlayerSettings), "spriteBatchMaxVertexCount",
+                GC("Sprite Batching Max Vertex Count", "Max vertices per batch. Lighter: Lower. Costly: Higher."),
+                64, 65535);
+
+            // Frame timing stats.
+            BoolFieldViaReflection(typeof(PlayerSettings), "enableFrameTimingStats",
+                GC("Frame Timing Stats", "Collects GPU/CPU frame timing. Lighter: Off. Costly: On (tiny overhead)."));
+
+            EditorGUILayout.EndFoldoutHeaderGroup();
+        }
+
+        // Uses reflection because batching API is internal in Unity 6.
+        private void DrawBatchingForPlatform()
+        {
+            if (TryGetBatchingForPlatform(_activeGroup, out bool enableStatic, out bool enableDynamic))
+            {
+                bool newStatic = EditorGUILayout.Toggle(
+                    GC("Static Batching",
+                        "Combine static meshes to reduce draw calls. Lighter: On (more memory). Costly: Off."),
+                    enableStatic);
+
+                bool newDynamic = EditorGUILayout.Toggle(
+                    GC("Dynamic Batching",
+                        "Batch small dynamic meshes. Lighter: On for many tiny meshes. Costly: Off."),
+                    enableDynamic);
+
+                if (newStatic != enableStatic || newDynamic != enableDynamic)
+                    if (!TrySetBatchingForPlatform(_activeGroup, newStatic, newDynamic))
+                        EditorGUILayout.HelpBox("Failed to set batching flags via reflection.", MessageType.Warning);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox(
+                    "Batching controls are not available on this Unity version/API (internal API not found).",
+                    MessageType.Info);
+            }
+        }
+
+        private static void TryMobileMTRToggle(BuildTargetGroup group, string label, string tip)
+        {
+            try
+            {
+                bool mt = PlayerSettings.GetMobileMTRendering(group);
+                bool newMt = EditorGUILayout.Toggle(GC(label, tip), mt);
+                if (mt != newMt) PlayerSettings.SetMobileMTRendering(group, newMt);
+            }
+            catch
+            {
+                /* Safe on non-mobile. */
+            }
+        }
+
+        #endregion
+
+        #region Graphics (Project)
+
+        private void DrawGraphicsSection()
+        {
+            bool fold = GetFold(kFold_Graphics, true);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Graphics Settings");
+            SetFold(kFold_Graphics, fold);
+            if (!fold)
+            {
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
+
+            RenderPipelineAsset rpa = (RenderPipelineAsset)EditorGUILayout.ObjectField(
+                GC("Default Render Pipeline",
+                    "Project-wide pipeline asset. Lighter: mobile-optimized URP asset. Costly: feature-rich."),
+                GraphicsSettings.defaultRenderPipeline, typeof(RenderPipelineAsset), false);
+            if (rpa != GraphicsSettings.defaultRenderPipeline)
+            {
+                GraphicsSettings.defaultRenderPipeline = rpa;
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
             _urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
 #endif
-        }
-
-        GraphicsSettings.logWhenShaderIsCompiled = EditorGUILayout.Toggle(
-            GC("Log Shader Compilation",
-                "Log when a shader variant compiles at runtime. Lighter: Off. Costly: On (debug only)."),
-            GraphicsSettings.logWhenShaderIsCompiled);
-
-        // Safe extras via reflection (if present).
-        BoolFieldViaReflection(typeof(GraphicsSettings), "enableCompilationCaching",
-            GC("Enable Compilation Caching", "Caches shader compilation results. Lighter: On. Costly: Off."));
-        BoolFieldViaReflection(typeof(GraphicsSettings), "enableValidityChecks",
-            GC("Enable Validity Checks", "Extra validation of rendering data. Lighter: Off. Costly: On."));
-
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
-
-    #endregion
-
-    #region Always Included Shaders (Project) via SerializedObject
-
-    private void DrawAlwaysIncludedShadersSection()
-    {
-        bool fold = GetFold(kFold_Shaders, true);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Always Included Shaders");
-        SetFold(kFold_Shaders, fold);
-        if (!fold)
-        {
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
-        }
-
-        SerializedObject so = GetGraphicsSettingsSO();
-        if (so == null)
-        {
-            EditorGUILayout.HelpBox("Could not access ProjectSettings/GraphicsSettings.asset.", MessageType.Warning);
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
-        }
-
-        SerializedProperty arr = so.FindProperty("m_AlwaysIncludedShaders");
-        if (arr == null || !arr.isArray)
-        {
-            EditorGUILayout.HelpBox("Property 'm_AlwaysIncludedShaders' not found (Unity 6).", MessageType.Info);
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
-        }
-
-        // Show and edit array
-        for (int i = 0; i < arr.arraySize; i++)
-        {
-            SerializedProperty elem = arr.GetArrayElementAtIndex(i);
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                EditorGUI.BeginChangeCheck();
-                Shader shader = (Shader)EditorGUILayout.ObjectField(
-                    GC($"Shader {i + 1}", "Always included in builds; too many increases build size/memory."),
-                    elem.objectReferenceValue, typeof(Shader), false);
-                if (EditorGUI.EndChangeCheck()) elem.objectReferenceValue = shader;
-                if (GUILayout.Button("Remove", GUILayout.Width(70)))
-                {
-                    arr.DeleteArrayElementAtIndex(i);
-                    break;
-                }
             }
+
+            GraphicsSettings.logWhenShaderIsCompiled = EditorGUILayout.Toggle(
+                GC("Log Shader Compilation",
+                    "Log when a shader variant compiles at runtime. Lighter: Off. Costly: On (debug only)."),
+                GraphicsSettings.logWhenShaderIsCompiled);
+
+            // Safe extras via reflection (if present).
+            BoolFieldViaReflection(typeof(GraphicsSettings), "enableCompilationCaching",
+                GC("Enable Compilation Caching", "Caches shader compilation results. Lighter: On. Costly: Off."));
+            BoolFieldViaReflection(typeof(GraphicsSettings), "enableValidityChecks",
+                GC("Enable Validity Checks", "Extra validation of rendering data. Lighter: Off. Costly: On."));
+
+            EditorGUILayout.EndFoldoutHeaderGroup();
         }
 
-        Shader newShader = (Shader)EditorGUILayout.ObjectField(
-            GC("Add Shader", "Add a shader that must be included in builds."),
-            null, typeof(Shader), false);
-        if (newShader != null)
+        #endregion
+
+        #region Always Included Shaders (Project) via SerializedObject
+
+        private void DrawAlwaysIncludedShadersSection()
         {
-            // Prevent duplicates
-            bool exists = false;
+            bool fold = GetFold(kFold_Shaders, true);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Always Included Shaders");
+            SetFold(kFold_Shaders, fold);
+            if (!fold)
+            {
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
+
+            SerializedObject so = GetGraphicsSettingsSO();
+            if (so == null)
+            {
+                EditorGUILayout.HelpBox("Could not access ProjectSettings/GraphicsSettings.asset.",
+                    MessageType.Warning);
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
+
+            SerializedProperty arr = so.FindProperty("m_AlwaysIncludedShaders");
+            if (arr == null || !arr.isArray)
+            {
+                EditorGUILayout.HelpBox("Property 'm_AlwaysIncludedShaders' not found (Unity 6).", MessageType.Info);
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
+
+            // Show and edit array
             for (int i = 0; i < arr.arraySize; i++)
             {
-                exists |= arr.GetArrayElementAtIndex(i).objectReferenceValue == newShader;
+                SerializedProperty elem = arr.GetArrayElementAtIndex(i);
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUI.BeginChangeCheck();
+                    Shader shader = (Shader)EditorGUILayout.ObjectField(
+                        GC($"Shader {i + 1}", "Always included in builds; too many increases build size/memory."),
+                        elem.objectReferenceValue, typeof(Shader), false);
+                    if (EditorGUI.EndChangeCheck()) elem.objectReferenceValue = shader;
+                    if (GUILayout.Button("Remove", GUILayout.Width(70)))
+                    {
+                        arr.DeleteArrayElementAtIndex(i);
+                        break;
+                    }
+                }
             }
 
-            if (!exists)
+            Shader newShader = (Shader)EditorGUILayout.ObjectField(
+                GC("Add Shader", "Add a shader that must be included in builds."),
+                null, typeof(Shader), false);
+            if (newShader != null)
             {
-                arr.InsertArrayElementAtIndex(arr.arraySize);
-                arr.GetArrayElementAtIndex(arr.arraySize - 1).objectReferenceValue = newShader;
+                // Prevent duplicates
+                bool exists = false;
+                for (int i = 0; i < arr.arraySize; i++)
+                {
+                    exists |= arr.GetArrayElementAtIndex(i).objectReferenceValue == newShader;
+                }
+
+                if (!exists)
+                {
+                    arr.InsertArrayElementAtIndex(arr.arraySize);
+                    arr.GetArrayElementAtIndex(arr.arraySize - 1).objectReferenceValue = newShader;
+                }
             }
-        }
 
-        if (GUILayout.Button("Apply Changes"))
-        {
-            so.ApplyModifiedProperties();
-            AssetDatabase.SaveAssets();
-        }
+            if (GUILayout.Button("Apply Changes"))
+            {
+                so.ApplyModifiedProperties();
+                AssetDatabase.SaveAssets();
+            }
 
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
-
-    private static SerializedObject GetGraphicsSettingsSO()
-    {
-        // Load the GraphicsSettings asset from ProjectSettings
-        Object[] objs = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/GraphicsSettings.asset");
-        if (objs != null && objs.Length > 0 && objs[0] != null)
-            return new SerializedObject(objs[0]);
-        return null;
-    }
-
-    #endregion
-
-    #region Lighting (Bake - Editor)
-
-    private void DrawLightingBakeSection()
-    {
-        bool fold = GetFold(kFold_LightingBake, false);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Lighting (Bake - Editor)");
-        SetFold(kFold_LightingBake, fold);
-        if (!fold)
-        {
             EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
         }
 
-        // Realtime / Baked GI toggles (editor-only)
-        try
+        private static SerializedObject GetGraphicsSettingsSO()
         {
-            Lightmapping.realtimeGI = EditorGUILayout.Toggle(
-                GC("Realtime GI", "Realtime Global Illumination. Lighter: Off. Costly: On."),
-                Lightmapping.realtimeGI);
-            Lightmapping.bakedGI = EditorGUILayout.Toggle(
-                GC("Baked GI", "Baked Global Illumination for static lighting. Usually On."),
-                Lightmapping.bakedGI);
-        }
-        catch
-        {
-            /* API may differ */
+            // Load the GraphicsSettings asset from ProjectSettings
+            Object[] objs = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/GraphicsSettings.asset");
+            if (objs != null && objs.Length > 0 && objs[0] != null)
+                return new SerializedObject(objs[0]);
+            return null;
         }
 
-        // Progressive lightmapper parameters
-        try
+        #endregion
+
+        #region Lighting (Bake - Editor)
+
+        private void DrawLightingBakeSection()
         {
-            LightmapEditorSettings.Lightmapper lm = LightmapEditorSettings.lightmapper;
-            lm = (LightmapEditorSettings.Lightmapper)EditorGUILayout.EnumPopup(
-                GC("Lightmapper", "Progressive CPU/GPU. GPU is faster for bakes if available."),
-                lm);
-            if (lm != LightmapEditorSettings.lightmapper) LightmapEditorSettings.lightmapper = lm;
+            bool fold = GetFold(kFold_LightingBake, false);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Lighting (Bake - Editor)");
+            SetFold(kFold_LightingBake, fold);
+            if (!fold)
+            {
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
 
-            // Bake Resolution (always present)
-            LightmapEditorSettings.bakeResolution = EditorGUILayout.FloatField(
-                GC("Bake Resolution (texels/m)", "Higher = sharper lightmaps, higher memory/time. Lighter: 10–20."),
-                LightmapEditorSettings.bakeResolution);
+            // Realtime / Baked GI toggles (editor-only)
+            try
+            {
+                Lightmapping.realtimeGI = EditorGUILayout.Toggle(
+                    GC("Realtime GI", "Realtime Global Illumination. Lighter: Off. Costly: On."),
+                    Lightmapping.realtimeGI);
+                Lightmapping.bakedGI = EditorGUILayout.Toggle(
+                    GC("Baked GI", "Baked Global Illumination for static lighting. Usually On."),
+                    Lightmapping.bakedGI);
+            }
+            catch
+            {
+                /* API may differ */
+            }
 
-            // Indirect Resolution (Unity 6 may not expose; try reflection)
-            if (!FloatFieldViaReflection(typeof(LightmapEditorSettings), "indirectResolution",
-                    GC("Indirect Resolution", "Texel density for indirect lighting. Lighter: 0.5–1.")))
-                EditorGUILayout.HelpBox(
-                    "Indirect Resolution is not exposed in this Unity version. Using Bake Resolution instead.",
-                    MessageType.None);
+            // Progressive lightmapper parameters
+            try
+            {
+                LightmapEditorSettings.Lightmapper lm = LightmapEditorSettings.lightmapper;
+                lm = (LightmapEditorSettings.Lightmapper)EditorGUILayout.EnumPopup(
+                    GC("Lightmapper", "Progressive CPU/GPU. GPU is faster for bakes if available."),
+                    lm);
+                if (lm != LightmapEditorSettings.lightmapper) LightmapEditorSettings.lightmapper = lm;
 
-            // Max atlas size
-            int[] atlasVals = { 512, 1024, 2048, 4096 };
-            GUIContent[] atlasLabels = atlasVals.Select(v => new GUIContent(v.ToString())).ToArray();
-            LightmapEditorSettings.maxAtlasSize = EditorGUILayout.IntPopup(
-                GC("Max Atlas Size", "Bigger atlases pack more but increase memory. Lighter: 1024–2048."),
-                LightmapEditorSettings.maxAtlasSize, atlasLabels, atlasVals);
+                // Bake Resolution (always present)
+                LightmapEditorSettings.bakeResolution = EditorGUILayout.FloatField(
+                    GC("Bake Resolution (texels/m)", "Higher = sharper lightmaps, higher memory/time. Lighter: 10–20."),
+                    LightmapEditorSettings.bakeResolution);
 
-            // Prioritize view
-            LightmapEditorSettings.prioritizeView = EditorGUILayout.Toggle(
-                GC("Prioritize View", "Focuses bake on the Scene view area first. Usually Off for uniform bakes."),
-                LightmapEditorSettings.prioritizeView);
-        }
-        catch
-        {
-            /* ignore if API moves */
-        }
+                // Indirect Resolution (Unity 6 may not expose; try reflection)
+                if (!FloatFieldViaReflection(typeof(LightmapEditorSettings), "indirectResolution",
+                        GC("Indirect Resolution", "Texel density for indirect lighting. Lighter: 0.5–1.")))
+                    EditorGUILayout.HelpBox(
+                        "Indirect Resolution is not exposed in this Unity version. Using Bake Resolution instead.",
+                        MessageType.None);
 
-        using (new EditorGUILayout.HorizontalScope())
-        {
-            if (GUILayout.Button("Open Lighting Window"))
-                EditorApplication.ExecuteMenuItem("Window/Rendering/Lighting");
-            if (GUILayout.Button("Clear Baked Data"))
-                Lightmapping.Clear();
-        }
+                // Max atlas size
+                int[] atlasVals = { 512, 1024, 2048, 4096 };
+                GUIContent[] atlasLabels = atlasVals.Select(v => new GUIContent(v.ToString())).ToArray();
+                LightmapEditorSettings.maxAtlasSize = EditorGUILayout.IntPopup(
+                    GC("Max Atlas Size", "Bigger atlases pack more but increase memory. Lighter: 1024–2048."),
+                    LightmapEditorSettings.maxAtlasSize, atlasLabels, atlasVals);
 
-        EditorGUILayout.HelpBox("These settings affect baking quality/time and runtime memory usage of lightmaps.",
-            MessageType.Info);
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
+                // Prioritize view
+                LightmapEditorSettings.prioritizeView = EditorGUILayout.Toggle(
+                    GC("Prioritize View", "Focuses bake on the Scene view area first. Usually Off for uniform bakes."),
+                    LightmapEditorSettings.prioritizeView);
+            }
+            catch
+            {
+                /* ignore if API moves */
+            }
 
-    #endregion
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("Open Lighting Window"))
+                    EditorApplication.ExecuteMenuItem("Window/Rendering/Lighting");
+                if (GUILayout.Button("Clear Baked Data"))
+                    Lightmapping.Clear();
+            }
 
-    #region Volumes (Post-processing)
-
-    private void DrawPostProcessingSection()
-    {
-        bool fold = GetFold(kFold_Post, false);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Volumes (Post-processing)");
-        SetFold(kFold_Post, fold);
-        if (!fold)
-        {
+            EditorGUILayout.HelpBox("These settings affect baking quality/time and runtime memory usage of lightmaps.",
+                MessageType.Info);
             EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
         }
+
+        #endregion
+
+        #region Volumes (Post-processing)
+
+        private void DrawPostProcessingSection()
+        {
+            bool fold = GetFold(kFold_Post, false);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Volumes (Post-processing)");
+            SetFold(kFold_Post, fold);
+            if (!fold)
+            {
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
 
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
         // Find all VolumeProfile assets in project
@@ -670,11 +673,11 @@ public sealed class RenderingPerformanceHubWindow : EditorWindow
         }
         AssetDatabase.SaveAssets();
 #else
-        EditorGUILayout.HelpBox("URP not detected; post-processing volumes are part of URP's Volume system.",
-            MessageType.Info);
+            EditorGUILayout.HelpBox("URP not detected; post-processing volumes are part of URP's Volume system.",
+                MessageType.Info);
 #endif
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
+            EditorGUILayout.EndFoldoutHeaderGroup();
+        }
 
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
     private enum PostPreset { DisableAll, MobileFriendly }
@@ -757,68 +760,69 @@ public sealed class RenderingPerformanceHubWindow : EditorWindow
     }
 #endif
 
-    #endregion
+        #endregion
 
-    #region Android (Platform tweaks)
+        #region Android (Platform tweaks)
 
-    private void DrawAndroidSection()
-    {
-        bool fold = GetFold(kFold_Android, false);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Android (Platform tweaks)");
-        SetFold(kFold_Android, fold);
-        if (!fold)
+        private void DrawAndroidSection()
         {
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
-        }
+            bool fold = GetFold(kFold_Android, false);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "Android (Platform tweaks)");
+            SetFold(kFold_Android, fold);
+            if (!fold)
+            {
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
 
 #if UNITY_ANDROID
-        // Blit type can impact a blit pass on some paths.
-        try
-        {
-            AndroidBlitType blit = PlayerSettings.Android.blitType;
-            blit = (AndroidBlitType)EditorGUILayout.EnumPopup(
-                GC("Blit Type",
-                    "Controls whether a blit is used before presenting. Lighter: Never (depending on pipeline/device)."),
-                blit);
-            if (blit != PlayerSettings.Android.blitType) PlayerSettings.Android.blitType = blit;
-        }
-        catch
-        {
-            /* older editor or API moved */
-        }
+            // Blit type can impact a blit pass on some paths.
+            try
+            {
+                AndroidBlitType blit = PlayerSettings.Android.blitType;
+                blit = (AndroidBlitType)EditorGUILayout.EnumPopup(
+                    GC("Blit Type",
+                        "Controls whether a blit is used before presenting. Lighter: Never (depending on pipeline/device)."),
+                    blit);
+                if (blit != PlayerSettings.Android.blitType) PlayerSettings.Android.blitType = blit;
+            }
+            catch
+            {
+                /* older editor or API moved */
+            }
 #else
         EditorGUILayout.HelpBox("Switch to Android build target to edit Android-specific options.", MessageType.Info);
 #endif
 
-        // Vulkan advanced (guard + reflection) – shown only on Android BuildTargetGroup
-        if (_activeGroup == BuildTargetGroup.Android)
-        {
-            bool vkFold = GetFold(kFold_Vulkan, false);
-            vkFold = EditorGUILayout.Foldout(vkFold, "Android Vulkan (advanced)", true);
-            SetFold(kFold_Vulkan, vkFold);
-            if (vkFold)
+            // Vulkan advanced (guard + reflection) – shown only on Android BuildTargetGroup
+            if (_activeGroup == BuildTargetGroup.Android)
             {
-                BoolFieldViaReflection(typeof(PlayerSettings), "vulkanSRGBWriteMode",
-                    GC("sRGB Write Mode", "Enable sRGB write control. Lighter: Off. Costly: On."));
-                IntFieldViaReflection(typeof(PlayerSettings), "vulkanNumSwapchainBuffers",
-                    GC("Number of swapchain buffers",
-                        "More buffers reduce stalls but add latency/memory. Lighter: 2–3. Costly: 3–4+."),
-                    2, 6);
-                BoolFieldViaReflection(typeof(PlayerSettings), "vulkanEnableLateAcquireNextImage",
-                    GC("Acquire image late", "Acquire next swap image as late as possible. Lighter: On. Costly: Off."));
-                BoolFieldViaReflection(typeof(PlayerSettings), "vulkanUseSWCommandBuffers",
-                    GC("Recycle command buffers", "Reuse software command buffers. Lighter: On. Costly: Off."));
-                BoolFieldViaReflection(typeof(PlayerSettings), "vulkanEnablePreTransform",
-                    GC("Apply display rotation during rendering",
-                        "Pre-rotates rendering to match display. Lighter: Off if not needed. Costly: On."));
+                bool vkFold = GetFold(kFold_Vulkan, false);
+                vkFold = EditorGUILayout.Foldout(vkFold, "Android Vulkan (advanced)", true);
+                SetFold(kFold_Vulkan, vkFold);
+                if (vkFold)
+                {
+                    BoolFieldViaReflection(typeof(PlayerSettings), "vulkanSRGBWriteMode",
+                        GC("sRGB Write Mode", "Enable sRGB write control. Lighter: Off. Costly: On."));
+                    IntFieldViaReflection(typeof(PlayerSettings), "vulkanNumSwapchainBuffers",
+                        GC("Number of swapchain buffers",
+                            "More buffers reduce stalls but add latency/memory. Lighter: 2–3. Costly: 3–4+."),
+                        2, 6);
+                    BoolFieldViaReflection(typeof(PlayerSettings), "vulkanEnableLateAcquireNextImage",
+                        GC("Acquire image late",
+                            "Acquire next swap image as late as possible. Lighter: On. Costly: Off."));
+                    BoolFieldViaReflection(typeof(PlayerSettings), "vulkanUseSWCommandBuffers",
+                        GC("Recycle command buffers", "Reuse software command buffers. Lighter: On. Costly: Off."));
+                    BoolFieldViaReflection(typeof(PlayerSettings), "vulkanEnablePreTransform",
+                        GC("Apply display rotation during rendering",
+                            "Pre-rotates rendering to match display. Lighter: Off if not needed. Costly: On."));
+                }
             }
+
+            EditorGUILayout.EndFoldoutHeaderGroup();
         }
 
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
-
-    #endregion
+        #endregion
 
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
     #region URP (core)
@@ -991,126 +995,126 @@ public sealed class RenderingPerformanceHubWindow : EditorWindow
     #endregion
 #endif
 
-    #region Helpers (reflection-safe static)
+        #region Helpers (reflection-safe static)
 
-    private static void EnumFieldViaReflection(Type owner, string propertyOrField, GUIContent gc)
-    {
-        try
+        private static void EnumFieldViaReflection(Type owner, string propertyOrField, GUIContent gc)
         {
-            PropertyInfo p = owner.GetProperty(propertyOrField, BindingFlags.Public | BindingFlags.Static);
-            if (p != null && p.PropertyType.IsEnum)
+            try
             {
-                object val = p.GetValue(null, null);
-                Enum newVal = EditorGUILayout.EnumPopup(gc, (Enum)val);
-                if (!Equals(newVal, val)) p.SetValue(null, newVal, null);
-                return;
-            }
+                PropertyInfo p = owner.GetProperty(propertyOrField, BindingFlags.Public | BindingFlags.Static);
+                if (p != null && p.PropertyType.IsEnum)
+                {
+                    object val = p.GetValue(null, null);
+                    Enum newVal = EditorGUILayout.EnumPopup(gc, (Enum)val);
+                    if (!Equals(newVal, val)) p.SetValue(null, newVal, null);
+                    return;
+                }
 
-            FieldInfo f = owner.GetField(propertyOrField, BindingFlags.Public | BindingFlags.Static);
-            if (f != null && f.FieldType.IsEnum)
-            {
-                Enum val = (Enum)f.GetValue(null);
-                Enum newVal = EditorGUILayout.EnumPopup(gc, val);
-                if (!Equals(newVal, val)) f.SetValue(null, newVal);
+                FieldInfo f = owner.GetField(propertyOrField, BindingFlags.Public | BindingFlags.Static);
+                if (f != null && f.FieldType.IsEnum)
+                {
+                    Enum val = (Enum)f.GetValue(null);
+                    Enum newVal = EditorGUILayout.EnumPopup(gc, val);
+                    if (!Equals(newVal, val)) f.SetValue(null, newVal);
+                }
             }
-        }
-        catch
-        {
-            /* no-op */
-        }
-    }
-
-    private static void BoolFieldViaReflection(Type owner, string propertyOrField, GUIContent gc)
-    {
-        try
-        {
-            PropertyInfo p = owner.GetProperty(propertyOrField, BindingFlags.Public | BindingFlags.Static);
-            if (p != null && p.PropertyType == typeof(bool))
+            catch
             {
-                bool val = (bool)p.GetValue(null, null);
-                bool newVal = EditorGUILayout.Toggle(gc, val);
-                if (newVal != val) p.SetValue(null, newVal, null);
-                return;
-            }
-
-            FieldInfo f = owner.GetField(propertyOrField, BindingFlags.Public | BindingFlags.Static);
-            if (f != null && f.FieldType == typeof(bool))
-            {
-                bool val = (bool)f.GetValue(null);
-                bool newVal = EditorGUILayout.Toggle(gc, val);
-                if (newVal != val) f.SetValue(null, newVal);
+                /* no-op */
             }
         }
-        catch
-        {
-            /* no-op */
-        }
-    }
 
-    private static void IntFieldViaReflection(Type owner, string propertyOrField, GUIContent gc, int min, int max)
-    {
-        try
+        private static void BoolFieldViaReflection(Type owner, string propertyOrField, GUIContent gc)
         {
-            PropertyInfo p = owner.GetProperty(propertyOrField, BindingFlags.Public | BindingFlags.Static);
-            if (p != null && p.PropertyType == typeof(int))
+            try
             {
-                int val = (int)p.GetValue(null, null);
-                int newVal = Mathf.Clamp(EditorGUILayout.IntField(gc, val), min, max);
-                if (newVal != val) p.SetValue(null, newVal, null);
-                return;
+                PropertyInfo p = owner.GetProperty(propertyOrField, BindingFlags.Public | BindingFlags.Static);
+                if (p != null && p.PropertyType == typeof(bool))
+                {
+                    bool val = (bool)p.GetValue(null, null);
+                    bool newVal = EditorGUILayout.Toggle(gc, val);
+                    if (newVal != val) p.SetValue(null, newVal, null);
+                    return;
+                }
+
+                FieldInfo f = owner.GetField(propertyOrField, BindingFlags.Public | BindingFlags.Static);
+                if (f != null && f.FieldType == typeof(bool))
+                {
+                    bool val = (bool)f.GetValue(null);
+                    bool newVal = EditorGUILayout.Toggle(gc, val);
+                    if (newVal != val) f.SetValue(null, newVal);
+                }
             }
-
-            FieldInfo f = owner.GetField(propertyOrField, BindingFlags.Public | BindingFlags.Static);
-            if (f != null && f.FieldType == typeof(int))
+            catch
             {
-                int val = (int)f.GetValue(null);
-                int newVal = Mathf.Clamp(EditorGUILayout.IntField(gc, val), min, max);
-                if (newVal != val) f.SetValue(null, newVal);
-            }
-        }
-        catch
-        {
-            /* no-op */
-        }
-    }
-
-    private static bool FloatFieldViaReflection(Type owner, string propertyOrField, GUIContent gc)
-    {
-        try
-        {
-            PropertyInfo p = owner.GetProperty(propertyOrField, BindingFlags.Public | BindingFlags.Static);
-            if (p != null && p.PropertyType == typeof(float))
-            {
-                float val = (float)p.GetValue(null, null);
-                float newVal = EditorGUILayout.FloatField(gc, val);
-                if (!Mathf.Approximately(newVal, val)) p.SetValue(null, newVal, null);
-                return true;
-            }
-
-            FieldInfo f = owner.GetField(propertyOrField, BindingFlags.Public | BindingFlags.Static);
-            if (f != null && f.FieldType == typeof(float))
-            {
-                float val = (float)f.GetValue(null);
-                float newVal = EditorGUILayout.FloatField(gc, val);
-                if (!Mathf.Approximately(newVal, val)) f.SetValue(null, newVal);
-                return true;
+                /* no-op */
             }
         }
-        catch
+
+        private static void IntFieldViaReflection(Type owner, string propertyOrField, GUIContent gc, int min, int max)
         {
-            /* no-op */
+            try
+            {
+                PropertyInfo p = owner.GetProperty(propertyOrField, BindingFlags.Public | BindingFlags.Static);
+                if (p != null && p.PropertyType == typeof(int))
+                {
+                    int val = (int)p.GetValue(null, null);
+                    int newVal = Mathf.Clamp(EditorGUILayout.IntField(gc, val), min, max);
+                    if (newVal != val) p.SetValue(null, newVal, null);
+                    return;
+                }
+
+                FieldInfo f = owner.GetField(propertyOrField, BindingFlags.Public | BindingFlags.Static);
+                if (f != null && f.FieldType == typeof(int))
+                {
+                    int val = (int)f.GetValue(null);
+                    int newVal = Mathf.Clamp(EditorGUILayout.IntField(gc, val), min, max);
+                    if (newVal != val) f.SetValue(null, newVal);
+                }
+            }
+            catch
+            {
+                /* no-op */
+            }
         }
 
-        return false;
-    }
+        private static bool FloatFieldViaReflection(Type owner, string propertyOrField, GUIContent gc)
+        {
+            try
+            {
+                PropertyInfo p = owner.GetProperty(propertyOrField, BindingFlags.Public | BindingFlags.Static);
+                if (p != null && p.PropertyType == typeof(float))
+                {
+                    float val = (float)p.GetValue(null, null);
+                    float newVal = EditorGUILayout.FloatField(gc, val);
+                    if (!Mathf.Approximately(newVal, val)) p.SetValue(null, newVal, null);
+                    return true;
+                }
 
-    private static bool HasPublicStatic(Type owner, string propertyName, Type type)
-    {
-        PropertyInfo p = owner.GetProperty(propertyName, BindingFlags.Public | BindingFlags.Static);
-        return p != null && p.PropertyType == type;
-    }
+                FieldInfo f = owner.GetField(propertyOrField, BindingFlags.Public | BindingFlags.Static);
+                if (f != null && f.FieldType == typeof(float))
+                {
+                    float val = (float)f.GetValue(null);
+                    float newVal = EditorGUILayout.FloatField(gc, val);
+                    if (!Mathf.Approximately(newVal, val)) f.SetValue(null, newVal);
+                    return true;
+                }
+            }
+            catch
+            {
+                /* no-op */
+            }
 
-    #endregion
+            return false;
+        }
+
+        private static bool HasPublicStatic(Type owner, string propertyName, Type type)
+        {
+            PropertyInfo p = owner.GetProperty(propertyName, BindingFlags.Public | BindingFlags.Static);
+            return p != null && p.PropertyType == type;
+        }
+
+        #endregion
 
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
     #region Helpers (reflection-safe instance for URP assets / renderer data)
@@ -1191,80 +1195,81 @@ public sealed class RenderingPerformanceHubWindow : EditorWindow
     #endregion
 #endif
 
-    #region Reflection for internal PlayerSettings batching API (Unity 6)
+        #region Reflection for internal PlayerSettings batching API (Unity 6)
 
-    private static bool TryGetBatchingForPlatform(BuildTargetGroup group, out bool staticBatching,
-        out bool dynamicBatching)
-    {
-        staticBatching = false;
-        dynamicBatching = false;
-
-        Type t = typeof(PlayerSettings);
-        MethodInfo method = t.GetMethod(
-            "GetBatchingForPlatform",
-            BindingFlags.NonPublic | BindingFlags.Static,
-            null,
-            new[] { typeof(BuildTargetGroup), typeof(bool).MakeByRefType(), typeof(bool).MakeByRefType() },
-            null);
-
-        if (method == null) return false;
-
-        object[] args = { group, staticBatching, dynamicBatching };
-        try
+        private static bool TryGetBatchingForPlatform(BuildTargetGroup group, out bool staticBatching,
+            out bool dynamicBatching)
         {
-            method.Invoke(null, args);
-            staticBatching = (bool)args[1];
-            dynamicBatching = (bool)args[2];
-            return true;
+            staticBatching = false;
+            dynamicBatching = false;
+
+            Type t = typeof(PlayerSettings);
+            MethodInfo method = t.GetMethod(
+                "GetBatchingForPlatform",
+                BindingFlags.NonPublic | BindingFlags.Static,
+                null,
+                new[] { typeof(BuildTargetGroup), typeof(bool).MakeByRefType(), typeof(bool).MakeByRefType() },
+                null);
+
+            if (method == null) return false;
+
+            object[] args = { group, staticBatching, dynamicBatching };
+            try
+            {
+                method.Invoke(null, args);
+                staticBatching = (bool)args[1];
+                dynamicBatching = (bool)args[2];
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
-        catch
+
+        private static bool TrySetBatchingForPlatform(BuildTargetGroup group, bool staticBatching, bool dynamicBatching)
         {
-            return false;
+            Type t = typeof(PlayerSettings);
+            MethodInfo method = t.GetMethod(
+                "SetBatchingForPlatform",
+                BindingFlags.NonPublic | BindingFlags.Static,
+                null,
+                new[] { typeof(BuildTargetGroup), typeof(bool), typeof(bool) },
+                null);
+
+            if (method == null) return false;
+
+            try
+            {
+                method.Invoke(null, new object[] { group, staticBatching, dynamicBatching });
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
-    }
 
-    private static bool TrySetBatchingForPlatform(BuildTargetGroup group, bool staticBatching, bool dynamicBatching)
-    {
-        Type t = typeof(PlayerSettings);
-        MethodInfo method = t.GetMethod(
-            "SetBatchingForPlatform",
-            BindingFlags.NonPublic | BindingFlags.Static,
-            null,
-            new[] { typeof(BuildTargetGroup), typeof(bool), typeof(bool) },
-            null);
+        #endregion
 
-        if (method == null) return false;
+        #region Foldout state
 
-        try
+        private static bool GetFold(string key, bool defVal)
         {
-            method.Invoke(null, new object[] { group, staticBatching, dynamicBatching });
-            return true;
+            return EditorPrefs.GetBool(key, defVal);
         }
-        catch
+
+        private static void SetFold(string key, bool val)
         {
-            return false;
+            EditorPrefs.SetBool(key, val);
         }
+
+        #endregion
     }
-
-    #endregion
-
-    #region Foldout state
-
-    private static bool GetFold(string key, bool defVal)
-    {
-        return EditorPrefs.GetBool(key, defVal);
-    }
-
-    private static void SetFold(string key, bool val)
-    {
-        EditorPrefs.SetBool(key, val);
-    }
-
-    #endregion
-}
 
 // Dummy to allow menu focus; Lighting window exists via menu in Unity 6.
-internal class LightingWindow : EditorWindow
-{
+    internal class LightingWindow : EditorWindow
+    {
+    }
 }
 #endif
