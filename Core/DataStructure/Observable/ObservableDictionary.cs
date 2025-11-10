@@ -29,8 +29,10 @@ namespace LegendaryTools
 
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
-#endif
         private Dictionary<TKey, TValue> dictionary = new();
+#else
+        private SerializableDictionary<TKey, TValue> dictionary = new();
+#endif
 
         public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
         {
