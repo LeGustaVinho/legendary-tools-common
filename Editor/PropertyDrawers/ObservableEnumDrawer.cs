@@ -4,7 +4,7 @@ using UnityEditor;
 namespace LegendaryTools.Editor
 {
     /// <summary>
-    /// Bridges ObservableEnum&lt;TEnum&gt; to the same drawing/assignment logic used by Observable&lt;T&gt;.
+    /// Bridges ObservableEnum<TEnum> to the same drawing/assignment logic used by Observable<T>.
     /// </summary>
     [CustomPropertyDrawer(typeof(ObservableEnum<>), true)]
     public class ObservableEnumDrawer : ObservableDrawer

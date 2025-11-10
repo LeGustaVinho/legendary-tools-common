@@ -9,7 +9,7 @@ namespace LegendaryTools.SOAP
     /// <summary>
     /// Runtime resolver that produces a concrete clone of the base ScriptableObject and applies overridden values
     /// from the variant payload using Unity-style property paths.
-    /// Supports arrays and List&lt;T&gt;. Supports SerializeReference via shallow copy.
+    /// Supports arrays and List<T>. Supports SerializeReference via shallow copy.
     /// </summary>
     public static class VariantResolver
     {

@@ -12,7 +12,7 @@ using Object = UnityEngine.Object;
 namespace LegendaryTools.Editor
 {
     /// <summary>
-    /// Custom drawer for ObservableList<> that routes all Inspector edits (add/remove/reorder/edit)
+    /// Custom drawer for ObservableList<T> that routes all Inspector edits (add/remove/reorder/edit)
     /// through the ObservableList API (indexer/Add/Insert/Remove/Clear), ensuring change events are fired.
     /// </summary>
     [CustomPropertyDrawer(typeof(ObservableList<>), true)]

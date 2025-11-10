@@ -183,7 +183,7 @@ namespace LegendaryTools.SOAP
             return f.FieldType.IsArray;
         }
 
-        /// <summary>Determines whether the field is a List&lt;T&gt;.</summary>
+        /// <summary>Determines whether the field is a List<T>.</summary>
         public static bool IsList(FieldInfo f)
         {
             return f.FieldType.IsGenericType && f.FieldType.GetGenericTypeDefinition() == typeof(List<>);

@@ -11,8 +11,8 @@ using Object = UnityEngine.Object;
 namespace LegendaryTools.SOAP.Editor
 {
     /// <summary>
-    /// Custom inspector for SOVariable&lt;T&gt; (via SOVariableBase).
-    /// Shows Global (runtime/initial) and lists ALL usages (direct or via SOReference&lt;T&gt;)
+    /// Custom inspector for SOVariable<T> (via SOVariableBase).
+    /// Shows Global (runtime/initial) and lists ALL usages (direct or via SOReference<T>)
     /// across open scenes and project assets/prefabs. Traverses referenced ScriptableObjects recursively.
     /// </summary>
     [CustomEditor(typeof(SOVariable<>), true)]
@@ -255,7 +255,7 @@ namespace LegendaryTools.SOAP.Editor
         /// Traverses object graph starting at 'root', following object-reference fields (SerializedProperty),
         /// up to 'maxDepth'. Records:
         /// - Direct references to the target SOVariable (field points to it);
-        /// - SOReference&lt;T&gt; blocks where ".Variable" points to it (with scope breakdown).
+        /// - SOReference<T> blocks where ".Variable" points to it (with scope breakdown).
         /// </summary>
         private void TraverseObjectGraph(Object root, string ownerName, Object pingTarget, Component componentContext,
             int maxDepth)

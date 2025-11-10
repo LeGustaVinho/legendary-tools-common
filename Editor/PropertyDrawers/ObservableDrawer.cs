@@ -10,7 +10,7 @@ using Object = UnityEngine.Object;
 namespace LegendaryTools.Editor
 {
     /// <summary>
-    /// Custom property drawer for Observable<> that routes Inspector edits through the Value property.
+    /// Custom property drawer for Observable<T> that routes Inspector edits through the Value property.
     /// This ensures change events are fired when the serialized 'value' field changes in the Inspector.
     /// </summary>
     [CustomPropertyDrawer(typeof(Observable<>), true)]
@@ -182,7 +182,7 @@ namespace LegendaryTools.Editor
         }
 
         /// <summary>
-        /// Infers the generic argument T from Observable&lt;T&gt; type.
+        /// Infers the generic argument T from Observable<T> type.
         /// </summary>
         private static Type InferGenericArgument(Type observableType)
         {
