@@ -155,10 +155,17 @@ namespace LegendaryTools.NodeEditor
             if (node is not Node dn) return false;
 
             // Collect incident edges first.
-            List<Edge> incident = edges.Where(e => e == null || e.FromNode == dn || e.ToNode == dn).ToList();
+            List<Edge> incident = edges.Where(e =>
+                    e == null ||
+                    (UnityEngine.Object)e.FromNode == dn ||
+                    (UnityEngine.Object)e.ToNode == dn)
+                .ToList();
 
             // Remove from list.
-            edges.RemoveAll(e => e == null || e.FromNode == dn || e.ToNode == dn);
+            edges.RemoveAll(e =>
+                e == null ||
+                (UnityEngine.Object)e.FromNode == dn ||
+                (UnityEngine.Object)e.ToNode == dn);
 
 #if UNITY_EDITOR
             // Destroy edge sub-assets.
@@ -227,8 +234,9 @@ namespace LegendaryTools.NodeEditor
             foreach (Edge e in edges)
             {
                 if (e == null) continue;
-                if (e.FromNode == dn) set.Add(e.ToNode);
-                if (e.Direction == NodeConnectionDirection.Bidirectional && e.ToNode == dn) set.Add(e.FromNode);
+                if ((UnityEngine.Object)e.FromNode == dn) set.Add(e.ToNode);
+                if (e.Direction == NodeConnectionDirection.Bidirectional &&
+                    (UnityEngine.Object)e.ToNode == dn) set.Add(e.FromNode);
             }
 
             return set.ToArray();
@@ -325,7 +333,9 @@ namespace LegendaryTools.NodeEditor
             }
 
             // Prevent duplicates in the same direction
-            if (edges.Exists(e => e != null && e.FromNode == f && e.ToNode == t))
+            if (edges.Exists(e => e != null &&
+                                  (UnityEngine.Object)e.FromNode == f &&
+                                  (UnityEngine.Object)e.ToNode == t))
             {
                 error = "Edge already exists.";
                 return false;
@@ -381,10 +391,15 @@ namespace LegendaryTools.NodeEditor
             Node to = nodes.Find(x => x != null && x.Id == toId);
 
             // Collect matching edges.
-            List<Edge> toRemove = edges.Where(e => e == null || (e.FromNode == from && e.ToNode == to)).ToList();
+            List<Edge> toRemove = edges
+                .Where(e => e == null ||
+                            ((UnityEngine.Object)e.FromNode == from && (UnityEngine.Object)e.ToNode == to))
+                .ToList();
 
             // Remove from list.
-            edges.RemoveAll(e => e == null || (e.FromNode == from && e.ToNode == to));
+            edges.RemoveAll(e =>
+                e == null ||
+                ((UnityEngine.Object)e.FromNode == from && (UnityEngine.Object)e.ToNode == to));
 
 #if UNITY_EDITOR
             // Destroy edge sub-assets.
@@ -408,10 +423,17 @@ namespace LegendaryTools.NodeEditor
             if (n == null) return;
 
             // Collect incident edges first.
-            List<Edge> incident = edges.Where(e => e == null || e.FromNode == n || e.ToNode == n).ToList();
+            List<Edge> incident = edges.Where(e =>
+                    e == null ||
+                    (UnityEngine.Object)e.FromNode == n ||
+                    (UnityEngine.Object)e.ToNode == n)
+                .ToList();
 
             // Remove edges from list.
-            edges.RemoveAll(e => e == null || e.FromNode == n || e.ToNode == n);
+            edges.RemoveAll(e =>
+                e == null ||
+                (UnityEngine.Object)e.FromNode == n ||
+                (UnityEngine.Object)e.ToNode == n);
 
 #if UNITY_EDITOR
             // Destroy edge sub-assets.
@@ -617,7 +639,6 @@ namespace LegendaryTools.NodeEditor
                 Node a = Find(f);
                 Node b = Find(t);
                 if (a == b) return true; // found a cycle
-                if (a == b) return true;
                 Union(a, b);
             }
 

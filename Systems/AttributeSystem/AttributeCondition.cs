@@ -16,6 +16,7 @@ namespace LegendaryTools.AttributeSystem
         public AttributeConditionOperator Operator = AttributeConditionOperator.AllMustBeTrue;
 
         /// Lists all rules that must be met for the modifier to be applied to the attribute of the target entity
+        [SerializeReference]
         public List<AttributeModifierCondition> ModApplicationConditions = new List<AttributeModifierCondition>();
 
         /// Checks if the system attribute has all the requirements

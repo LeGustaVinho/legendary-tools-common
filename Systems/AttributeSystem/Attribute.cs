@@ -41,6 +41,7 @@ namespace LegendaryTools.AttributeSystem
         /// <summary>
         /// List the conditions that this modifier needs to find to be applied.
         /// </summary>
+        [SerializeReference]
         public List<AttributeCondition> ModifierConditions = new List<AttributeCondition>();
 
         /// <summary>
@@ -51,6 +52,7 @@ namespace LegendaryTools.AttributeSystem
         /// <summary>
         /// All modifiers currently applied to this Attribute.
         /// </summary>
+        [SerializeReference]
         public List<Attribute> Modifiers = new List<Attribute>();
 
         public IEntity Parent { get; protected internal set; }

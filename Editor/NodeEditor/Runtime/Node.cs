@@ -17,7 +17,7 @@ namespace LegendaryTools.NodeEditor
         [SerializeField] private string id;
         [SerializeField] private string title = "Node";
         [SerializeField] private Vector2 position;
-        
+
         // Optional appearance overrides for the editor
         [Header("Appearance (Optional)")] [SerializeField]
         private bool overrideSize = false;
@@ -104,16 +104,16 @@ namespace LegendaryTools.NodeEditor
                 return g
                     .Edges
                     .OfType<INodeConnection>()
-                    .Where(e => e.FromNode == this || e.ToNode == this)
+                    .Where(e => (UnityEngine.Object)e.FromNode == this || (UnityEngine.Object)e.ToNode == this)
                     .ToList();
             }
         }
 
         public INodeConnection[] OutboundConnections =>
-            Connections.Where(c => c.FromNode == this).ToArray();
+            Connections.Where(c => (UnityEngine.Object)c.FromNode == this).ToArray();
 
         public INodeConnection[] InboundConnections =>
-            Connections.Where(c => c.ToNode == this).ToArray();
+            Connections.Where(c => (UnityEngine.Object)c.ToNode == this).ToArray();
 
         public int Count => Connections.Count;
 

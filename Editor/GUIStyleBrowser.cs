@@ -19,7 +19,6 @@ namespace LegendaryTools.Editor
         private Vector2 _scroll;
         private string _search = string.Empty;
         private bool _showEmptyNames = false;
-        private bool _groupBySource = false; // Grid works better ungrouped by default.
         private bool _showBoxes = true;
         private bool _showButtons = true;
         private bool _showLabels = true;

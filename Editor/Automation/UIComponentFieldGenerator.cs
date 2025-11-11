@@ -111,7 +111,7 @@ namespace LegendaryTools.Editor
             GetWindow<UIComponentFieldGenerator>("UI Field Generator");
         }
 
-        [MenuItem("Tools/LegendaryTools/Automation/UI Component Field Generator", false, 1000)]
+        [MenuItem("Component/UI Component Field Generator", false, 1000)]
         private static void OpenFromContextMenu()
         {
             GameObject selected = Selection.activeGameObject;

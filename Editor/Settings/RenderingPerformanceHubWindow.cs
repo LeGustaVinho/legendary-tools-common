@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.Build; // For NamedBuildTarget
 using UnityEngine;
 using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
@@ -26,9 +27,9 @@ namespace LegendaryTools.Editor
         private const string kFold_Android = "RPH_Android";
         private const string kFold_Vulkan = "RPH_Vulkan";
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
-    private const string kFold_URP = "RPH_URP";
-    private const string kFold_URPLights = "RPH_URP_Lights";
-    private const string kFold_URPRendererData = "RPH_URP_RendererData";
+        private const string kFold_URP = "RPH_URP";
+        private const string kFold_URPLights = "RPH_URP_Lights";
+        private const string kFold_URPRendererData = "RPH_URP_RendererData";
 #endif
 
         private Vector2 _scroll;
@@ -37,7 +38,7 @@ namespace LegendaryTools.Editor
         private BuildTargetGroup _activeGroup;
 
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
-    private UniversalRenderPipelineAsset _urpAsset;
+        private UniversalRenderPipelineAsset _urpAsset;
 #endif
 
         [MenuItem("Tools/LegendaryTools/Rendering/Rendering Performance Hub")]
@@ -54,7 +55,7 @@ namespace LegendaryTools.Editor
             _activeTarget = EditorUserBuildSettings.activeBuildTarget;
             _activeGroup = BuildPipeline.GetBuildTargetGroup(_activeTarget);
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
-        _urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+            _urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
 #endif
         }
 
@@ -79,12 +80,12 @@ namespace LegendaryTools.Editor
             DrawAndroidSection();
             EditorGUILayout.Space(6);
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
-        DrawURPSection();
-        EditorGUILayout.Space(6);
-        DrawURPLightsAndShadowsSection();
-        EditorGUILayout.Space(6);
-        DrawURPRendererDataSection();
-        EditorGUILayout.Space(6);
+            DrawURPSection();
+            EditorGUILayout.Space(6);
+            DrawURPLightsAndShadowsSection();
+            EditorGUILayout.Space(6);
+            DrawURPRendererDataSection();
+            EditorGUILayout.Space(6);
 #endif
             EditorGUILayout.EndScrollView();
 
@@ -310,7 +311,7 @@ namespace LegendaryTools.Editor
                 PlayerSettings.SetGraphicsAPIs(_activeTarget, apis.ToArray());
             }
 
-            // Multithreaded rendering (mobile-only guard).
+            // Multithreaded rendering (mobile-only guard) using NamedBuildTarget to avoid obsolete API.
             TryMobileMTRToggle(_activeGroup,
                 "Multithreaded Rendering",
                 "Uses multiple CPU threads to feed the GPU. Lighter: Off on very low-end CPUs. Costly: On.");
@@ -391,13 +392,15 @@ namespace LegendaryTools.Editor
         {
             try
             {
-                bool mt = PlayerSettings.GetMobileMTRendering(group);
+                // Use NamedBuildTarget to avoid obsolete warnings.
+                NamedBuildTarget nbt = NamedBuildTarget.FromBuildTargetGroup(group);
+                bool mt = PlayerSettings.GetMobileMTRendering(nbt);
                 bool newMt = EditorGUILayout.Toggle(GC(label, tip), mt);
-                if (mt != newMt) PlayerSettings.SetMobileMTRendering(group, newMt);
+                if (mt != newMt) PlayerSettings.SetMobileMTRendering(nbt, newMt);
             }
             catch
             {
-                /* Safe on non-mobile. */
+                /* Safe on non-mobile or older editor. */
             }
         }
 
@@ -424,7 +427,7 @@ namespace LegendaryTools.Editor
             {
                 GraphicsSettings.defaultRenderPipeline = rpa;
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
-            _urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+                _urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
 #endif
             }
 
@@ -560,42 +563,138 @@ namespace LegendaryTools.Editor
                 /* API may differ */
             }
 
-            // Progressive lightmapper parameters
+            // LightingSettings (replaces obsolete LightmapEditorSettings)
+            LightingSettings ls = null;
             try
             {
-                LightmapEditorSettings.Lightmapper lm = LightmapEditorSettings.lightmapper;
-                lm = (LightmapEditorSettings.Lightmapper)EditorGUILayout.EnumPopup(
-                    GC("Lightmapper", "Progressive CPU/GPU. GPU is faster for bakes if available."),
-                    lm);
-                if (lm != LightmapEditorSettings.lightmapper) LightmapEditorSettings.lightmapper = lm;
-
-                // Bake Resolution (always present)
-                LightmapEditorSettings.bakeResolution = EditorGUILayout.FloatField(
-                    GC("Bake Resolution (texels/m)", "Higher = sharper lightmaps, higher memory/time. Lighter: 10–20."),
-                    LightmapEditorSettings.bakeResolution);
-
-                // Indirect Resolution (Unity 6 may not expose; try reflection)
-                if (!FloatFieldViaReflection(typeof(LightmapEditorSettings), "indirectResolution",
-                        GC("Indirect Resolution", "Texel density for indirect lighting. Lighter: 0.5–1.")))
-                    EditorGUILayout.HelpBox(
-                        "Indirect Resolution is not exposed in this Unity version. Using Bake Resolution instead.",
-                        MessageType.None);
-
-                // Max atlas size
-                int[] atlasVals = { 512, 1024, 2048, 4096 };
-                GUIContent[] atlasLabels = atlasVals.Select(v => new GUIContent(v.ToString())).ToArray();
-                LightmapEditorSettings.maxAtlasSize = EditorGUILayout.IntPopup(
-                    GC("Max Atlas Size", "Bigger atlases pack more but increase memory. Lighter: 1024–2048."),
-                    LightmapEditorSettings.maxAtlasSize, atlasLabels, atlasVals);
-
-                // Prioritize view
-                LightmapEditorSettings.prioritizeView = EditorGUILayout.Toggle(
-                    GC("Prioritize View", "Focuses bake on the Scene view area first. Usually Off for uniform bakes."),
-                    LightmapEditorSettings.prioritizeView);
+                ls = Lightmapping.lightingSettings;
             }
             catch
             {
-                /* ignore if API moves */
+                // Ignore if API changes.
+            }
+
+            if (ls == null)
+            {
+                EditorGUILayout.HelpBox(
+                    "No Lighting Settings asset is assigned. Create one to edit bake parameters here.",
+                    MessageType.Info);
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Create In-Memory Lighting Settings"))
+                        try
+                        {
+                            LightingSettings newLs = new();
+                            Lightmapping.lightingSettings = newLs;
+                            EditorUtility.SetDirty(newLs);
+                        }
+                        catch
+                        {
+                            // Fallback: do nothing if not supported.
+                        }
+
+                    if (GUILayout.Button("Open Lighting Window"))
+                        EditorApplication.ExecuteMenuItem("Window/Rendering/Lighting");
+                }
+
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
+
+            // Lightmapper
+            try
+            {
+                LightingSettings.Lightmapper lm = ls.lightmapper;
+                LightingSettings.Lightmapper newLm = (LightingSettings.Lightmapper)EditorGUILayout.EnumPopup(
+                    GC("Lightmapper", "Progressive CPU/GPU. GPU is faster for bakes if available."),
+                    lm);
+                if (!Equals(newLm, lm))
+                {
+                    ls.lightmapper = newLm;
+                    EditorUtility.SetDirty(ls);
+                }
+            }
+            catch
+            {
+                /* ignore */
+            }
+
+            // Bake Resolution (texels/m)
+            try
+            {
+                float res = ls.lightmapResolution;
+                float newRes = EditorGUILayout.FloatField(
+                    GC("Bake Resolution (texels/m)", "Higher = sharper lightmaps, higher memory/time. Lighter: 10–20."),
+                    res);
+                if (!Mathf.Approximately(newRes, res))
+                {
+                    ls.lightmapResolution = newRes;
+                    EditorUtility.SetDirty(ls);
+                }
+            }
+            catch
+            {
+                /* ignore */
+            }
+
+            // Indirect Resolution (if available)
+            try
+            {
+                float ind = ls.indirectResolution;
+                float newInd = EditorGUILayout.FloatField(
+                    GC("Indirect Resolution", "Texel density for indirect lighting. Lighter: 0.5–1."),
+                    ind);
+                if (!Mathf.Approximately(newInd, ind))
+                {
+                    ls.indirectResolution = newInd;
+                    EditorUtility.SetDirty(ls);
+                }
+            }
+            catch
+            {
+                // If property is not available, inform the user.
+                EditorGUILayout.HelpBox(
+                    "Indirect Resolution is not exposed in this Unity version. Using Bake Resolution instead.",
+                    MessageType.None);
+            }
+
+            // Max atlas size
+            try
+            {
+                int[] atlasVals = { 512, 1024, 2048, 4096 };
+                GUIContent[] atlasLabels = atlasVals.Select(v => new GUIContent(v.ToString())).ToArray();
+                int at = ls.lightmapMaxSize;
+                int newAt = EditorGUILayout.IntPopup(
+                    GC("Max Atlas Size", "Bigger atlases pack more but increase memory. Lighter: 1024–2048."),
+                    at, atlasLabels, atlasVals);
+                if (newAt != at)
+                {
+                    ls.lightmapMaxSize = newAt;
+                    EditorUtility.SetDirty(ls);
+                }
+            }
+            catch
+            {
+                /* ignore */
+            }
+
+            // Prioritize view
+            try
+            {
+                bool pv = ls.prioritizeView;
+                bool newPv = EditorGUILayout.Toggle(
+                    GC("Prioritize View", "Focuses bake on the Scene view area first. Usually Off for uniform bakes."),
+                    pv);
+                if (newPv != pv)
+                {
+                    ls.prioritizeView = newPv;
+                    EditorUtility.SetDirty(ls);
+                }
+            }
+            catch
+            {
+                /* ignore */
             }
 
             using (new EditorGUILayout.HorizontalScope())
@@ -627,51 +726,51 @@ namespace LegendaryTools.Editor
             }
 
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
-        // Find all VolumeProfile assets in project
-        string[] guids = AssetDatabase.FindAssets("t:VolumeProfile");
-        if (guids.Length == 0)
-        {
-            EditorGUILayout.HelpBox("No VolumeProfile assets found in project.", MessageType.Info);
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
-        }
-
-        EditorGUILayout.LabelField($"Profiles found: {guids.Length}");
-
-        using (new EditorGUILayout.HorizontalScope())
-        {
-            if (GUILayout.Button("Disable ALL Post"))
-                BulkPostAction(guids, PostPreset.DisableAll);
-            if (GUILayout.Button("Mobile-friendly Post"))
-                BulkPostAction(guids, PostPreset.MobileFriendly);
-        }
-
-        EditorGUILayout.Space(4);
-        foreach (var guid in guids.Take(20)) // show first 20 to avoid huge UIs
-        {
-            string path = AssetDatabase.GUIDToAssetPath(guid);
-            var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(path);
-            if (profile == null) continue;
-
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            // Find all VolumeProfile assets in project
+            string[] guids = AssetDatabase.FindAssets("t:VolumeProfile");
+            if (guids.Length == 0)
             {
-                EditorGUILayout.ObjectField(GC("Profile", "Volume profile asset."), profile, typeof(VolumeProfile), false);
+                EditorGUILayout.HelpBox("No VolumeProfile assets found in project.", MessageType.Info);
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
 
-                // Common overrides
-                ToggleOverride<Bloom>(profile, "Bloom", "Image bloom/glow. Lighter: Off or low thresholds.", weakMobile: true);
-                ToggleOverride<DepthOfField>(profile, "Depth Of Field", "Depth blur. Lighter: Off.");
-                ToggleOverride<MotionBlur>(profile, "Motion Blur", "Perceptual blur during movement. Lighter: Off.");
-                ToggleOverride<Vignette>(profile, "Vignette", "Darkens image borders. Small cost.");
-                ToggleOverride<FilmGrain>(profile, "Film Grain", "Noise overlay. Lighter: Off.");
-                ToggleOverride<ChromaticAberration>(profile, "Chromatic Aberration", "Color fringing at edges. Lighter: Off.");
+            EditorGUILayout.LabelField($"Profiles found: {guids.Length}");
 
-                if (GUI.changed)
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("Disable ALL Post"))
+                    BulkPostAction(guids, PostPreset.DisableAll);
+                if (GUILayout.Button("Mobile-friendly Post"))
+                    BulkPostAction(guids, PostPreset.MobileFriendly);
+            }
+
+            EditorGUILayout.Space(4);
+            foreach (var guid in guids.Take(20)) // show first 20 to avoid huge UIs
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(path);
+                if (profile == null) continue;
+
+                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
-                    EditorUtility.SetDirty(profile);
+                    EditorGUILayout.ObjectField(GC("Profile", "Volume profile asset."), profile, typeof(VolumeProfile), false);
+
+                    // Common overrides
+                    ToggleOverride<Bloom>(profile, "Bloom", "Image bloom/glow. Lighter: Off or low thresholds.", weakMobile: true);
+                    ToggleOverride<DepthOfField>(profile, "Depth Of Field", "Depth blur. Lighter: Off.");
+                    ToggleOverride<MotionBlur>(profile, "Motion Blur", "Perceptual blur during movement. Lighter: Off.");
+                    ToggleOverride<Vignette>(profile, "Vignette", "Darkens image borders. Small cost.");
+                    ToggleOverride<FilmGrain>(profile, "Film Grain", "Noise overlay. Lighter: Off.");
+                    ToggleOverride<ChromaticAberration>(profile, "Chromatic Aberration", "Color fringing at edges. Lighter: Off.");
+
+                    if (GUI.changed)
+                    {
+                        EditorUtility.SetDirty(profile);
+                    }
                 }
             }
-        }
-        AssetDatabase.SaveAssets();
+            AssetDatabase.SaveAssets();
 #else
             EditorGUILayout.HelpBox("URP not detected; post-processing volumes are part of URP's Volume system.",
                 MessageType.Info);
@@ -680,84 +779,84 @@ namespace LegendaryTools.Editor
         }
 
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
-    private enum PostPreset { DisableAll, MobileFriendly }
+        private enum PostPreset { DisableAll, MobileFriendly }
 
-    private void BulkPostAction(string[] guids, PostPreset preset)
-    {
-        foreach (var guid in guids)
+        private void BulkPostAction(string[] guids, PostPreset preset)
         {
-            string path = AssetDatabase.GUIDToAssetPath(guid);
-            var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(path);
-            if (profile == null) continue;
-
-            switch (preset)
+            foreach (var guid in guids)
             {
-                case PostPreset.DisableAll:
-                    DisableAllOverrides(profile);
-                    break;
-                case PostPreset.MobileFriendly:
-                    ApplyMobileFriendly(profile);
-                    break;
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(path);
+                if (profile == null) continue;
+
+                switch (preset)
+                {
+                    case PostPreset.DisableAll:
+                        DisableAllOverrides(profile);
+                        break;
+                    case PostPreset.MobileFriendly:
+                        ApplyMobileFriendly(profile);
+                        break;
+                }
+                EditorUtility.SetDirty(profile);
             }
-            EditorUtility.SetDirty(profile);
+            AssetDatabase.SaveAssets();
         }
-        AssetDatabase.SaveAssets();
-    }
 
-    private void DisableAllOverrides(VolumeProfile profile)
-    {
-        foreach (var comp in profile.components)
+        private void DisableAllOverrides(VolumeProfile profile)
         {
-            comp.active = false;
+            foreach (var comp in profile.components)
+            {
+                comp.active = false;
+            }
         }
-    }
 
-    private void ApplyMobileFriendly(VolumeProfile profile)
-    {
-        // Disable heavy ones, keep light ones minimal
-        SetOverrideActive<DepthOfField>(profile, false);
-        SetOverrideActive<MotionBlur>(profile, false);
-        SetOverrideActive<ChromaticAberration>(profile, false);
-        SetOverrideActive<FilmGrain>(profile, false);
-
-        // Bloom: keep but reduce intensity/threshold if present
-        var bloom = GetOrAdd<Bloom>(profile);
-        bloom.active = true;
-        if (!bloom.intensity.overrideState) bloom.intensity.overrideState = true;
-        bloom.intensity.value = Mathf.Min(bloom.intensity.value, 0.2f);
-        if (!bloom.threshold.overrideState) bloom.threshold.overrideState = true;
-        bloom.threshold.value = Mathf.Max(bloom.threshold.value, 1.2f);
-
-        // Vignette: small cost
-        var vig = GetOrAdd<Vignette>(profile);
-        vig.active = true;
-        if (!vig.intensity.overrideState) vig.intensity.overrideState = true;
-        vig.intensity.value = Mathf.Min(vig.intensity.value, 0.2f);
-    }
-
-    private void ToggleOverride<T>(VolumeProfile profile, string label, string tip, bool weakMobile =
- false) where T : VolumeComponent
-    {
-        var comp = GetOrAdd<T>(profile);
-        bool newActive =
- EditorGUILayout.Toggle(GC(label, tip + (weakMobile ? " Recommended low for mobile." : "")), comp.active);
-        if (newActive != comp.active) comp.active = newActive;
-    }
-
-    private T GetOrAdd<T>(VolumeProfile profile) where T : VolumeComponent
-    {
-        if (!profile.TryGet<T>(out var comp))
+        private void ApplyMobileFriendly(VolumeProfile profile)
         {
-            comp = profile.Add<T>();
-        }
-        return comp;
-    }
+            // Disable heavy ones, keep light ones minimal
+            SetOverrideActive<DepthOfField>(profile, false);
+            SetOverrideActive<MotionBlur>(profile, false);
+            SetOverrideActive<ChromaticAberration>(profile, false);
+            SetOverrideActive<FilmGrain>(profile, false);
 
-    private void SetOverrideActive<T>(VolumeProfile profile, bool active) where T : VolumeComponent
-    {
-        if (profile.TryGet<T>(out var comp))
-            comp.active = active;
-    }
+            // Bloom: keep but reduce intensity/threshold if present
+            var bloom = GetOrAdd<Bloom>(profile);
+            bloom.active = true;
+            if (!bloom.intensity.overrideState) bloom.intensity.overrideState = true;
+            bloom.intensity.value = Mathf.Min(bloom.intensity.value, 0.2f);
+            if (!bloom.threshold.overrideState) bloom.threshold.overrideState = true;
+            bloom.threshold.value = Mathf.Max(bloom.threshold.value, 1.2f);
+
+            // Vignette: small cost
+            var vig = GetOrAdd<Vignette>(profile);
+            vig.active = true;
+            if (!vig.intensity.overrideState) vig.intensity.overrideState = true;
+            vig.intensity.value = Mathf.Min(vig.intensity.value, 0.2f);
+        }
+
+        private void ToggleOverride<T>(VolumeProfile profile, string label, string tip, bool weakMobile =
+            false) where T : VolumeComponent
+        {
+            var comp = GetOrAdd<T>(profile);
+            bool newActive =
+                EditorGUILayout.Toggle(GC(label, tip + (weakMobile ? " Recommended low for mobile." : "")), comp.active);
+            if (newActive != comp.active) comp.active = newActive;
+        }
+
+        private T GetOrAdd<T>(VolumeProfile profile) where T : VolumeComponent
+        {
+            if (!profile.TryGet<T>(out var comp))
+            {
+                comp = profile.Add<T>();
+            }
+            return comp;
+        }
+
+        private void SetOverrideActive<T>(VolumeProfile profile, bool active) where T : VolumeComponent
+        {
+            if (profile.TryGet<T>(out var comp))
+                comp.active = active;
+        }
 #endif
 
         #endregion
@@ -791,7 +890,7 @@ namespace LegendaryTools.Editor
                 /* older editor or API moved */
             }
 #else
-        EditorGUILayout.HelpBox("Switch to Android build target to edit Android-specific options.", MessageType.Info);
+            EditorGUILayout.HelpBox("Switch to Android build target to edit Android-specific options.", MessageType.Info);
 #endif
 
             // Vulkan advanced (guard + reflection) – shown only on Android BuildTargetGroup
@@ -825,174 +924,174 @@ namespace LegendaryTools.Editor
         #endregion
 
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
-    #region URP (core)
-    private void DrawURPSection()
-    {
-        bool fold = GetFold(kFold_URP, true);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "URP (Universal Render Pipeline)");
-        SetFold(kFold_URP, fold);
-        if (!fold) { EditorGUILayout.EndFoldoutHeaderGroup(); return; }
-
-        _urpAsset = (UniversalRenderPipelineAsset)EditorGUILayout.ObjectField(
-            GC("URP Asset", "URP configuration used by the project. Choose a mobile/stripped variant for lighter builds."),
-            _urpAsset, typeof(UniversalRenderPipelineAsset), false);
-        if (_urpAsset != (GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset))
+        #region URP (core)
+        private void DrawURPSection()
         {
-            GraphicsSettings.defaultRenderPipeline = _urpAsset;
-            _urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
-        }
+            bool fold = GetFold(kFold_URP, true);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "URP (Universal Render Pipeline)");
+            SetFold(kFold_URP, fold);
+            if (!fold) { EditorGUILayout.EndFoldoutHeaderGroup(); return; }
 
-        if (_urpAsset == null)
-        {
-            EditorGUILayout.HelpBox("Assign a URP Asset to edit pipeline-specific performance settings.", MessageType.Warning);
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
-        }
+            _urpAsset = (UniversalRenderPipelineAsset)EditorGUILayout.ObjectField(
+                GC("URP Asset", "URP configuration used by the project. Choose a mobile/stripped variant for lighter builds."),
+                _urpAsset, typeof(UniversalRenderPipelineAsset), false);
+            if (_urpAsset != (GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset))
+            {
+                GraphicsSettings.defaultRenderPipeline = _urpAsset;
+                _urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+            }
 
-        _urpAsset.supportsHDR = EditorGUILayout.Toggle(
-            GC("HDR", "High Dynamic Range. Lighter: Off. Costly: On."),
-            _urpAsset.supportsHDR);
+            if (_urpAsset == null)
+            {
+                EditorGUILayout.HelpBox("Assign a URP Asset to edit pipeline-specific performance settings.", MessageType.Warning);
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
 
-        _urpAsset.msaaSampleCount = (int)(MSAASamples)EditorGUILayout.EnumPopup(
-            GC("MSAA", "Multisample anti-aliasing. Lighter: Disabled/2x. Costly: 4x/8x."),
-            (MSAASamples)_urpAsset.msaaSampleCount);
+            _urpAsset.supportsHDR = EditorGUILayout.Toggle(
+                GC("HDR", "High Dynamic Range. Lighter: Off. Costly: On."),
+                _urpAsset.supportsHDR);
 
-        _urpAsset.renderScale = EditorGUILayout.Slider(
-            GC("Render Scale", "Scales camera render resolution. Lighter: < 1.0 (e.g., 0.8). Costly: > 1.0 (supersample)."),
-            _urpAsset.renderScale, 0.1f, 2.0f);
+            _urpAsset.msaaSampleCount = (int)(MSAASamples)EditorGUILayout.EnumPopup(
+                GC("MSAA", "Multisample anti-aliasing. Lighter: Disabled/2x. Costly: 4x/8x."),
+                (MSAASamples)_urpAsset.msaaSampleCount);
 
-        _urpAsset.supportsCameraDepthTexture = EditorGUILayout.Toggle(
-            GC("Depth Texture", "Generates _CameraDepthTexture. Lighter: Off if not used. Costly: On."),
-            _urpAsset.supportsCameraDepthTexture);
+            _urpAsset.renderScale = EditorGUILayout.Slider(
+                GC("Render Scale", "Scales camera render resolution. Lighter: < 1.0 (e.g., 0.8). Costly: > 1.0 (supersample)."),
+                _urpAsset.renderScale, 0.1f, 2.0f);
 
-        _urpAsset.supportsCameraOpaqueTexture = EditorGUILayout.Toggle(
-            GC("Opaque Texture", "Copies color buffer for post effects. Lighter: Off. Costly: On."),
-            _urpAsset.supportsCameraOpaqueTexture);
+            _urpAsset.supportsCameraDepthTexture = EditorGUILayout.Toggle(
+                GC("Depth Texture", "Generates _CameraDepthTexture. Lighter: Off if not used. Costly: On."),
+                _urpAsset.supportsCameraDepthTexture);
 
-        _urpAsset.shadowDistance = EditorGUILayout.Slider(
-            GC("Max Shadow Distance", "How far shadows are rendered. Lighter: Smaller. Costly: Larger."),
-            _urpAsset.shadowDistance, 0f, 200f);
+            _urpAsset.supportsCameraOpaqueTexture = EditorGUILayout.Toggle(
+                GC("Opaque Texture", "Copies color buffer for post effects. Lighter: Off. Costly: On."),
+                _urpAsset.supportsCameraOpaqueTexture);
 
-        _urpAsset.shadowCascadeCount = EditorGUILayout.IntSlider(
-            GC("Cascade Count", "Directional shadow splits. Lighter: 1. Costly: 2–4."),
-            _urpAsset.shadowCascadeCount, 1, 4);
+            _urpAsset.shadowDistance = EditorGUILayout.Slider(
+                GC("Max Shadow Distance", "How far shadows are rendered. Lighter: Smaller. Costly: Larger."),
+                _urpAsset.shadowDistance, 0f, 200f);
 
-        _urpAsset.supportsDynamicBatching = EditorGUILayout.Toggle(
-            GC("Dynamic Batching", "Batch small dynamic meshes. Lighter: On for many tiny meshes. Costly: Off."),
-            _urpAsset.supportsDynamicBatching);
+            _urpAsset.shadowCascadeCount = EditorGUILayout.IntSlider(
+                GC("Cascade Count", "Directional shadow splits. Lighter: 1. Costly: 2–4."),
+                _urpAsset.shadowCascadeCount, 1, 4);
+
+            _urpAsset.supportsDynamicBatching = EditorGUILayout.Toggle(
+                GC("Dynamic Batching", "Batch small dynamic meshes. Lighter: On for many tiny meshes. Costly: Off."),
+                _urpAsset.supportsDynamicBatching);
 
 #if UNITY_2022_2_OR_NEWER
-        _urpAsset.useSRPBatcher = EditorGUILayout.Toggle(
-            GC("SRP Batcher", "Optimizes material/shader binding. Lighter: On. Costly: Off."),
-            _urpAsset.useSRPBatcher);
+            _urpAsset.useSRPBatcher = EditorGUILayout.Toggle(
+                GC("SRP Batcher", "Optimizes material/shader binding. Lighter: On. Costly: Off."),
+                _urpAsset.useSRPBatcher);
 #endif
 
-        if (GUI.changed)
-        {
-            EditorUtility.SetDirty(_urpAsset);
-            AssetDatabase.SaveAssets();
-        }
+            if (GUI.changed)
+            {
+                EditorUtility.SetDirty(_urpAsset);
+                AssetDatabase.SaveAssets();
+            }
 
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
-    #endregion
-
-    #region URP Lights & Shadows (detailed)
-    private void DrawURPLightsAndShadowsSection()
-    {
-        bool fold = GetFold(kFold_URPLights, true);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "URP: Lights & Shadows (Detailed)");
-        SetFold(kFold_URPLights, fold);
-        if (!fold) { EditorGUILayout.EndFoldoutHeaderGroup(); return; }
-        if (_urpAsset == null) { EditorGUILayout.HelpBox("Assign a URP Asset.", MessageType.Warning); EditorGUILayout.EndFoldoutHeaderGroup(); return; }
-
-        // Use reflection to be version-safe across URP variants.
-        // Additional lights mode: PerPixel / PerVertex
-        EnumFieldViaReflectionInst(_urpAsset, "additionalLightsRenderingMode",
-            GC("Additional Lights Mode", "Per Vertex is lighter; Per Pixel is costlier (per-fragment lighting)."));
-
-        IntFieldViaReflectionInst(_urpAsset, "maxAdditionalLights",
-            GC("Max Additional Lights", "Caps total additional lights affecting rendering. Lighter: Lower."),
-            0, 32);
-
-        IntFieldViaReflectionInst(_urpAsset, "additionalLightsPerObjectLimit",
-            GC("Additional Lights / Object", "Per-object light cap. Lighter: Lower."),
-            0, 8);
-
-        BoolFieldViaReflectionInst(_urpAsset, "mainLightShadowsSupported",
-            GC("Main Light Shadows", "Enable shadows for main directional light. Lighter: Off."));
-
-        IntFieldViaReflectionInst(_urpAsset, "mainLightShadowmapResolution",
-            GC("Main Light Shadowmap Resolution", "Shadowmap resolution. Lighter: 512–1024; Costly: 2048+."), 256, 8192);
-
-        BoolFieldViaReflectionInst(_urpAsset, "additionalLightsShadowsSupported",
-            GC("Additional Lights Shadows", "Enable shadows for additional lights. Lighter: Off."));
-
-        IntFieldViaReflectionInst(_urpAsset, "additionalLightsShadowmapResolution",
-            GC("Additional Lights Shadowmap Resolution", "Resolution for additional lights. Lighter: 512–1024."), 256, 4096);
-
-        // Soft shadows toggle (name varies by version)
-        BoolFieldViaReflectionInst(_urpAsset, "supportsSoftShadows",
-            GC("Soft Shadows", "PCF/soft shadows. Lighter: Off."));
-
-        // Opaque Downsampling (enum)
-        EnumFieldViaReflectionInst(_urpAsset, "opaqueDownsampling",
-            GC("Opaque Downsampling", "Downsamples Opaque Texture. Lighter: 2x/4x."));
-
-        // Accurate gbuffer normals (when applicable to deferred)
-        BoolFieldViaReflectionInst(_urpAsset, "supportsAccurateGbufferNormals",
-            GC("Accurate GBuffer Normals", "Improves normal precision. Lighter: Off."));
-
-        if (GUI.changed)
-        {
-            EditorUtility.SetDirty(_urpAsset);
-            AssetDatabase.SaveAssets();
-        }
-
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
-    #endregion
-
-    #region URP Renderer Data
-    private void DrawURPRendererDataSection()
-    {
-        bool fold = GetFold(kFold_URPRendererData, false);
-        fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "URP: Renderer Data");
-        SetFold(kFold_URPRendererData, fold);
-        if (!fold) { EditorGUILayout.EndFoldoutHeaderGroup(); return; }
-        if (_urpAsset == null) { EditorGUILayout.HelpBox("Assign a URP Asset.", MessageType.Warning); EditorGUILayout.EndFoldoutHeaderGroup(); return; }
-
-        var rd = _urpAsset.scriptableRendererData; // may be null
-        rd = (ScriptableRendererData)EditorGUILayout.ObjectField(
-            GC("Renderer Data", "The active renderer configuration. Different renderers expose extra toggles."),
-            rd, typeof(ScriptableRendererData), false);
-
-        if (rd == null)
-        {
-            EditorGUILayout.HelpBox("No Renderer Data assigned in URP Asset.", MessageType.Info);
             EditorGUILayout.EndFoldoutHeaderGroup();
-            return;
         }
+        #endregion
 
-        // Common toggles via reflection (version-safe)
-        BoolFieldViaReflectionInst(rd, "accurateGbufferNormals",
-            GC("Accurate GBuffer Normals (Renderer)", "If available in your Renderer. Lighter: Off."));
-        BoolFieldViaReflectionInst(rd, "transparentReceiveShadows",
-            GC("Transparent Receive Shadows", "Transparent objects receive shadows. Lighter: Off."));
-        EnumFieldViaReflectionInst(rd, "depthPrimingMode",
-            GC("Depth Priming Mode", "Priming may reduce overdraw at some cost. Lighter: Disabled/Auto (depending on version)."));
-        EnumFieldViaReflectionInst(rd, "copyDepthMode",
-            GC("Copy Depth Mode", "Controls when/how depth is copied. Lighter: After Opaque / Minimal copies."));
-
-        if (GUI.changed)
+        #region URP Lights & Shadows (detailed)
+        private void DrawURPLightsAndShadowsSection()
         {
-            EditorUtility.SetDirty(rd);
-            AssetDatabase.SaveAssets();
-        }
+            bool fold = GetFold(kFold_URPLights, true);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "URP: Lights & Shadows (Detailed)");
+            SetFold(kFold_URPLights, fold);
+            if (!fold) { EditorGUILayout.EndFoldoutHeaderGroup(); return; }
+            if (_urpAsset == null) { EditorGUILayout.HelpBox("Assign a URP Asset.", MessageType.Warning); EditorGUILayout.EndFoldoutHeaderGroup(); return; }
 
-        EditorGUILayout.EndFoldoutHeaderGroup();
-    }
-    #endregion
+            // Use reflection to be version-safe across URP variants.
+            // Additional lights mode: PerPixel / PerVertex
+            EnumFieldViaReflectionInst(_urpAsset, "additionalLightsRenderingMode",
+                GC("Additional Lights Mode", "Per Vertex is lighter; Per Pixel is costlier (per-fragment lighting)."));
+
+            IntFieldViaReflectionInst(_urpAsset, "maxAdditionalLights",
+                GC("Max Additional Lights", "Caps total additional lights affecting rendering. Lighter: Lower."),
+                0, 32);
+
+            IntFieldViaReflectionInst(_urpAsset, "additionalLightsPerObjectLimit",
+                GC("Additional Lights / Object", "Per-object light cap. Lighter: Lower."),
+                0, 8);
+
+            BoolFieldViaReflectionInst(_urpAsset, "mainLightShadowsSupported",
+                GC("Main Light Shadows", "Enable shadows for main directional light. Lighter: Off."));
+
+            IntFieldViaReflectionInst(_urpAsset, "mainLightShadowmapResolution",
+                GC("Main Light Shadowmap Resolution", "Shadowmap resolution. Lighter: 512–1024; Costly: 2048+."), 256, 8192);
+
+            BoolFieldViaReflectionInst(_urpAsset, "additionalLightsShadowsSupported",
+                GC("Additional Lights Shadows", "Enable shadows for additional lights. Lighter: Off."));
+
+            IntFieldViaReflectionInst(_urpAsset, "additionalLightsShadowmapResolution",
+                GC("Additional Lights Shadowmap Resolution", "Resolution for additional lights. Lighter: 512–1024."), 256, 4096);
+
+            // Soft shadows toggle (name varies by version)
+            BoolFieldViaReflectionInst(_urpAsset, "supportsSoftShadows",
+                GC("Soft Shadows", "PCF/soft shadows. Lighter: Off."));
+
+            // Opaque Downsampling (enum)
+            EnumFieldViaReflectionInst(_urpAsset, "opaqueDownsampling",
+                GC("Opaque Downsampling", "Downsamples Opaque Texture. Lighter: 2x/4x."));
+
+            // Accurate gbuffer normals (when applicable to deferred)
+            BoolFieldViaReflectionInst(_urpAsset, "supportsAccurateGbufferNormals",
+                GC("Accurate GBuffer Normals", "Improves normal precision. Lighter: Off."));
+
+            if (GUI.changed)
+            {
+                EditorUtility.SetDirty(_urpAsset);
+                AssetDatabase.SaveAssets();
+            }
+
+            EditorGUILayout.EndFoldoutHeaderGroup();
+        }
+        #endregion
+
+        #region URP Renderer Data
+        private void DrawURPRendererDataSection()
+        {
+            bool fold = GetFold(kFold_URPRendererData, false);
+            fold = EditorGUILayout.BeginFoldoutHeaderGroup(fold, "URP: Renderer Data");
+            SetFold(kFold_URPRendererData, fold);
+            if (!fold) { EditorGUILayout.EndFoldoutHeaderGroup(); return; }
+            if (_urpAsset == null) { EditorGUILayout.HelpBox("Assign a URP Asset.", MessageType.Warning); EditorGUILayout.EndFoldoutHeaderGroup(); return; }
+
+            var rd = _urpAsset.scriptableRendererData; // may be null
+            rd = (ScriptableRendererData)EditorGUILayout.ObjectField(
+                GC("Renderer Data", "The active renderer configuration. Different renderers expose extra toggles."),
+                rd, typeof(ScriptableRendererData), false);
+
+            if (rd == null)
+            {
+                EditorGUILayout.HelpBox("No Renderer Data assigned in URP Asset.", MessageType.Info);
+                EditorGUILayout.EndFoldoutHeaderGroup();
+                return;
+            }
+
+            // Common toggles via reflection (version-safe)
+            BoolFieldViaReflectionInst(rd, "accurateGbufferNormals",
+                GC("Accurate GBuffer Normals (Renderer)", "If available in your Renderer. Lighter: Off."));
+            BoolFieldViaReflectionInst(rd, "transparentReceiveShadows",
+                GC("Transparent Receive Shadows", "Transparent objects receive shadows. Lighter: Off."));
+            EnumFieldViaReflectionInst(rd, "depthPrimingMode",
+                GC("Depth Priming Mode", "Priming may reduce overdraw at some cost. Lighter: Disabled/Auto (depending on version)."));
+            EnumFieldViaReflectionInst(rd, "copyDepthMode",
+                GC("Copy Depth Mode", "Controls when/how depth is copied. Lighter: After Opaque / Minimal copies."));
+
+            if (GUI.changed)
+            {
+                EditorUtility.SetDirty(rd);
+                AssetDatabase.SaveAssets();
+            }
+
+            EditorGUILayout.EndFoldoutHeaderGroup();
+        }
+        #endregion
 #endif
 
         #region Helpers (reflection-safe static)
@@ -1117,82 +1216,82 @@ namespace LegendaryTools.Editor
         #endregion
 
 #if USING_URP || UNITY_RENDER_PIPELINE_UNIVERSAL
-    #region Helpers (reflection-safe instance for URP assets / renderer data)
-    private static void BoolFieldViaReflectionInst(UnityEngine.Object obj, string member, GUIContent gc)
-    {
-        if (obj == null) return;
-        var t = obj.GetType();
-        try
+        #region Helpers (reflection-safe instance for URP assets / renderer data)
+        private static void BoolFieldViaReflectionInst(UnityEngine.Object obj, string member, GUIContent gc)
         {
-            var p = t.GetProperty(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
-            if (p != null && p.PropertyType == typeof(bool) && p.CanRead && p.CanWrite)
+            if (obj == null) return;
+            var t = obj.GetType();
+            try
             {
-                bool val = (bool)p.GetValue(obj);
-                bool newVal = EditorGUILayout.Toggle(gc, val);
-                if (newVal != val) p.SetValue(obj, newVal);
-                return;
+                var p = t.GetProperty(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                if (p != null && p.PropertyType == typeof(bool) && p.CanRead && p.CanWrite)
+                {
+                    bool val = (bool)p.GetValue(obj);
+                    bool newVal = EditorGUILayout.Toggle(gc, val);
+                    if (newVal != val) p.SetValue(obj, newVal);
+                    return;
+                }
+                var f = t.GetField(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                if (f != null && f.FieldType == typeof(bool))
+                {
+                    bool val = (bool)f.GetValue(obj);
+                    bool newVal = EditorGUILayout.Toggle(gc, val);
+                    if (newVal != val) f.SetValue(obj, newVal);
+                }
             }
-            var f = t.GetField(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
-            if (f != null && f.FieldType == typeof(bool))
-            {
-                bool val = (bool)f.GetValue(obj);
-                bool newVal = EditorGUILayout.Toggle(gc, val);
-                if (newVal != val) f.SetValue(obj, newVal);
-            }
+            catch { /* no-op */ }
         }
-        catch { /* no-op */ }
-    }
 
-    private static void IntFieldViaReflectionInst(UnityEngine.Object obj, string member, GUIContent gc, int min, int max)
-    {
-        if (obj == null) return;
-        var t = obj.GetType();
-        try
+        private static void IntFieldViaReflectionInst(UnityEngine.Object obj, string member, GUIContent gc, int min, int max)
         {
-            var p = t.GetProperty(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
-            if (p != null && p.PropertyType == typeof(int) && p.CanRead && p.CanWrite)
+            if (obj == null) return;
+            var t = obj.GetType();
+            try
             {
-                int val = (int)p.GetValue(obj);
-                int newVal = Mathf.Clamp(EditorGUILayout.IntField(gc, val), min, max);
-                if (newVal != val) p.SetValue(obj, newVal);
-                return;
+                var p = t.GetProperty(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                if (p != null && p.PropertyType == typeof(int) && p.CanRead && p.CanWrite)
+                {
+                    int val = (int)p.GetValue(obj);
+                    int newVal = Mathf.Clamp(EditorGUILayout.IntField(gc, val), min, max);
+                    if (newVal != val) p.SetValue(obj, newVal);
+                    return;
+                }
+                var f = t.GetField(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                if (f != null && f.FieldType == typeof(int))
+                {
+                    int val = (int)f.GetValue(obj);
+                    int newVal = Mathf.Clamp(EditorGUILayout.IntField(gc, val), min, max);
+                    if (newVal != val) f.SetValue(obj, newVal);
+                }
             }
-            var f = t.GetField(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
-            if (f != null && f.FieldType == typeof(int))
-            {
-                int val = (int)f.GetValue(obj);
-                int newVal = Mathf.Clamp(EditorGUILayout.IntField(gc, val), min, max);
-                if (newVal != val) f.SetValue(obj, newVal);
-            }
+            catch { /* no-op */ }
         }
-        catch { /* no-op */ }
-    }
 
-    private static void EnumFieldViaReflectionInst(UnityEngine.Object obj, string member, GUIContent gc)
-    {
-        if (obj == null) return;
-        var t = obj.GetType();
-        try
+        private static void EnumFieldViaReflectionInst(UnityEngine.Object obj, string member, GUIContent gc)
         {
-            var p = t.GetProperty(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
-            if (p != null && p.PropertyType.IsEnum && p.CanRead && p.CanWrite)
+            if (obj == null) return;
+            var t = obj.GetType();
+            try
             {
-                var val = (Enum)p.GetValue(obj);
-                var newVal = EditorGUILayout.EnumPopup(gc, val);
-                if (!Equals(newVal, val)) p.SetValue(obj, newVal);
-                return;
+                var p = t.GetProperty(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                if (p != null && p.PropertyType.IsEnum && p.CanRead && p.CanWrite)
+                {
+                    var val = (Enum)p.GetValue(obj);
+                    var newVal = EditorGUILayout.EnumPopup(gc, val);
+                    if (!Equals(newVal, val)) p.SetValue(obj, newVal);
+                    return;
+                }
+                var f = t.GetField(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                if (f != null && f.FieldType.IsEnum)
+                {
+                    var val = (Enum)f.GetValue(obj);
+                    var newVal = EditorGUILayout.EnumPopup(gc, val);
+                    if (!Equals(newVal, val)) f.SetValue(obj, newVal);
+                }
             }
-            var f = t.GetField(member, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
-            if (f != null && f.FieldType.IsEnum)
-            {
-                var val = (Enum)f.GetValue(obj);
-                var newVal = EditorGUILayout.EnumPopup(gc, val);
-                if (!Equals(newVal, val)) f.SetValue(obj, newVal);
-            }
+            catch { /* no-op */ }
         }
-        catch { /* no-op */ }
-    }
-    #endregion
+        #endregion
 #endif
 
         #region Reflection for internal PlayerSettings batching API (Unity 6)
@@ -1267,7 +1366,7 @@ namespace LegendaryTools.Editor
         #endregion
     }
 
-// Dummy to allow menu focus; Lighting window exists via menu in Unity 6.
+    // Dummy to allow menu focus; Lighting window exists via menu in Unity 6.
     internal class LightingWindow : EditorWindow
     {
     }
