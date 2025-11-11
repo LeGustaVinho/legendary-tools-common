@@ -6,39 +6,56 @@ using UnityEngine.UI;
 namespace LegendaryTools.Reactive.UGUI
 {
     /// <summary>
-    /// Fluent builder for UnityEngine.UI.Image bindings.
-    /// Example:
-    /// hpPercent.Bind(hpBarImage)
-    ///   .FillAmount(obsFloat)   // or .FillAmount(0.75f)
-    ///   .Color(obsColor)        // or .Color(Color.green)
-    ///   .Sprite(obsSprite)      // or .Sprite(fixedSprite, setNativeSize: true)
-    ///   .Enabled(true)          // or .Enabled(obsBool)
-    ///   .RaycastTarget(false)   // or .RaycastTarget(obsBool)
+    /// Fluent builder for UnityEngine.UI.Image.
+    /// You can attach multiple property bindings in one chain:
+    /// observable.Bind(image)
+    ///   .Color(colorObs, TwoWay, LateUpdate, eps: 0.001f)
+    ///   .Sprite(spriteObs, TwoWay, LateUpdate)
+    ///   .FillAmount(fillObs, TwoWay, LateUpdate, eps: 0.0001f)
+    ///   .Enabled(enabledObs, TwoWay, Update)
+    ///   .RaycastTarget(raycastObs, TwoWay, Update)
     ///   .Owner(this)
     ///   .With(options);
     /// </summary>
     public sealed class ImageBindingBuilder<TValue>
         where TValue : IEquatable<TValue>, IComparable<TValue>, IComparable, IConvertible
     {
-        private readonly Observable<TValue> _source;
+        private readonly Observable<TValue> _source; // carrier only
         private readonly Image _image;
 
-        // Bind targets (observables)
         private Observable<Color> _colorObs;
+        private BindDirection _colorDir = BindDirection.TwoWay;
+        private UpdatePhase _colorPhase = UpdatePhase.LateUpdate;
+        private Func<Color, Color> _colorToUI;
+        private Func<Color, Color> _colorFromUI;
+        private float _colorEps = 0.001f;
+
         private Observable<Sprite> _spriteObs;
+        private BindDirection _spriteDir = BindDirection.TwoWay;
+        private UpdatePhase _spritePhase = UpdatePhase.LateUpdate;
+        private Func<Sprite, Sprite> _spriteToUI;
+        private Func<Sprite, Sprite> _spriteFromUI;
+
+        private Observable<float> _fillObs;
+        private BindDirection _fillDir = BindDirection.TwoWay;
+        private UpdatePhase _fillPhase = UpdatePhase.LateUpdate;
+        private Func<float, float> _fillToUI;
+        private Func<float, float> _fillFromUI;
+        private float _fillEps = 0.0001f;
+        private bool _fillClamp01 = true;
+
         private Observable<bool> _enabledObs;
-        private Observable<float> _fillAmountObs;
-        private Observable<bool> _raycastTargetObs;
+        private BindDirection _enabledDir = BindDirection.TwoWay;
+        private UpdatePhase _enabledPhase = UpdatePhase.Update;
+        private Func<bool, bool> _enabledToUI;
+        private Func<bool, bool> _enabledFromUI;
 
-        // Fixed values
-        private Color? _colorFixed;
-        private Sprite _spriteFixed;
-        private bool _spriteFixedNativeSize;
-        private bool? _enabledFixed;
-        private float? _fillAmountFixed;
-        private bool? _raycastFixed;
+        private Observable<bool> _raycastObs;
+        private BindDirection _raycastDir = BindDirection.TwoWay;
+        private UpdatePhase _raycastPhase = UpdatePhase.Update;
+        private Func<bool, bool> _raycastToUI;
+        private Func<bool, bool> _raycastFromUI;
 
-        // Lifetime & options
         private MonoBehaviour _owner;
         private BindingOptions _options;
 
@@ -48,120 +65,131 @@ namespace LegendaryTools.Reactive.UGUI
             _image = image ?? throw new ArgumentNullException(nameof(image));
         }
 
-        /// <summary>
-        /// Binds image color from an Observable.
-        /// </summary>
-        public ImageBindingBuilder<TValue> Color(Observable<Color> colorObservable)
+        // -------------------
+        // Color
+        // -------------------
+        public ImageBindingBuilder<TValue> Color(
+            Observable<Color> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.LateUpdate,
+            float eps = 0.001f)
         {
-            _colorObs = colorObservable;
-            _colorFixed = null;
+            _colorObs = observable;
+            _colorDir = direction;
+            _colorPhase = phase;
+            _colorEps = eps;
             return this;
         }
 
-        /// <summary>
-        /// Sets a fixed color (non-reactive).
-        /// </summary>
-        public ImageBindingBuilder<TValue> Color(Color fixedColor)
+        public ImageBindingBuilder<TValue> ColorConverters(Func<Color, Color> toUI = null,
+            Func<Color, Color> fromUI = null)
         {
-            _colorFixed = fixedColor;
-            _colorObs = null;
+            _colorToUI = toUI;
+            _colorFromUI = fromUI;
             return this;
         }
 
-        /// <summary>
-        /// Binds image sprite from an Observable.
-        /// </summary>
-        public ImageBindingBuilder<TValue> Sprite(Observable<Sprite> spriteObservable)
+        // -------------------
+        // Sprite
+        // -------------------
+        public ImageBindingBuilder<TValue> Sprite(
+            Observable<Sprite> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.LateUpdate)
         {
-            _spriteObs = spriteObservable;
-            _spriteFixed = null;
-            _spriteFixedNativeSize = false;
+            _spriteObs = observable;
+            _spriteDir = direction;
+            _spritePhase = phase;
             return this;
         }
 
-        /// <summary>
-        /// Sets a fixed sprite (non-reactive). Optionally calls SetNativeSize on application.
-        /// </summary>
-        public ImageBindingBuilder<TValue> Sprite(Sprite fixedSprite, bool setNativeSize = false)
+        public ImageBindingBuilder<TValue> SpriteConverters(Func<Sprite, Sprite> toUI = null,
+            Func<Sprite, Sprite> fromUI = null)
         {
-            _spriteFixed = fixedSprite;
-            _spriteFixedNativeSize = setNativeSize;
-            _spriteObs = null;
+            _spriteToUI = toUI;
+            _spriteFromUI = fromUI;
             return this;
         }
 
-        /// <summary>
-        /// Binds image.enabled from an Observable.
-        /// </summary>
-        public ImageBindingBuilder<TValue> Enabled(Observable<bool> enabledObservable)
+        // -------------------
+        // FillAmount
+        // -------------------
+        public ImageBindingBuilder<TValue> FillAmount(
+            Observable<float> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.LateUpdate,
+            float eps = 0.0001f,
+            bool clamp01 = true)
         {
-            _enabledObs = enabledObservable;
-            _enabledFixed = null;
+            _fillObs = observable;
+            _fillDir = direction;
+            _fillPhase = phase;
+            _fillEps = eps;
+            _fillClamp01 = clamp01;
             return this;
         }
 
-        /// <summary>
-        /// Sets a fixed enabled state (non-reactive).
-        /// </summary>
-        public ImageBindingBuilder<TValue> Enabled(bool enabled)
+        public ImageBindingBuilder<TValue> FillConverters(Func<float, float> toUI = null,
+            Func<float, float> fromUI = null)
         {
-            _enabledFixed = enabled;
-            _enabledObs = null;
+            _fillToUI = toUI;
+            _fillFromUI = fromUI;
             return this;
         }
 
-        /// <summary>
-        /// Binds image.fillAmount from an Observable<float>.
-        /// </summary>
-        public ImageBindingBuilder<TValue> FillAmount(Observable<float> fillObservable)
+        // -------------------
+        // Enabled
+        // -------------------
+        public ImageBindingBuilder<TValue> Enabled(
+            Observable<bool> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update)
         {
-            _fillAmountObs = fillObservable;
-            _fillAmountFixed = null;
+            _enabledObs = observable;
+            _enabledDir = direction;
+            _enabledPhase = phase;
             return this;
         }
 
-        /// <summary>
-        /// Sets a fixed fill amount.
-        /// </summary>
-        public ImageBindingBuilder<TValue> FillAmount(float amount)
+        public ImageBindingBuilder<TValue> EnabledConverters(Func<bool, bool> toUI = null,
+            Func<bool, bool> fromUI = null)
         {
-            _fillAmountFixed = amount;
-            _fillAmountObs = null;
+            _enabledToUI = toUI;
+            _enabledFromUI = fromUI;
             return this;
         }
 
-        /// <summary>
-        /// Binds image.raycastTarget from an Observable<bool>.
-        /// </summary>
-        public ImageBindingBuilder<TValue> RaycastTarget(Observable<bool> raycastTargetObservable)
+        // -------------------
+        // RaycastTarget
+        // -------------------
+        public ImageBindingBuilder<TValue> RaycastTarget(
+            Observable<bool> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update)
         {
-            _raycastTargetObs = raycastTargetObservable;
-            _raycastFixed = null;
+            _raycastObs = observable;
+            _raycastDir = direction;
+            _raycastPhase = phase;
             return this;
         }
 
-        /// <summary>
-        /// Sets a fixed raycastTarget flag.
-        /// </summary>
-        public ImageBindingBuilder<TValue> RaycastTarget(bool raycastTarget)
+        public ImageBindingBuilder<TValue> RaycastConverters(Func<bool, bool> toUI = null,
+            Func<bool, bool> fromUI = null)
         {
-            _raycastFixed = raycastTarget;
-            _raycastTargetObs = null;
+            _raycastToUI = toUI;
+            _raycastFromUI = fromUI;
             return this;
         }
 
-        /// <summary>
-        /// Assigns a lifetime owner for auto-unbind/resync and edit-mode gating.
-        /// </summary>
+        // -------------------
+        // Lifetime / build
+        // -------------------
         public ImageBindingBuilder<TValue> Owner(MonoBehaviour owner)
         {
             _owner = owner;
             return this;
         }
 
-        /// <summary>
-        /// Finalizes the builder, creates all configured bindings, and returns a composite handle.
-        /// </summary>
         public CompositeBindingHandle With(BindingOptions options = null)
         {
             _options ??= options ?? new BindingOptions();
@@ -169,34 +197,61 @@ namespace LegendaryTools.Reactive.UGUI
 
             // Color
             if (_colorObs != null)
-                handles.Add(_image.BindColor(_colorObs, _owner, _options));
-            else if (_colorFixed.HasValue) _image.color = _colorFixed.Value;
+                handles.Add(_image.BindColor(
+                    _colorObs,
+                    _colorDir,
+                    _colorPhase,
+                    _owner,
+                    _options,
+                    _colorToUI,
+                    _colorFromUI,
+                    _colorEps));
 
             // Sprite
             if (_spriteObs != null)
-            {
-                handles.Add(_image.BindSprite(_spriteObs, _owner, _options, false));
-            }
-            else if (_spriteFixed != null)
-            {
-                _image.sprite = _spriteFixed;
-                if (_spriteFixedNativeSize && _spriteFixed != null) _image.SetNativeSize();
-            }
+                handles.Add(_image.BindSprite(
+                    _spriteObs,
+                    _spriteDir,
+                    _spritePhase,
+                    _owner,
+                    _options,
+                    _spriteToUI,
+                    _spriteFromUI));
+
+            // FillAmount
+            if (_fillObs != null)
+                handles.Add(_image.BindFillAmount(
+                    _fillObs,
+                    _fillDir,
+                    _fillPhase,
+                    _owner,
+                    _options,
+                    _fillToUI,
+                    _fillFromUI,
+                    _fillEps,
+                    _fillClamp01));
 
             // Enabled
             if (_enabledObs != null)
-                handles.Add(_image.BindEnabled(_enabledObs, _owner, _options));
-            else if (_enabledFixed.HasValue) _image.enabled = _enabledFixed.Value;
-
-            // Fill amount
-            if (_fillAmountObs != null)
-                handles.Add(_image.BindFillAmount(_fillAmountObs, _owner, _options, true));
-            else if (_fillAmountFixed.HasValue) _image.fillAmount = Mathf.Clamp01(_fillAmountFixed.Value);
+                handles.Add(_image.BindEnabled(
+                    _enabledObs,
+                    _enabledDir,
+                    _enabledPhase,
+                    _owner,
+                    _options,
+                    _enabledToUI,
+                    _enabledFromUI));
 
             // RaycastTarget
-            if (_raycastTargetObs != null)
-                handles.Add(_image.BindRaycastTarget(_raycastTargetObs, _owner, _options));
-            else if (_raycastFixed.HasValue) _image.raycastTarget = _raycastFixed.Value;
+            if (_raycastObs != null)
+                handles.Add(_image.BindRaycastTarget(
+                    _raycastObs,
+                    _raycastDir,
+                    _raycastPhase,
+                    _owner,
+                    _options,
+                    _raycastToUI,
+                    _raycastFromUI));
 
             return new CompositeBindingHandle(handles);
         }
