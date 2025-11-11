@@ -3,17 +3,19 @@
 namespace LegendaryTools.Reactive.TMPro
 {
     /// <summary>
-    /// Entry point for TMP_Dropdown fluent binding DSL.
-    /// Starts from ObservableList{TItem} because options are list-driven.
+    /// Entry points for TMP_Dropdown fluent binding DSL.
     /// </summary>
     public static class FluentBindingExtensions_TMP_Dropdown
     {
         /// <summary>
-        /// Starts a fluent binding for TMP_Dropdown using an ObservableList{TItem} to drive options.
+        /// Starts a fluent binding chain for TMP_Dropdown. TValue is only a carrier for the chain.
         /// </summary>
-        public static DropdownBindingBuilder<TItem> Bind<TItem>(this ObservableList<TItem> list, TMP_Dropdown dropdown)
+        public static TmpDropdownBindingBuilder<TValue> Bind<TValue>(this Observable<TValue> observable,
+            TMP_Dropdown dropdown)
+            where TValue : System.IEquatable<TValue>, System.IComparable<TValue>, System.IComparable,
+            System.IConvertible
         {
-            return new DropdownBindingBuilder<TItem>(list, dropdown);
+            return new TmpDropdownBindingBuilder<TValue>(observable, dropdown);
         }
     }
 }

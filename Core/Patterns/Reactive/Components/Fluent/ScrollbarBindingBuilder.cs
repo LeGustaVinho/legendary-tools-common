@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -9,210 +8,160 @@ namespace LegendaryTools.Reactive.UGUI
     /// <summary>
     /// Fluent builder for UnityEngine.UI.Scrollbar.
     /// Example:
-    /// percent.Bind(scrollbar)
-    ///   .Value(BindDirection.TwoWay).ToUI(v => v).FromUI(f => f)
-    ///   .Size(sizeObs)           // or .Size(0.2f)
-    ///   .Steps(10)               // or .Steps(obsInt)
-    ///   .Direction(dirObs)       // Observable<Scrollbar.Direction>
-    ///   .Interactable(isReady)
-    ///   .Enabled(true)
+    /// carrier.Bind(scrollbar)
+    ///   .Size(sizeObs, TwoWay, LateUpdate, eps: 0.0001f, clamp01: true)
+    ///   .NumberOfSteps(stepsObs, TwoWay, Update, minSteps: 0)
+    ///   .Direction(dirObs, TwoWay, Update)
     ///   .Owner(this)
     ///   .With(options);
+    /// 'carrier' is any Observable used only to start the chain.
     /// </summary>
-    public sealed class ScrollbarBindingBuilder<T>
-        where T : IEquatable<T>, IComparable<T>, IComparable, IConvertible
+    public sealed class ScrollbarBindingBuilder<TValue>
+        where TValue : IEquatable<TValue>, IComparable<TValue>, IComparable, IConvertible
     {
-        private readonly Observable<T> _observable;
+        private readonly Observable<TValue> _source; // chain carrier only
         private readonly Scrollbar _scrollbar;
 
-        // Value
-        private BindDirection _direction = BindDirection.TwoWay;
-        private Func<T, float> _toUI;
-        private Func<float, T> _fromUI;
-        private IFormatProvider _formatProvider;
-
-        // Size
         private Observable<float> _sizeObs;
-        private float? _sizeFixed;
+        private BindDirection _sizeDir = BindDirection.TwoWay;
+        private UpdatePhase _sizePhase = UpdatePhase.LateUpdate;
+        private Func<float, float> _sizeToUI;
+        private Func<float, float> _sizeFromUI;
+        private float _sizeEps = 0.0001f;
         private bool _sizeClamp01 = true;
 
-        // Steps
         private Observable<int> _stepsObs;
-        private int? _stepsFixed;
+        private BindDirection _stepsDir = BindDirection.TwoWay;
+        private UpdatePhase _stepsPhase = UpdatePhase.Update;
+        private Func<int, int> _stepsToUI;
+        private Func<int, int> _stepsFromUI;
+        private int _minSteps = 0;
 
-        // Direction
-        private Observable<Scrollbar.Direction> _directionObs;
+        private Observable<Scrollbar.Direction> _dirObs;
+        private BindDirection _dirDir = BindDirection.TwoWay;
+        private UpdatePhase _dirPhase = UpdatePhase.Update;
+        private Func<Scrollbar.Direction, Scrollbar.Direction> _dirToUI;
+        private Func<Scrollbar.Direction, Scrollbar.Direction> _dirFromUI;
 
-        // Interactable/Enabled
-        private Observable<bool> _interactableObs;
-        private bool? _interactableFixed;
-
-        private Observable<bool> _enabledObs;
-        private bool? _enabledFixed;
-
-        // Lifetime / options
         private MonoBehaviour _owner;
         private BindingOptions _options;
 
-        public ScrollbarBindingBuilder(Observable<T> observable, Scrollbar scrollbar)
+        public ScrollbarBindingBuilder(Observable<TValue> source, Scrollbar scrollbar)
         {
-            _observable = observable ?? throw new ArgumentNullException(nameof(observable));
+            _source = source ?? throw new ArgumentNullException(nameof(source));
             _scrollbar = scrollbar ?? throw new ArgumentNullException(nameof(scrollbar));
         }
 
-        /// <summary>
-        /// Configure the value binding direction (TwoWay by default).
-        /// </summary>
-        public ScrollbarBindingBuilder<T> Value(BindDirection direction = BindDirection.TwoWay)
+        // Size
+        public ScrollbarBindingBuilder<TValue> Size(
+            Observable<float> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.LateUpdate,
+            float eps = 0.0001f,
+            bool clamp01 = true)
         {
-            _direction = direction;
-            return this;
-        }
-
-        /// <summary>
-        /// Optional converter from T to float (UI).
-        /// </summary>
-        public ScrollbarBindingBuilder<T> ToUI(Func<T, float> toUI)
-        {
-            _toUI = toUI;
-            return this;
-        }
-
-        /// <summary>
-        /// Optional converter from float (UI) to T (VM).
-        /// </summary>
-        public ScrollbarBindingBuilder<T> FromUI(Func<float, T> fromUI)
-        {
-            _fromUI = fromUI;
-            return this;
-        }
-
-        /// <summary>
-        /// Optional IFormatProvider used by default conversion paths.
-        /// </summary>
-        public ScrollbarBindingBuilder<T> FormatProvider(IFormatProvider provider)
-        {
-            _formatProvider = provider;
-            return this;
-        }
-
-        public ScrollbarBindingBuilder<T> Size(Observable<float> sizeObservable, bool clamp01 = true)
-        {
-            _sizeObs = sizeObservable;
-            _sizeFixed = null;
+            _sizeObs = observable;
+            _sizeDir = direction;
+            _sizePhase = phase;
+            _sizeEps = eps;
             _sizeClamp01 = clamp01;
             return this;
         }
 
-        public ScrollbarBindingBuilder<T> Size(float size, bool clamp01 = true)
+        public ScrollbarBindingBuilder<TValue> SizeConverters(Func<float, float> toUI = null,
+            Func<float, float> fromUI = null)
         {
-            _sizeFixed = size;
-            _sizeObs = null;
-            _sizeClamp01 = clamp01;
+            _sizeToUI = toUI;
+            _sizeFromUI = fromUI;
             return this;
         }
 
-        public ScrollbarBindingBuilder<T> Steps(Observable<int> stepsObservable)
+        // NumberOfSteps
+        public ScrollbarBindingBuilder<TValue> NumberOfSteps(
+            Observable<int> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update,
+            int minSteps = 0)
         {
-            _stepsObs = stepsObservable;
-            _stepsFixed = null;
+            _stepsObs = observable;
+            _stepsDir = direction;
+            _stepsPhase = phase;
+            _minSteps = Mathf.Max(0, minSteps);
             return this;
         }
 
-        public ScrollbarBindingBuilder<T> Steps(int steps)
+        public ScrollbarBindingBuilder<TValue> StepsConverters(Func<int, int> toUI = null, Func<int, int> fromUI = null)
         {
-            _stepsFixed = steps;
-            _stepsObs = null;
+            _stepsToUI = toUI;
+            _stepsFromUI = fromUI;
             return this;
         }
 
-        public ScrollbarBindingBuilder<T> Direction(Observable<Scrollbar.Direction> directionObservable)
+        // Direction
+        public ScrollbarBindingBuilder<TValue> Direction(
+            Observable<Scrollbar.Direction> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update)
         {
-            _directionObs = directionObservable;
+            _dirObs = observable;
+            _dirDir = direction;
+            _dirPhase = phase;
             return this;
         }
 
-        public ScrollbarBindingBuilder<T> Interactable(Observable<bool> interactableObservable)
+        public ScrollbarBindingBuilder<TValue> DirectionConverters(
+            Func<Scrollbar.Direction, Scrollbar.Direction> toUI = null,
+            Func<Scrollbar.Direction, Scrollbar.Direction> fromUI = null)
         {
-            _interactableObs = interactableObservable;
-            _interactableFixed = null;
+            _dirToUI = toUI;
+            _dirFromUI = fromUI;
             return this;
         }
 
-        public ScrollbarBindingBuilder<T> Interactable(bool interactable)
-        {
-            _interactableFixed = interactable;
-            _interactableObs = null;
-            return this;
-        }
-
-        public ScrollbarBindingBuilder<T> Enabled(Observable<bool> enabledObservable)
-        {
-            _enabledObs = enabledObservable;
-            _enabledFixed = null;
-            return this;
-        }
-
-        public ScrollbarBindingBuilder<T> Enabled(bool enabled)
-        {
-            _enabledFixed = enabled;
-            _enabledObs = null;
-            return this;
-        }
-
-        public ScrollbarBindingBuilder<T> Owner(MonoBehaviour owner)
+        // Lifetime / Build
+        public ScrollbarBindingBuilder<TValue> Owner(MonoBehaviour owner)
         {
             _owner = owner;
             return this;
         }
 
-        /// <summary>
-        /// Creates the configured bindings and returns a composite handle.
-        /// </summary>
         public CompositeBindingHandle With(BindingOptions options = null)
         {
             _options ??= options ?? new BindingOptions();
             List<BindingHandle> handles = new();
 
-            IFormatProvider provider = _formatProvider ?? _options.FormatProvider ?? CultureInfo.InvariantCulture;
-
-            // Value (TwoWay/ToUI/FromUI)
-            handles.Add(_scrollbar.BindValue(
-                _observable,
-                _direction,
-                _owner,
-                _toUI,
-                _fromUI,
-                provider,
-                _options));
-
-            // Size
             if (_sizeObs != null)
-                handles.Add(_scrollbar.BindSize(_sizeObs, _owner, _options, _sizeClamp01));
-            else if (_sizeFixed.HasValue)
-                _scrollbar.size = _sizeClamp01 ? Mathf.Clamp01(_sizeFixed.Value) : _sizeFixed.Value;
+                handles.Add(_scrollbar.BindSize(
+                    _sizeObs,
+                    _sizeDir,
+                    _sizePhase,
+                    _owner,
+                    _options,
+                    _sizeToUI,
+                    _sizeFromUI,
+                    _sizeEps,
+                    _sizeClamp01));
 
-            // Steps
             if (_stepsObs != null)
-                handles.Add(_scrollbar.BindNumberOfSteps(_stepsObs, _owner, _options));
-            else if (_stepsFixed.HasValue)
-                _scrollbar.numberOfSteps = Mathf.Max(0, _stepsFixed.Value);
+                handles.Add(_scrollbar.BindNumberOfSteps(
+                    _stepsObs,
+                    _stepsDir,
+                    _stepsPhase,
+                    _owner,
+                    _options,
+                    _stepsToUI,
+                    _stepsFromUI,
+                    _minSteps));
 
-            // Direction
-            if (_directionObs != null)
-                handles.Add(_scrollbar.BindDirection(_directionObs, _owner, _options));
-
-            // Interactable
-            if (_interactableObs != null)
-                handles.Add(_scrollbar.BindInteractable(_interactableObs, _owner, _options));
-            else if (_interactableFixed.HasValue)
-                _scrollbar.interactable = _interactableFixed.Value;
-
-            // Enabled
-            if (_enabledObs != null)
-                handles.Add(_scrollbar.BindEnabled(_enabledObs, _owner, _options));
-            else if (_enabledFixed.HasValue)
-                _scrollbar.enabled = _enabledFixed.Value;
+            if (_dirObs != null)
+                handles.Add(_scrollbar.BindDirection(
+                    _dirObs,
+                    _dirDir,
+                    _dirPhase,
+                    _owner,
+                    _options,
+                    _dirToUI,
+                    _dirFromUI));
 
             return new CompositeBindingHandle(handles);
         }

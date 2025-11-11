@@ -30,7 +30,7 @@ namespace LegendaryTools
         /// <summary>
         /// Gets or sets the current value. Setting a different value raises <see cref="OnChanged"/>.
         /// </summary>
-        public T Value
+        public virtual T Value
         {
             get => value;
             set
@@ -70,7 +70,7 @@ namespace LegendaryTools
         /// Sets the value without raising <see cref="OnChanged"/>.
         /// </summary>
         /// <param name="valueToSet">The value to set.</param>
-        public void SilentSet(T valueToSet)
+        public virtual void SilentSet(T valueToSet)
         {
             value = valueToSet;
         }
@@ -149,7 +149,7 @@ namespace LegendaryTools
         /// Compares this instance with another object for ordering.
         /// Uses Comparer<T>.Default, which requires T to be comparable at runtime.
         /// </summary>
-        public int CompareTo(object obj)
+        public virtual int CompareTo(object obj)
         {
             if (obj is null) return 1; // any instance > null
             if (obj is Observable<T> otherObs) return CompareTo(otherObs);
@@ -162,10 +162,18 @@ namespace LegendaryTools
         /// Compares this instance with another observable of the same type.
         /// Uses Comparer<T>.Default, which requires T to be comparable at runtime.
         /// </summary>
-        public int CompareTo(Observable<T> other)
+        public virtual int CompareTo(Observable<T> other)
         {
             if (other is null) return 1;
             return Comparer<T>.Default.Compare(value, other.value);
+        }
+
+        /// <summary>
+        /// Raises the OnChanged event in a safe, derived-friendly way.
+        /// </summary>
+        protected void RaiseOnChanged(T oldValue, T newValue)
+        {
+            OnChanged?.Invoke(this, oldValue, newValue);
         }
 
         // ---------------

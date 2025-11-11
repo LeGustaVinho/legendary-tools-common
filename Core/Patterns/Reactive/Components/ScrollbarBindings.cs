@@ -1,29 +1,36 @@
 ﻿using System;
-using System.Globalization;
 using UnityEngine;
 using UnityEngine.UI;
+using LegendaryTools;
+using LegendaryTools.Reactive;
 
 namespace LegendaryTools.Reactive.UGUI
 {
     /// <summary>
     /// Extension methods to bind Observables with UnityEngine.UI.Scrollbar.
-    /// Provides bindings for value (two-way), size, numberOfSteps, direction, interactable and enabled.
+    /// Provides TwoWay polling via UpdatePhase for size, numberOfSteps and direction.
     /// </summary>
     public static class ScrollbarBindings
     {
-        /// <summary>
-        /// Binds Scrollbar.value to an Observable{T}. Supports TwoWay/ToUI/FromUI.
-        /// </summary>
-        public static BindingHandle BindValue<T>(
+        private static BindingUpdateDriver GetDriver(Component c)
+        {
+            return c.GetComponent<BindingUpdateDriver>() ?? c.gameObject.AddComponent<BindingUpdateDriver>();
+        }
+
+        // ---------------------------
+        // SIZE (0..1)
+        // ---------------------------
+        public static BindingHandle BindSize(
             this Scrollbar scrollbar,
-            Observable<T> observable,
-            BindDirection direction = Reactive.BindDirection.ToUI,
+            Observable<float> observable,
+            BindDirection direction = Reactive.BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.LateUpdate,
             MonoBehaviour owner = null,
-            Func<T, float> toUI = null,
-            Func<float, T> fromUI = null,
-            IFormatProvider formatProvider = null,
-            BindingOptions options = null)
-            where T : IEquatable<T>, IComparable<T>, IComparable, IConvertible
+            BindingOptions options = null,
+            Func<float, float> toUI = null,
+            Func<float, float> fromUI = null,
+            float epsilon = 0.0001f,
+            bool clamp01 = true)
         {
             if (scrollbar == null) throw new ArgumentNullException(nameof(scrollbar));
             if (observable == null) throw new ArgumentNullException(nameof(observable));
@@ -31,45 +38,29 @@ namespace LegendaryTools.Reactive.UGUI
             BindingAnchor anchor = owner != null
                 ? owner.GetComponent<BindingAnchor>() ?? owner.gameObject.AddComponent<BindingAnchor>()
                 : null;
-
+            BindingUpdateDriver driver = GetDriver(scrollbar);
             options ??= new BindingOptions();
-            formatProvider ??= options.FormatProvider ?? CultureInfo.InvariantCulture;
 
             bool isUpdating = false;
+            float lastSent = scrollbar.size;
 
-            float ToFloat(T v)
+            float Read()
             {
-                if (toUI != null) return Mathf.Clamp01(toUI(v));
-                try
-                {
-                    return Mathf.Clamp01(Convert.ToSingle(v, formatProvider));
-                }
-                catch
-                {
-                    return scrollbar.value;
-                }
+                float v = scrollbar.size;
+                v = clamp01 ? Mathf.Clamp01(v) : v;
+                return toUI != null ? toUI(v) : v;
             }
 
-            T FromFloat(float f)
-            {
-                if (fromUI != null) return fromUI(Mathf.Clamp01(f));
-                try
-                {
-                    return (T)Convert.ChangeType(Mathf.Clamp01(f), typeof(T), formatProvider);
-                }
-                catch
-                {
-                    return observable.Value;
-                }
-            }
-
-            void ApplyToUI(T v)
+            void Write(float v)
             {
                 if (anchor != null && !anchor.ShouldProcessNow()) return;
+                float inV = fromUI != null ? fromUI(v) : v;
+                if (clamp01) inV = Mathf.Clamp01(inV);
+
                 try
                 {
                     isUpdating = true;
-                    scrollbar.SetValueWithoutNotify(ToFloat(v));
+                    scrollbar.size = inV;
                 }
                 finally
                 {
@@ -77,123 +68,82 @@ namespace LegendaryTools.Reactive.UGUI
                 }
             }
 
-            void OnObsChanged(IObservable<T> _, T oldV, T newV)
+            void ApplyToUI(float v)
+            {
+                Write(v);
+            }
+
+            void OnObsChanged(IObservable<float> _, float oldV, float newV)
             {
                 if (direction == Reactive.BindDirection.FromUI) return;
                 ApplyToUI(newV);
             }
 
-            void OnUIChanged(float val)
+            void PollFromUI()
             {
                 if (direction == Reactive.BindDirection.ToUI) return;
                 if (isUpdating) return;
-                T parsed = FromFloat(val);
-                observable.Value = parsed;
+
+                float now = Read();
+                if (Mathf.Abs(now - lastSent) > epsilon)
+                {
+                    lastSent = now;
+                    observable.Value = now;
+                }
             }
 
             void Subscribe()
             {
                 if (direction != Reactive.BindDirection.FromUI)
+                {
+                    lastSent = Read();
                     ApplyToUI(observable.Value);
+                }
+                else
+                {
+                    lastSent = Read();
+                }
 
                 observable.OnChanged += OnObsChanged;
-                scrollbar.onValueChanged.AddListener(OnUIChanged);
+
+                switch (phase)
+                {
+                    case UpdatePhase.Update: driver.OnUpdateTick += PollFromUI; break;
+                    case UpdatePhase.LateUpdate: driver.OnLateUpdateTick += PollFromUI; break;
+                    case UpdatePhase.FixedUpdate: driver.OnFixedUpdateTick += PollFromUI; break;
+                }
             }
 
             void Unsubscribe()
             {
                 observable.OnChanged -= OnObsChanged;
-                scrollbar.onValueChanged.RemoveListener(OnUIChanged);
+
+                switch (phase)
+                {
+                    case UpdatePhase.Update: driver.OnUpdateTick -= PollFromUI; break;
+                    case UpdatePhase.LateUpdate: driver.OnLateUpdateTick -= PollFromUI; break;
+                    case UpdatePhase.FixedUpdate: driver.OnFixedUpdateTick -= PollFromUI; break;
+                }
             }
 
             void Resync()
             {
                 if (direction != Reactive.BindDirection.FromUI)
                     ApplyToUI(observable.Value);
-            }
-
-            BindingInfo info = new()
-            {
-                Kind = "Scrollbar.Value",
-                Direction = direction.ToString(),
-                Description = $"value ↔ Observable<{typeof(T).Name}> (0..1)",
-                Target = scrollbar,
-                Owner = owner,
-                Anchor = anchor,
-                Options = options,
-                GetState = () =>
-                    $"value={scrollbar.value:0.###}, size={scrollbar.size:0.###}, steps={scrollbar.numberOfSteps}, dir={scrollbar.direction}",
-                Tags = new[] { "Scrollbar", "Value" }
-            };
-
-            BindingHandle handle = new(Subscribe, Unsubscribe, Resync, anchor, options, info);
-
-            if (owner != null)
-            {
-                BindingDisposer disposer = owner.GetComponent<BindingDisposer>() ??
-                                           owner.gameObject.AddComponent<BindingDisposer>();
-                disposer.Add(handle);
-            }
-
-            return handle;
-        }
-
-        /// <summary>
-        /// One-way binding: Observable{float} -> Scrollbar.size (0..1).
-        /// </summary>
-        public static BindingHandle BindSize(
-            this Scrollbar scrollbar,
-            Observable<float> sizeObservable,
-            MonoBehaviour owner = null,
-            BindingOptions options = null,
-            bool clamp01 = true)
-        {
-            if (scrollbar == null) throw new ArgumentNullException(nameof(scrollbar));
-            if (sizeObservable == null) throw new ArgumentNullException(nameof(sizeObservable));
-
-            BindingAnchor anchor = owner != null
-                ? owner.GetComponent<BindingAnchor>() ?? owner.gameObject.AddComponent<BindingAnchor>()
-                : null;
-            options ??= new BindingOptions();
-
-            void Apply(float v)
-            {
-                if (anchor != null && !anchor.ShouldProcessNow()) return;
-                scrollbar.size = clamp01 ? Mathf.Clamp01(v) : v;
-            }
-
-            void OnObsChanged(IObservable<float> _, float oldV, float newV)
-            {
-                Apply(newV);
-            }
-
-            void Subscribe()
-            {
-                Apply(sizeObservable.Value);
-                sizeObservable.OnChanged += OnObsChanged;
-            }
-
-            void Unsubscribe()
-            {
-                sizeObservable.OnChanged -= OnObsChanged;
-            }
-
-            void Resync()
-            {
-                Apply(sizeObservable.Value);
+                lastSent = Read();
             }
 
             BindingInfo info = new()
             {
                 Kind = "Scrollbar.Size",
-                Direction = "ToUI",
-                Description = "size ← Observable<float> (0..1)",
+                Direction = direction.ToString(),
+                Description = $"size ↔ Observable<float> @ {phase}",
                 Target = scrollbar,
                 Owner = owner,
                 Anchor = anchor,
                 Options = options,
                 GetState = () => $"size={scrollbar.size:0.###}",
-                Tags = new[] { "Scrollbar", "Size" }
+                Tags = new[] { "Scrollbar", "Size", phase.ToString() }
             };
 
             BindingHandle handle = new(Subscribe, Unsubscribe, Resync, anchor, options, info);
@@ -207,61 +157,132 @@ namespace LegendaryTools.Reactive.UGUI
             return handle;
         }
 
-        /// <summary>
-        /// One-way binding: Observable{int} -> Scrollbar.numberOfSteps (>=0).
-        /// </summary>
+        // ---------------------------
+        // NUMBER OF STEPS (>= 0, 0 = continuous)
+        // ---------------------------
         public static BindingHandle BindNumberOfSteps(
             this Scrollbar scrollbar,
-            Observable<int> stepsObservable,
+            Observable<int> observable,
+            BindDirection direction = Reactive.BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update,
             MonoBehaviour owner = null,
-            BindingOptions options = null)
+            BindingOptions options = null,
+            Func<int, int> toUI = null,
+            Func<int, int> fromUI = null,
+            int minSteps = 0)
         {
             if (scrollbar == null) throw new ArgumentNullException(nameof(scrollbar));
-            if (stepsObservable == null) throw new ArgumentNullException(nameof(stepsObservable));
+            if (observable == null) throw new ArgumentNullException(nameof(observable));
 
             BindingAnchor anchor = owner != null
                 ? owner.GetComponent<BindingAnchor>() ?? owner.gameObject.AddComponent<BindingAnchor>()
                 : null;
+            BindingUpdateDriver driver = GetDriver(scrollbar);
             options ??= new BindingOptions();
 
-            void Apply(int steps)
+            bool isUpdating = false;
+            int lastSent = scrollbar.numberOfSteps;
+
+            int Read()
+            {
+                int v = scrollbar.numberOfSteps;
+                v = Mathf.Max(minSteps, v);
+                return toUI != null ? toUI(v) : v;
+            }
+
+            void Write(int v)
             {
                 if (anchor != null && !anchor.ShouldProcessNow()) return;
-                scrollbar.numberOfSteps = Mathf.Max(0, steps);
+                int inV = fromUI != null ? fromUI(v) : v;
+                inV = Mathf.Max(minSteps, inV);
+
+                try
+                {
+                    isUpdating = true;
+                    scrollbar.numberOfSteps = inV;
+                }
+                finally
+                {
+                    isUpdating = false;
+                }
+            }
+
+            void ApplyToUI(int v)
+            {
+                Write(v);
             }
 
             void OnObsChanged(IObservable<int> _, int oldV, int newV)
             {
-                Apply(newV);
+                if (direction == Reactive.BindDirection.FromUI) return;
+                ApplyToUI(newV);
+            }
+
+            void PollFromUI()
+            {
+                if (direction == Reactive.BindDirection.ToUI) return;
+                if (isUpdating) return;
+
+                int now = Read();
+                if (now != lastSent)
+                {
+                    lastSent = now;
+                    observable.Value = now;
+                }
             }
 
             void Subscribe()
             {
-                Apply(stepsObservable.Value);
-                stepsObservable.OnChanged += OnObsChanged;
+                if (direction != Reactive.BindDirection.FromUI)
+                {
+                    lastSent = Read();
+                    ApplyToUI(observable.Value);
+                }
+                else
+                {
+                    lastSent = Read();
+                }
+
+                observable.OnChanged += OnObsChanged;
+
+                switch (phase)
+                {
+                    case UpdatePhase.Update: driver.OnUpdateTick += PollFromUI; break;
+                    case UpdatePhase.LateUpdate: driver.OnLateUpdateTick += PollFromUI; break;
+                    case UpdatePhase.FixedUpdate: driver.OnFixedUpdateTick += PollFromUI; break;
+                }
             }
 
             void Unsubscribe()
             {
-                stepsObservable.OnChanged -= OnObsChanged;
+                observable.OnChanged -= OnObsChanged;
+
+                switch (phase)
+                {
+                    case UpdatePhase.Update: driver.OnUpdateTick -= PollFromUI; break;
+                    case UpdatePhase.LateUpdate: driver.OnLateUpdateTick -= PollFromUI; break;
+                    case UpdatePhase.FixedUpdate: driver.OnFixedUpdateTick -= PollFromUI; break;
+                }
             }
 
             void Resync()
             {
-                Apply(stepsObservable.Value);
+                if (direction != Reactive.BindDirection.FromUI)
+                    ApplyToUI(observable.Value);
+                lastSent = Read();
             }
 
             BindingInfo info = new()
             {
                 Kind = "Scrollbar.NumberOfSteps",
-                Direction = "ToUI",
-                Description = "numberOfSteps ← Observable<int> (0 = continuous)",
+                Direction = direction.ToString(),
+                Description = $"numberOfSteps ↔ Observable<int> @ {phase}",
                 Target = scrollbar,
                 Owner = owner,
                 Anchor = anchor,
                 Options = options,
-                GetState = () => $"steps={scrollbar.numberOfSteps}",
-                Tags = new[] { "Scrollbar", "Steps" }
+                GetState = () => $"numberOfSteps={scrollbar.numberOfSteps}",
+                Tags = new[] { "Scrollbar", "NumberOfSteps", phase.ToString() }
             };
 
             BindingHandle handle = new(Subscribe, Unsubscribe, Resync, anchor, options, info);
@@ -275,197 +296,129 @@ namespace LegendaryTools.Reactive.UGUI
             return handle;
         }
 
-        /// <summary>
-        /// One-way binding: Observable{Scrollbar.Direction} -> Scrollbar.direction.
-        /// </summary>
+        // ---------------------------
+        // DIRECTION (enum)
+        // ---------------------------
         public static BindingHandle BindDirection(
             this Scrollbar scrollbar,
-            Observable<Scrollbar.Direction> directionObservable,
+            Observable<Scrollbar.Direction> observable,
+            BindDirection direction = Reactive.BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update,
             MonoBehaviour owner = null,
-            BindingOptions options = null)
+            BindingOptions options = null,
+            Func<Scrollbar.Direction, Scrollbar.Direction> toUI = null,
+            Func<Scrollbar.Direction, Scrollbar.Direction> fromUI = null)
         {
             if (scrollbar == null) throw new ArgumentNullException(nameof(scrollbar));
-            if (directionObservable == null) throw new ArgumentNullException(nameof(directionObservable));
+            if (observable == null) throw new ArgumentNullException(nameof(observable));
 
             BindingAnchor anchor = owner != null
                 ? owner.GetComponent<BindingAnchor>() ?? owner.gameObject.AddComponent<BindingAnchor>()
                 : null;
+            BindingUpdateDriver driver = GetDriver(scrollbar);
             options ??= new BindingOptions();
 
-            void Apply(Scrollbar.Direction d)
+            bool isUpdating = false;
+            Scrollbar.Direction lastSent = scrollbar.direction;
+
+            Scrollbar.Direction Read()
+            {
+                Scrollbar.Direction v = scrollbar.direction;
+                return toUI != null ? toUI(v) : v;
+            }
+
+            void Write(Scrollbar.Direction v)
             {
                 if (anchor != null && !anchor.ShouldProcessNow()) return;
-                scrollbar.direction = d;
+                Scrollbar.Direction inV = fromUI != null ? fromUI(v) : v;
+
+                try
+                {
+                    isUpdating = true;
+                    scrollbar.direction = inV;
+                }
+                finally
+                {
+                    isUpdating = false;
+                }
+            }
+
+            void ApplyToUI(Scrollbar.Direction v)
+            {
+                Write(v);
             }
 
             void OnObsChanged(IObservable<Scrollbar.Direction> _, Scrollbar.Direction oldV, Scrollbar.Direction newV)
             {
-                Apply(newV);
+                if (direction == Reactive.BindDirection.FromUI) return;
+                ApplyToUI(newV);
+            }
+
+            void PollFromUI()
+            {
+                if (direction == Reactive.BindDirection.ToUI) return;
+                if (isUpdating) return;
+
+                Scrollbar.Direction now = Read();
+                if (now != lastSent)
+                {
+                    lastSent = now;
+                    observable.Value = now;
+                }
             }
 
             void Subscribe()
             {
-                Apply(directionObservable.Value);
-                directionObservable.OnChanged += OnObsChanged;
+                if (direction != Reactive.BindDirection.FromUI)
+                {
+                    lastSent = Read();
+                    ApplyToUI(observable.Value);
+                }
+                else
+                {
+                    lastSent = Read();
+                }
+
+                observable.OnChanged += OnObsChanged;
+
+                switch (phase)
+                {
+                    case UpdatePhase.Update: driver.OnUpdateTick += PollFromUI; break;
+                    case UpdatePhase.LateUpdate: driver.OnLateUpdateTick += PollFromUI; break;
+                    case UpdatePhase.FixedUpdate: driver.OnFixedUpdateTick += PollFromUI; break;
+                }
             }
 
             void Unsubscribe()
             {
-                directionObservable.OnChanged -= OnObsChanged;
+                observable.OnChanged -= OnObsChanged;
+
+                switch (phase)
+                {
+                    case UpdatePhase.Update: driver.OnUpdateTick -= PollFromUI; break;
+                    case UpdatePhase.LateUpdate: driver.OnLateUpdateTick -= PollFromUI; break;
+                    case UpdatePhase.FixedUpdate: driver.OnFixedUpdateTick -= PollFromUI; break;
+                }
             }
 
             void Resync()
             {
-                Apply(directionObservable.Value);
+                if (direction != Reactive.BindDirection.FromUI)
+                    ApplyToUI(observable.Value);
+                lastSent = Read();
             }
 
             BindingInfo info = new()
             {
                 Kind = "Scrollbar.Direction",
-                Direction = "ToUI",
-                Description = "direction ← Observable<Scrollbar.Direction>",
+                Direction = direction.ToString(),
+                Description = $"direction ↔ Observable<Scrollbar.Direction> @ {phase}",
                 Target = scrollbar,
                 Owner = owner,
                 Anchor = anchor,
                 Options = options,
                 GetState = () => $"direction={scrollbar.direction}",
-                Tags = new[] { "Scrollbar", "Direction" }
-            };
-
-            BindingHandle handle = new(Subscribe, Unsubscribe, Resync, anchor, options, info);
-            if (owner != null)
-            {
-                BindingDisposer disposer = owner.GetComponent<BindingDisposer>() ??
-                                           owner.gameObject.AddComponent<BindingDisposer>();
-                disposer.Add(handle);
-            }
-
-            return handle;
-        }
-
-        /// <summary>
-        /// One-way binding: Observable{bool} -> Scrollbar.interactable.
-        /// </summary>
-        public static BindingHandle BindInteractable(
-            this Scrollbar scrollbar,
-            Observable<bool> interactableObservable,
-            MonoBehaviour owner = null,
-            BindingOptions options = null)
-        {
-            if (scrollbar == null) throw new ArgumentNullException(nameof(scrollbar));
-            if (interactableObservable == null) throw new ArgumentNullException(nameof(interactableObservable));
-
-            BindingAnchor anchor = owner != null
-                ? owner.GetComponent<BindingAnchor>() ?? owner.gameObject.AddComponent<BindingAnchor>()
-                : null;
-            options ??= new BindingOptions();
-
-            void Apply(bool v)
-            {
-                if (anchor != null && !anchor.ShouldProcessNow()) return;
-                scrollbar.interactable = v;
-            }
-
-            void OnObsChanged(IObservable<bool> _, bool oldV, bool newV)
-            {
-                Apply(newV);
-            }
-
-            void Subscribe()
-            {
-                Apply(interactableObservable.Value);
-                interactableObservable.OnChanged += OnObsChanged;
-            }
-
-            void Unsubscribe()
-            {
-                interactableObservable.OnChanged -= OnObsChanged;
-            }
-
-            void Resync()
-            {
-                Apply(interactableObservable.Value);
-            }
-
-            BindingInfo info = new()
-            {
-                Kind = "Scrollbar.Interactable",
-                Direction = "ToUI",
-                Description = "interactable ← Observable<bool>",
-                Target = scrollbar,
-                Owner = owner,
-                Anchor = anchor,
-                Options = options,
-                GetState = () => $"interactable={scrollbar.interactable}",
-                Tags = new[] { "Scrollbar", "Interactable" }
-            };
-
-            BindingHandle handle = new(Subscribe, Unsubscribe, Resync, anchor, options, info);
-            if (owner != null)
-            {
-                BindingDisposer disposer = owner.GetComponent<BindingDisposer>() ??
-                                           owner.gameObject.AddComponent<BindingDisposer>();
-                disposer.Add(handle);
-            }
-
-            return handle;
-        }
-
-        /// <summary>
-        /// One-way binding: Observable{bool} -> Behaviour.enabled (Scrollbar).
-        /// </summary>
-        public static BindingHandle BindEnabled(
-            this Scrollbar scrollbar,
-            Observable<bool> enabledObservable,
-            MonoBehaviour owner = null,
-            BindingOptions options = null)
-        {
-            if (scrollbar == null) throw new ArgumentNullException(nameof(scrollbar));
-            if (enabledObservable == null) throw new ArgumentNullException(nameof(enabledObservable));
-
-            BindingAnchor anchor = owner != null
-                ? owner.GetComponent<BindingAnchor>() ?? owner.gameObject.AddComponent<BindingAnchor>()
-                : null;
-            options ??= new BindingOptions();
-
-            void Apply(bool v)
-            {
-                if (anchor != null && !anchor.ShouldProcessNow()) return;
-                scrollbar.enabled = v;
-            }
-
-            void OnObsChanged(IObservable<bool> _, bool oldV, bool newV)
-            {
-                Apply(newV);
-            }
-
-            void Subscribe()
-            {
-                Apply(enabledObservable.Value);
-                enabledObservable.OnChanged += OnObsChanged;
-            }
-
-            void Unsubscribe()
-            {
-                enabledObservable.OnChanged -= OnObsChanged;
-            }
-
-            void Resync()
-            {
-                Apply(enabledObservable.Value);
-            }
-
-            BindingInfo info = new()
-            {
-                Kind = "Scrollbar.Enabled",
-                Direction = "ToUI",
-                Description = "enabled ← Observable<bool>",
-                Target = scrollbar,
-                Owner = owner,
-                Anchor = anchor,
-                Options = options,
-                GetState = () => $"enabled={scrollbar.enabled}",
-                Tags = new[] { "Scrollbar", "Enabled" }
+                Tags = new[] { "Scrollbar", "Direction", phase.ToString() }
             };
 
             BindingHandle handle = new(Subscribe, Unsubscribe, Resync, anchor, options, info);

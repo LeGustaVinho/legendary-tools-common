@@ -2,151 +2,123 @@
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace LegendaryTools.Reactive.TMPro
 {
     /// <summary>
-    /// Fluent builder for TMP_Dropdown.
+    /// Fluent builder for TMPro.TMP_Dropdown focusing on state bindings without native events:
+    /// - Interactable
+    /// - Enabled
+    ///
     /// Example:
-    /// items.Bind(dropdown)
-    ///   .Options(label: it => it.Name, sprite: it => it.Icon)
-    ///   .SelectedItem(selectedItemObs, BindDirection.TwoWay)
-    ///   .SelectedIndex(selectedIndexObs, BindDirection.ToUI)
-    ///   .Interactable(canUseObs)
-    ///   .Enabled(true)
+    /// carrier.Bind(dropdown)
+    ///   .Interactable(interactableObs, TwoWay, Update)
+    ///   .Enabled(enabledObs, TwoWay, Update)
     ///   .Owner(this)
     ///   .With(options);
     ///
-    /// If both SelectedItem and SelectedIndex are configured, SelectedItem takes precedence
-    /// to avoid conflicting bindings on the same target property.
+    /// 'carrier' is any Observable only to start the chain.
     /// </summary>
-    public sealed class DropdownBindingBuilder<TItem>
+    public sealed class TmpDropdownBindingBuilder<TValue>
+        where TValue : IEquatable<TValue>, IComparable<TValue>, IComparable, IConvertible
     {
-        private readonly ObservableList<TItem> _optionsSource;
+        private readonly Observable<TValue> _source; // chain carrier only
         private readonly TMP_Dropdown _dropdown;
 
-        private Func<TItem, string> _labelSelector = item => item?.ToString() ?? string.Empty;
-        private Func<TItem, Sprite> _spriteSelector;
-
-        private Observable<TItem> _selectedItemObs;
-        private BindDirection _selectedItemDir = BindDirection.TwoWay;
-        private EqualityComparer<TItem> _itemComparer = EqualityComparer<TItem>.Default;
-
-        private Observable<int> _selectedIndexObs;
-        private BindDirection _selectedIndexDir = BindDirection.TwoWay;
-
         private Observable<bool> _interactableObs;
-        private bool? _interactableFixed;
+        private BindDirection _interactableDir = BindDirection.TwoWay;
+        private UpdatePhase _interactablePhase = UpdatePhase.Update;
+        private Func<bool, bool> _interactableToUI;
+        private Func<bool, bool> _interactableFromUI;
 
         private Observable<bool> _enabledObs;
-        private bool? _enabledFixed;
+        private BindDirection _enabledDir = BindDirection.TwoWay;
+        private UpdatePhase _enabledPhase = UpdatePhase.Update;
+        private Func<bool, bool> _enabledToUI;
+        private Func<bool, bool> _enabledFromUI;
 
         private MonoBehaviour _owner;
         private BindingOptions _options;
 
-        public DropdownBindingBuilder(ObservableList<TItem> optionsSource, TMP_Dropdown dropdown)
+        public TmpDropdownBindingBuilder(Observable<TValue> source, TMP_Dropdown dropdown)
         {
-            _optionsSource = optionsSource ?? throw new ArgumentNullException(nameof(optionsSource));
+            _source = source ?? throw new ArgumentNullException(nameof(source));
             _dropdown = dropdown ?? throw new ArgumentNullException(nameof(dropdown));
         }
 
-        /// <summary>
-        /// Configure how to build OptionData from each TItem.
-        /// </summary>
-        public DropdownBindingBuilder<TItem> Options(Func<TItem, string> label, Func<TItem, Sprite> sprite = null)
+        // Interactable
+        public TmpDropdownBindingBuilder<TValue> Interactable(
+            Observable<bool> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update)
         {
-            _labelSelector = label ?? _labelSelector;
-            _spriteSelector = sprite;
+            _interactableObs = observable;
+            _interactableDir = direction;
+            _interactablePhase = phase;
             return this;
         }
 
-        /// <summary>
-        /// Bind selection as item.
-        /// </summary>
-        public DropdownBindingBuilder<TItem> SelectedItem(Observable<TItem> observable,
-            BindDirection dir = BindDirection.TwoWay, EqualityComparer<TItem> comparer = null)
+        public TmpDropdownBindingBuilder<TValue> InteractableConverters(
+            Func<bool, bool> toUI = null,
+            Func<bool, bool> fromUI = null)
         {
-            _selectedItemObs = observable;
-            _selectedItemDir = dir;
-            _itemComparer = comparer ?? _itemComparer;
+            _interactableToUI = toUI;
+            _interactableFromUI = fromUI;
             return this;
         }
 
-        /// <summary>
-        /// Bind selection as index.
-        /// </summary>
-        public DropdownBindingBuilder<TItem> SelectedIndex(Observable<int> observable,
-            BindDirection dir = BindDirection.TwoWay)
+        // Enabled
+        public TmpDropdownBindingBuilder<TValue> Enabled(
+            Observable<bool> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update)
         {
-            _selectedIndexObs = observable;
-            _selectedIndexDir = dir;
+            _enabledObs = observable;
+            _enabledDir = direction;
+            _enabledPhase = phase;
             return this;
         }
 
-        public DropdownBindingBuilder<TItem> Interactable(Observable<bool> interactableObservable)
+        public TmpDropdownBindingBuilder<TValue> EnabledConverters(
+            Func<bool, bool> toUI = null,
+            Func<bool, bool> fromUI = null)
         {
-            _interactableObs = interactableObservable;
-            _interactableFixed = null;
+            _enabledToUI = toUI;
+            _enabledFromUI = fromUI;
             return this;
         }
 
-        public DropdownBindingBuilder<TItem> Interactable(bool interactable)
-        {
-            _interactableFixed = interactable;
-            _interactableObs = null;
-            return this;
-        }
-
-        public DropdownBindingBuilder<TItem> Enabled(Observable<bool> enabledObservable)
-        {
-            _enabledObs = enabledObservable;
-            _enabledFixed = null;
-            return this;
-        }
-
-        public DropdownBindingBuilder<TItem> Enabled(bool enabled)
-        {
-            _enabledFixed = enabled;
-            _enabledObs = null;
-            return this;
-        }
-
-        public DropdownBindingBuilder<TItem> Owner(MonoBehaviour owner)
+        // Lifetime / Build
+        public TmpDropdownBindingBuilder<TValue> Owner(MonoBehaviour owner)
         {
             _owner = owner;
             return this;
         }
 
-        /// <summary>
-        /// Creates the configured bindings and returns a composite handle.
-        /// </summary>
         public CompositeBindingHandle With(BindingOptions options = null)
         {
             _options ??= options ?? new BindingOptions();
             List<BindingHandle> handles = new();
 
-            // Options
-            handles.Add(_dropdown.BindOptions(_optionsSource, _labelSelector, _spriteSelector, _owner, _options));
-
-            // Selection (prefer SelectedItem if both provided)
-            if (_selectedItemObs != null)
-                handles.Add(_dropdown.BindSelectedItem(_selectedItemObs, _optionsSource, _itemComparer,
-                    _selectedItemDir, _owner, _options));
-            else if (_selectedIndexObs != null)
-                handles.Add(_dropdown.BindSelectedIndex(_selectedIndexObs, _selectedIndexDir, _owner, _options));
-
-            // Interactable
             if (_interactableObs != null)
-                handles.Add(_dropdown.BindInteractable(_interactableObs, _owner, _options));
-            else if (_interactableFixed.HasValue)
-                _dropdown.interactable = _interactableFixed.Value;
+                handles.Add(_dropdown.BindInteractable(
+                    _interactableObs,
+                    _interactableDir,
+                    _interactablePhase,
+                    _owner,
+                    _options,
+                    _interactableToUI,
+                    _interactableFromUI));
 
-            // Enabled
             if (_enabledObs != null)
-                handles.Add(_dropdown.BindEnabled(_enabledObs, _owner, _options));
-            else if (_enabledFixed.HasValue)
-                _dropdown.enabled = _enabledFixed.Value;
+                handles.Add(_dropdown.BindEnabled(
+                    _enabledObs,
+                    _enabledDir,
+                    _enabledPhase,
+                    _owner,
+                    _options,
+                    _enabledToUI,
+                    _enabledFromUI));
 
             return new CompositeBindingHandle(handles);
         }

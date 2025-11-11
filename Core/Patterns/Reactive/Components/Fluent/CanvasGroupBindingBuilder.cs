@@ -7,36 +7,54 @@ namespace LegendaryTools.Reactive.UGUI
     /// <summary>
     /// Fluent builder for UnityEngine.CanvasGroup.
     /// Example:
-    /// vm.Bind(group)
-    ///   .Alpha(alphaObs)             // or .Alpha(1f)
-    ///   .Interactable(canInteractObs)// or .Interactable(true)
-    ///   .BlocksRaycasts(blocksObs)   // or .BlocksRaycasts(false)
-    ///   .IgnoreParentGroups(ignoreObs)// or .IgnoreParentGroups(true)
-    ///   .Enabled(true)               // or .Enabled(obsBool)
+    /// carrier.Bind(canvasGroup)
+    ///   .Alpha(alphaObs, TwoWay, LateUpdate, eps: 0.0001f)
+    ///   .Interactable(interactableObs, TwoWay, Update)
+    ///   .BlocksRaycasts(blocksObs, TwoWay, Update)
+    ///   .IgnoreParentGroups(ignoreObs, TwoWay, Update)
+    ///   .Enabled(enabledObs, TwoWay, Update)
     ///   .Owner(this)
     ///   .With(options);
+    ///
+    /// 'carrier' is any Observable used only to start the chain.
     /// </summary>
     public sealed class CanvasGroupBindingBuilder<TValue>
         where TValue : IEquatable<TValue>, IComparable<TValue>, IComparable, IConvertible
     {
-        private readonly Observable<TValue> _source;
+        private readonly Observable<TValue> _source; // chain carrier only
         private readonly CanvasGroup _group;
 
         private Observable<float> _alphaObs;
-        private float? _alphaFixed;
+        private BindDirection _alphaDir = BindDirection.TwoWay;
+        private UpdatePhase _alphaPhase = UpdatePhase.LateUpdate;
+        private Func<float, float> _alphaToUI;
+        private Func<float, float> _alphaFromUI;
+        private float _alphaEps = 0.0001f;
         private bool _alphaClamp01 = true;
 
         private Observable<bool> _interactableObs;
-        private bool? _interactableFixed;
+        private BindDirection _interactableDir = BindDirection.TwoWay;
+        private UpdatePhase _interactablePhase = UpdatePhase.Update;
+        private Func<bool, bool> _interactableToUI;
+        private Func<bool, bool> _interactableFromUI;
 
-        private Observable<bool> _blocksRaycastsObs;
-        private bool? _blocksRaycastsFixed;
+        private Observable<bool> _blocksObs;
+        private BindDirection _blocksDir = BindDirection.TwoWay;
+        private UpdatePhase _blocksPhase = UpdatePhase.Update;
+        private Func<bool, bool> _blocksToUI;
+        private Func<bool, bool> _blocksFromUI;
 
-        private Observable<bool> _ignoreParentGroupsObs;
-        private bool? _ignoreParentGroupsFixed;
+        private Observable<bool> _ignoreObs;
+        private BindDirection _ignoreDir = BindDirection.TwoWay;
+        private UpdatePhase _ignorePhase = UpdatePhase.Update;
+        private Func<bool, bool> _ignoreToUI;
+        private Func<bool, bool> _ignoreFromUI;
 
         private Observable<bool> _enabledObs;
-        private bool? _enabledFixed;
+        private BindDirection _enabledDir = BindDirection.TwoWay;
+        private UpdatePhase _enabledPhase = UpdatePhase.Update;
+        private Func<bool, bool> _enabledToUI;
+        private Func<bool, bool> _enabledFromUI;
 
         private MonoBehaviour _owner;
         private BindingOptions _options;
@@ -47,78 +65,111 @@ namespace LegendaryTools.Reactive.UGUI
             _group = group ?? throw new ArgumentNullException(nameof(group));
         }
 
-        public CanvasGroupBindingBuilder<TValue> Alpha(Observable<float> alphaObservable, bool clamp01 = true)
+        // Alpha
+        public CanvasGroupBindingBuilder<TValue> Alpha(
+            Observable<float> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.LateUpdate,
+            float eps = 0.0001f,
+            bool clamp01 = true)
         {
-            _alphaObs = alphaObservable;
-            _alphaFixed = null;
+            _alphaObs = observable;
+            _alphaDir = direction;
+            _alphaPhase = phase;
+            _alphaEps = eps;
             _alphaClamp01 = clamp01;
             return this;
         }
 
-        public CanvasGroupBindingBuilder<TValue> Alpha(float alpha, bool clamp01 = true)
+        public CanvasGroupBindingBuilder<TValue> AlphaConverters(Func<float, float> toUI = null,
+            Func<float, float> fromUI = null)
         {
-            _alphaFixed = alpha;
-            _alphaObs = null;
-            _alphaClamp01 = clamp01;
+            _alphaToUI = toUI;
+            _alphaFromUI = fromUI;
             return this;
         }
 
-        public CanvasGroupBindingBuilder<TValue> Interactable(Observable<bool> interactableObservable)
+        // Interactable
+        public CanvasGroupBindingBuilder<TValue> Interactable(
+            Observable<bool> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update)
         {
-            _interactableObs = interactableObservable;
-            _interactableFixed = null;
+            _interactableObs = observable;
+            _interactableDir = direction;
+            _interactablePhase = phase;
             return this;
         }
 
-        public CanvasGroupBindingBuilder<TValue> Interactable(bool interactable)
+        public CanvasGroupBindingBuilder<TValue> InteractableConverters(Func<bool, bool> toUI = null,
+            Func<bool, bool> fromUI = null)
         {
-            _interactableFixed = interactable;
-            _interactableObs = null;
+            _interactableToUI = toUI;
+            _interactableFromUI = fromUI;
             return this;
         }
 
-        public CanvasGroupBindingBuilder<TValue> BlocksRaycasts(Observable<bool> blocksRaycastsObservable)
+        // BlocksRaycasts
+        public CanvasGroupBindingBuilder<TValue> BlocksRaycasts(
+            Observable<bool> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update)
         {
-            _blocksRaycastsObs = blocksRaycastsObservable;
-            _blocksRaycastsFixed = null;
+            _blocksObs = observable;
+            _blocksDir = direction;
+            _blocksPhase = phase;
             return this;
         }
 
-        public CanvasGroupBindingBuilder<TValue> BlocksRaycasts(bool blocksRaycasts)
+        public CanvasGroupBindingBuilder<TValue> BlocksConverters(Func<bool, bool> toUI = null,
+            Func<bool, bool> fromUI = null)
         {
-            _blocksRaycastsFixed = blocksRaycasts;
-            _blocksRaycastsObs = null;
+            _blocksToUI = toUI;
+            _blocksFromUI = fromUI;
             return this;
         }
 
-        public CanvasGroupBindingBuilder<TValue> IgnoreParentGroups(Observable<bool> ignoreParentGroupsObservable)
+        // IgnoreParentGroups
+        public CanvasGroupBindingBuilder<TValue> IgnoreParentGroups(
+            Observable<bool> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update)
         {
-            _ignoreParentGroupsObs = ignoreParentGroupsObservable;
-            _ignoreParentGroupsFixed = null;
+            _ignoreObs = observable;
+            _ignoreDir = direction;
+            _ignorePhase = phase;
             return this;
         }
 
-        public CanvasGroupBindingBuilder<TValue> IgnoreParentGroups(bool ignoreParentGroups)
+        public CanvasGroupBindingBuilder<TValue> IgnoreConverters(Func<bool, bool> toUI = null,
+            Func<bool, bool> fromUI = null)
         {
-            _ignoreParentGroupsFixed = ignoreParentGroups;
-            _ignoreParentGroupsObs = null;
+            _ignoreToUI = toUI;
+            _ignoreFromUI = fromUI;
             return this;
         }
 
-        public CanvasGroupBindingBuilder<TValue> Enabled(Observable<bool> enabledObservable)
+        // Enabled
+        public CanvasGroupBindingBuilder<TValue> Enabled(
+            Observable<bool> observable,
+            BindDirection direction = BindDirection.TwoWay,
+            UpdatePhase phase = UpdatePhase.Update)
         {
-            _enabledObs = enabledObservable;
-            _enabledFixed = null;
+            _enabledObs = observable;
+            _enabledDir = direction;
+            _enabledPhase = phase;
             return this;
         }
 
-        public CanvasGroupBindingBuilder<TValue> Enabled(bool enabled)
+        public CanvasGroupBindingBuilder<TValue> EnabledConverters(Func<bool, bool> toUI = null,
+            Func<bool, bool> fromUI = null)
         {
-            _enabledFixed = enabled;
-            _enabledObs = null;
+            _enabledToUI = toUI;
+            _enabledFromUI = fromUI;
             return this;
         }
 
+        // Lifetime / Build
         public CanvasGroupBindingBuilder<TValue> Owner(MonoBehaviour owner)
         {
             _owner = owner;
@@ -130,31 +181,57 @@ namespace LegendaryTools.Reactive.UGUI
             _options ??= options ?? new BindingOptions();
             List<BindingHandle> handles = new();
 
-            // Alpha
             if (_alphaObs != null)
-                handles.Add(_group.BindAlpha(_alphaObs, _owner, _options, _alphaClamp01));
-            else if (_alphaFixed.HasValue)
-                _group.alpha = _alphaClamp01 ? Mathf.Clamp01(_alphaFixed.Value) : _alphaFixed.Value;
+                handles.Add(_group.BindAlpha(
+                    _alphaObs,
+                    _alphaDir,
+                    _alphaPhase,
+                    _owner,
+                    _options,
+                    _alphaToUI,
+                    _alphaFromUI,
+                    _alphaEps,
+                    _alphaClamp01));
 
-            // Interactable
             if (_interactableObs != null)
-                handles.Add(_group.BindInteractable(_interactableObs, _owner, _options));
-            else if (_interactableFixed.HasValue) _group.interactable = _interactableFixed.Value;
+                handles.Add(_group.BindInteractable(
+                    _interactableObs,
+                    _interactableDir,
+                    _interactablePhase,
+                    _owner,
+                    _options,
+                    _interactableToUI,
+                    _interactableFromUI));
 
-            // BlocksRaycasts
-            if (_blocksRaycastsObs != null)
-                handles.Add(_group.BindBlocksRaycasts(_blocksRaycastsObs, _owner, _options));
-            else if (_blocksRaycastsFixed.HasValue) _group.blocksRaycasts = _blocksRaycastsFixed.Value;
+            if (_blocksObs != null)
+                handles.Add(_group.BindBlocksRaycasts(
+                    _blocksObs,
+                    _blocksDir,
+                    _blocksPhase,
+                    _owner,
+                    _options,
+                    _blocksToUI,
+                    _blocksFromUI));
 
-            // IgnoreParentGroups
-            if (_ignoreParentGroupsObs != null)
-                handles.Add(_group.BindIgnoreParentGroups(_ignoreParentGroupsObs, _owner, _options));
-            else if (_ignoreParentGroupsFixed.HasValue) _group.ignoreParentGroups = _ignoreParentGroupsFixed.Value;
+            if (_ignoreObs != null)
+                handles.Add(_group.BindIgnoreParentGroups(
+                    _ignoreObs,
+                    _ignoreDir,
+                    _ignorePhase,
+                    _owner,
+                    _options,
+                    _ignoreToUI,
+                    _ignoreFromUI));
 
-            // Enabled
             if (_enabledObs != null)
-                handles.Add(_group.BindEnabled(_enabledObs, _owner, _options));
-            else if (_enabledFixed.HasValue) _group.enabled = _enabledFixed.Value;
+                handles.Add(_group.BindEnabled(
+                    _enabledObs,
+                    _enabledDir,
+                    _enabledPhase,
+                    _owner,
+                    _options,
+                    _enabledToUI,
+                    _enabledFromUI));
 
             return new CompositeBindingHandle(handles);
         }

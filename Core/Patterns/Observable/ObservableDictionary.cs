@@ -31,8 +31,7 @@ namespace LegendaryTools
         [Sirenix.OdinInspector.ShowInInspector]
         private Dictionary<TKey, TValue> dictionary = new();
 #else
-        [UnityEngine.SerializeField]
-        private SerializableDictionary<TKey, TValue> dictionary = new();
+        [UnityEngine.SerializeField] private SerializableDictionary<TKey, TValue> dictionary = new();
 #endif
 
         public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
