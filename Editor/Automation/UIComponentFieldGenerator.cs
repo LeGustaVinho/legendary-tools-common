@@ -11,7 +11,6 @@ using System.Reflection;
 using Newtonsoft.Json;
 using UnityEditor.SceneManagement;
 
-
 namespace LegendaryTools.Editor
 {
     public class UIComponentFieldGenerator : EditorWindow
@@ -20,8 +19,8 @@ namespace LegendaryTools.Editor
         private string namespaceName = "MyNamespace";
         private string className = "MyUIClass";
         private Vector2 scrollPosition;
-        private Dictionary<string, List<ComponentInfo>> componentGroups = new();
-        private Dictionary<string, bool> foldoutStates = new();
+        private Dictionary<string, List<ComponentInfo>> componentGroups = new(); // key = parent path
+        private Dictionary<string, bool> foldoutStates = new(); // key = parent path
         private bool expandAllGroups = true;
         private int filterTypeIndex = 0;
         private string gameObjectFilter = "";
@@ -49,11 +48,11 @@ namespace LegendaryTools.Editor
         private class ComponentInfo
         {
             [JsonIgnore] public Component component;
-            public string componentType;
+            public string componentType; // FullName
             public bool isSelected;
             public string gameObjectName;
             public string gameObjectPath;
-            public string parentName;
+            public string parentName; // display only
             public string fieldName;
             public string fieldNameInput;
             public List<int> selectedPropertyIndices;
@@ -66,17 +65,18 @@ namespace LegendaryTools.Editor
             public ComponentInfo(Component comp, string goName, string goPath, string pName, string fName)
             {
                 component = comp;
-                componentType = comp.GetType().ToString();
+                componentType = comp.GetType().FullName;
                 isSelected = false;
                 gameObjectName = goName;
                 gameObjectPath = goPath;
                 parentName = pName;
                 fieldName = fName;
                 fieldNameInput = fName;
-                selectedPropertyIndices = ComponentProperties.ContainsKey(comp.GetType()) &&
-                                          ComponentProperties[comp.GetType()].Count > 0
-                    ? new List<int> { 0 }
-                    : new List<int>();
+                selectedPropertyIndices =
+                    WeaverUtils.TryGetPropertyMap(comp.GetType(),
+                        out List<(string propertyName, string propertyType)> list) && list.Count > 0
+                        ? new List<int> { 0 }
+                        : new List<int>();
                 selectedEventIndices = new List<int>();
             }
         }
@@ -85,8 +85,8 @@ namespace LegendaryTools.Editor
         private struct FieldAssignment
         {
             public string fieldName;
-            public string componentType;
-            public string gameObjectName;
+            public string componentType; // FullName
+            public string gameObjectName; // path
         }
 
         [Serializable]
@@ -105,99 +105,13 @@ namespace LegendaryTools.Editor
             public HashSet<string> usedFieldNames;
         }
 
-        private static readonly Dictionary<Type, List<(string propertyName, string propertyType)>> ComponentProperties =
-            new()
-            {
-                {
-                    typeof(Text),
-                    new List<(string, string)> { ("text", "string"), ("color", "Color"), ("enabled", "bool") }
-                },
-                {
-                    typeof(TextMeshProUGUI),
-                    new List<(string, string)> { ("text", "string"), ("color", "Color"), ("enabled", "bool") }
-                },
-                {
-                    typeof(TMP_Text),
-                    new List<(string, string)> { ("text", "string"), ("color", "Color"), ("enabled", "bool") }
-                },
-                {
-                    typeof(TMP_InputField),
-                    new List<(string, string)> { ("text", "string"), ("color", "Color"), ("enabled", "bool") }
-                },
-                {
-                    typeof(Image),
-                    new List<(string, string)>
-                        { ("color", "Color"), ("sprite", "Sprite"), ("fillAmount", "float"), ("enabled", "bool") }
-                },
-                {
-                    typeof(RawImage),
-                    new List<(string, string)> { ("color", "Color"), ("texture", "Texture"), ("enabled", "bool") }
-                },
-                { typeof(Button), new List<(string, string)> { ("interactable", "bool") } },
-                { typeof(Toggle), new List<(string, string)> { ("isOn", "bool") } },
-                { typeof(Slider), new List<(string, string)> { ("value", "float") } },
-                { typeof(Scrollbar), new List<(string, string)> { ("value", "float") } },
-                { typeof(Dropdown), new List<(string, string)> { ("value", "int") } },
-                { typeof(InputField), new List<(string, string)> { ("text", "string"), ("color", "Color") } },
-                { typeof(ScrollRect), new List<(string, string)> { ("normalizedPosition", "Vector2") } },
-                { typeof(Mask), new List<(string, string)> { } }
-            };
-
-        private static readonly Dictionary<Type, List<(string eventName, string eventType, string handlerSignature)>>
-            ComponentEvents = new()
-            {
-                { typeof(Button), new List<(string, string, string)> { ("onClick", "UnityEvent", "()") } },
-                {
-                    typeof(Toggle),
-                    new List<(string, string, string)> { ("onValueChanged", "UnityEvent<bool>", "(bool value)") }
-                },
-                {
-                    typeof(Slider),
-                    new List<(string, string, string)> { ("onValueChanged", "UnityEvent<float>", "(float value)") }
-                },
-                {
-                    typeof(Scrollbar),
-                    new List<(string, string, string)> { ("onValueChanged", "UnityEvent<float>", "(float value)") }
-                },
-                {
-                    typeof(Dropdown),
-                    new List<(string, string, string)> { ("onValueChanged", "UnityEvent<int>", "(int value)") }
-                },
-                {
-                    typeof(InputField), new List<(string, string, string)>
-                    {
-                        ("onValueChanged", "UnityEvent<string>", "(string value)"),
-                        ("onEndEdit", "UnityEvent<string>", "(string value)"),
-                        ("onSubmit", "UnityEvent<string>", "(string value)")
-                    }
-                },
-                {
-                    typeof(TMP_InputField), new List<(string, string, string)>
-                    {
-                        ("onValueChanged", "UnityEvent<string>", "(string value)"),
-                        ("onEndEdit", "UnityEvent<string>", "(string value)"),
-                        ("onSubmit", "UnityEvent<string>", "(string value)")
-                    }
-                },
-                {
-                    typeof(ScrollRect),
-                    new List<(string, string, string)> { ("onValueChanged", "UnityEvent<Vector2>", "(Vector2 value)") }
-                },
-                { typeof(Text), new List<(string, string, string)> { } },
-                { typeof(TextMeshProUGUI), new List<(string, string, string)> { } },
-                { typeof(TMP_Text), new List<(string, string, string)> { } },
-                { typeof(Image), new List<(string, string, string)> { } },
-                { typeof(RawImage), new List<(string, string, string)> { } },
-                { typeof(Mask), new List<(string, string, string)> { } }
-            };
-
-        [MenuItem("Tools/UI Component Field Generator")]
+        [MenuItem("Tools/LegendaryTools/Automation/UI Component Field Generator")]
         public static void ShowWindow()
         {
             GetWindow<UIComponentFieldGenerator>("UI Field Generator");
         }
 
-        [MenuItem("Component/UI Component Field Generator", false, 1000)]
+        [MenuItem("Tools/LegendaryTools/Automation/UI Component Field Generator", false, 1000)]
         private static void OpenFromContextMenu()
         {
             GameObject selected = Selection.activeGameObject;
@@ -265,7 +179,6 @@ namespace LegendaryTools.Editor
 
             if (current == null) return null;
 
-            // Traversar a hierarquia
             for (int i = 1; i < pathSegments.Length; i++)
             {
                 Transform child = null;
@@ -285,10 +198,46 @@ namespace LegendaryTools.Editor
             return current;
         }
 
+        // Finds a Type by simple name or full name scanning common namespaces and loaded assemblies.
+        private static Type ResolveType(string typeName)
+        {
+            Type type = Type.GetType(typeName);
+            if (type != null) return type;
+
+            string[] candidates =
+            {
+                $"UnityEngine.UI.{typeName}",
+                $"TMPro.{typeName}",
+                $"UnityEngine.{typeName}"
+            };
+
+            foreach (string c in candidates)
+            {
+                type = Type.GetType(c);
+                if (type != null) return type;
+            }
+
+            foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
+                {
+                    type = asm.GetTypes().FirstOrDefault(t => t.Name == typeName || t.FullName == typeName);
+                    if (type != null) return type;
+                }
+                catch
+                {
+                    /* ignore */
+                }
+            }
+
+            return null;
+        }
+
         [UnityEditor.Callbacks.DidReloadScripts]
         private static void OnAfterAssemblyReload()
         {
-            if (EditorPrefs.GetBool(s_isWaitingRecompile)) EditorApplication.delayCall += OnInspectorReloadComplete;
+            if (EditorPrefs.GetBool(s_isWaitingRecompile))
+                EditorApplication.delayCall += OnInspectorReloadComplete;
 
             if (File.Exists(s_windowStatePath))
                 EditorApplication.delayCall += () =>
@@ -371,7 +320,12 @@ namespace LegendaryTools.Editor
                 GameObject targetGameObject = FindGameObjectByPath(assignment.gameObjectName);
                 Component targetComponent = null;
 
-                if (targetGameObject != null) targetComponent = targetGameObject.GetComponent(assignment.componentType);
+                if (targetGameObject != null)
+                {
+                    Type targetType = ResolveType(assignment.componentType);
+                    if (targetType != null)
+                        targetComponent = targetGameObject.GetComponent(targetType);
+                }
 
                 if (targetComponent == null)
                 {
@@ -399,16 +353,15 @@ namespace LegendaryTools.Editor
             GUILayout.Label("UI Component Field Generator", EditorStyles.boldLabel);
 
             targetRectTransform = (RectTransform)EditorGUILayout.ObjectField("Target RectTransform",
-                targetRectTransform,
-                typeof(RectTransform), true);
+                targetRectTransform, typeof(RectTransform), true);
             namespaceName = EditorGUILayout.TextField("Namespace", namespaceName);
             className = EditorGUILayout.TextField("Class Name", className);
 
             EditorGUILayout.BeginHorizontal();
             List<string> typeOptions = new() { "All" };
             typeOptions.AddRange(supportedTypes.Select(t => t.Name));
-            filterTypeIndex =
-                EditorGUILayout.Popup("Filter Type", filterTypeIndex, typeOptions.ToArray(), GUILayout.Width(200));
+            filterTypeIndex = EditorGUILayout.Popup("Filter Type", filterTypeIndex, typeOptions.ToArray(),
+                GUILayout.Width(200));
             gameObjectFilter = EditorGUILayout.TextField("Filter GameObject", gameObjectFilter, GUILayout.Width(500));
             EditorGUILayout.EndHorizontal();
 
@@ -447,10 +400,11 @@ namespace LegendaryTools.Editor
                 foreach (List<ComponentInfo> group in componentGroups.Values)
                 foreach (ComponentInfo comp in group)
                 {
-                    if (ComponentProperties.ContainsKey(comp.component.GetType()) &&
-                        ComponentProperties[comp.component.GetType()].Count > 0)
-                        comp.selectedPropertyIndices =
-                            Enumerable.Range(0, ComponentProperties[comp.component.GetType()].Count).ToList();
+                    if (comp.component != null &&
+                        WeaverUtils.TryGetPropertyMap(comp.component.GetType(),
+                            out List<(string propertyName, string propertyType)> map) &&
+                        map.Count > 0)
+                        comp.selectedPropertyIndices = Enumerable.Range(0, map.Count).ToList();
                 }
 
             if (GUILayout.Button("No Getters/Setters"))
@@ -476,8 +430,10 @@ namespace LegendaryTools.Editor
             usedFieldNames.Clear();
             foreach (KeyValuePair<string, List<ComponentInfo>> group in componentGroups)
             {
-                string parentName = group.Key;
+                string parentPath = group.Key;
+                string parentNameDisplay = parentPath.Contains("/") ? parentPath.Split('/').Last() : parentPath;
                 List<ComponentInfo> filteredComponents = group.Value.Where(c =>
+                    c.component != null &&
                     (filterTypeIndex == 0 || c.component.GetType() == supportedTypes[filterTypeIndex - 1]) &&
                     (string.IsNullOrEmpty(gameObjectFilter) ||
                      c.gameObjectName.ToLower().Contains(gameObjectFilter.ToLower()))
@@ -486,20 +442,21 @@ namespace LegendaryTools.Editor
                 if (filteredComponents.Count == 0)
                     continue;
 
-                if (!foldoutStates.ContainsKey(parentName))
-                    foldoutStates[parentName] = expandAllGroups;
+                if (!foldoutStates.ContainsKey(parentPath))
+                    foldoutStates[parentPath] = expandAllGroups;
 
-                foldoutStates[parentName] = EditorGUILayout.Foldout(foldoutStates[parentName], $"Parent: {parentName}");
+                foldoutStates[parentPath] = EditorGUILayout.Foldout(foldoutStates[parentPath],
+                    $"Parent: {parentNameDisplay} ({parentPath})");
 
-                if (foldoutStates[parentName])
+                if (foldoutStates[parentPath])
                 {
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.LabelField("Selected", EditorStyles.boldLabel, GUILayout.Width(60));
                     EditorGUILayout.LabelField("GameObject", EditorStyles.boldLabel, GUILayout.Width(150));
                     EditorGUILayout.LabelField("Field", EditorStyles.boldLabel, GUILayout.Width(120));
-                    EditorGUILayout.LabelField("Type", EditorStyles.boldLabel, GUILayout.Width(120));
-                    EditorGUILayout.LabelField("Properties", EditorStyles.boldLabel, GUILayout.Width(120));
-                    EditorGUILayout.LabelField("Events", EditorStyles.boldLabel, GUILayout.Width(120));
+                    EditorGUILayout.LabelField("Type", EditorStyles.boldLabel, GUILayout.Width(160));
+                    EditorGUILayout.LabelField("Properties", EditorStyles.boldLabel, GUILayout.Width(140));
+                    EditorGUILayout.LabelField("Events", EditorStyles.boldLabel, GUILayout.Width(140));
                     EditorGUILayout.EndHorizontal();
 
                     foreach (ComponentInfo comp in filteredComponents)
@@ -510,41 +467,42 @@ namespace LegendaryTools.Editor
                         GUIStyle buttonStyle = new(GUI.skin.label)
                             { normal = { textColor = GUI.skin.label.normal.textColor } };
                         if (GUI.Button(EditorGUILayout.GetControlRect(GUILayout.Width(150)), comp.gameObjectName,
-                                buttonStyle)) Selection.activeObject = comp.component.gameObject;
+                                buttonStyle))
+                            Selection.activeObject = comp.component.gameObject;
 
-                        string originalFieldName = comp.fieldNameInput;
-                        string newFieldName = originalFieldName;
+                        // Editable field name with uniqueness and identifier validation after edit
+                        string beforeEdit = comp.fieldNameInput;
+                        string edited = EditorGUILayout.TextField(beforeEdit, GUILayout.Width(120));
+                        string candidate = string.IsNullOrEmpty(edited) ? comp.fieldName : edited;
+                        if (!IsValidCSharpIdentifier(candidate)) candidate = comp.fieldName;
+
+                        string unique = candidate;
                         int suffix = 0;
-
-                        int maxTries = 20;
-                        int currentTry = 0;
-                        while (usedFieldNames.Contains(newFieldName) ||
-                               (!IsValidCSharpIdentifier(newFieldName) && currentTry < maxTries))
+                        while (usedFieldNames.Contains(unique))
                         {
                             suffix++;
-                            newFieldName = $"{originalFieldName}{suffix}";
-                            currentTry++;
+                            unique = $"{candidate}{suffix}";
                         }
 
-                        if (newFieldName != originalFieldName) comp.fieldNameInput = newFieldName;
+                        comp.fieldNameInput = unique;
+                        usedFieldNames.Add(unique);
 
-                        usedFieldNames.Add(comp.fieldNameInput);
+                        // Type label
+                        EditorGUILayout.LabelField(comp.component.GetType().FullName, GUILayout.Width(160));
 
-                        comp.fieldNameInput = EditorGUILayout.TextField(comp.fieldNameInput, GUILayout.Width(120));
-                        EditorGUILayout.LabelField(comp.component.GetType().Name, GUILayout.Width(120));
-
+                        // Properties mask
                         Type compType = comp.component.GetType();
-                        if (ComponentProperties.ContainsKey(compType) && ComponentProperties[compType].Count > 0)
+                        if (WeaverUtils.TryGetPropertyMap(compType,
+                                out List<(string propertyName, string propertyType)> propMap) && propMap.Count > 0)
                         {
-                            string[] propertyOptions =
-                                ComponentProperties[compType].Select(p => p.propertyName).ToArray();
+                            string[] propertyOptions = propMap.Select(p => p.propertyName).ToArray();
                             int currentMask = 0;
                             for (int i = 0; i < comp.selectedPropertyIndices.Count; i++)
                             {
                                 currentMask |= 1 << comp.selectedPropertyIndices[i];
                             }
 
-                            int newMask = EditorGUILayout.MaskField(currentMask, propertyOptions, GUILayout.Width(120));
+                            int newMask = EditorGUILayout.MaskField(currentMask, propertyOptions, GUILayout.Width(140));
                             comp.selectedPropertyIndices = new List<int>();
                             for (int i = 0; i < propertyOptions.Length; i++)
                             {
@@ -554,19 +512,22 @@ namespace LegendaryTools.Editor
                         }
                         else
                         {
-                            EditorGUILayout.LabelField("None", GUILayout.Width(120));
+                            EditorGUILayout.LabelField("None", GUILayout.Width(140));
                         }
 
-                        if (ComponentEvents.ContainsKey(compType) && ComponentEvents[compType].Count > 0)
+                        // Events mask
+                        if (WeaverUtils.TryGetEventMap(compType,
+                                out List<(string eventName, string eventType, string handlerSignature)> evtMap) &&
+                            evtMap.Count > 0)
                         {
-                            string[] eventOptions = ComponentEvents[compType].Select(e => e.eventName).ToArray();
+                            string[] eventOptions = evtMap.Select(e => e.eventName).ToArray();
                             int currentMask = 0;
                             for (int i = 0; i < comp.selectedEventIndices.Count; i++)
                             {
                                 currentMask |= 1 << comp.selectedEventIndices[i];
                             }
 
-                            int newMask = EditorGUILayout.MaskField(currentMask, eventOptions, GUILayout.Width(120));
+                            int newMask = EditorGUILayout.MaskField(currentMask, eventOptions, GUILayout.Width(140));
                             comp.selectedEventIndices = new List<int>();
                             for (int i = 0; i < eventOptions.Length; i++)
                             {
@@ -576,7 +537,7 @@ namespace LegendaryTools.Editor
                         }
                         else
                         {
-                            EditorGUILayout.LabelField("None", GUILayout.Width(120));
+                            EditorGUILayout.LabelField("None", GUILayout.Width(140));
                         }
 
                         EditorGUILayout.EndHorizontal();
@@ -601,7 +562,7 @@ namespace LegendaryTools.Editor
                 }
 
                 SaveWindowState();
-                GenerateClassFile();
+                GenerateClassFile(); // now delegates generation to WeaverUtils
             }
         }
 
@@ -618,14 +579,15 @@ namespace LegendaryTools.Editor
             {
                 foreach (Component comp in rt.GetComponents<Component>())
                 {
+                    if (comp == null) continue;
                     if (supportedTypes.Contains(comp.GetType()))
                     {
                         string goName = comp.gameObject.name;
+                        string parentKey = rt.parent != null ? GetGameObjectPath(rt.parent.gameObject) : "Root";
                         string parentName = rt.parent != null ? rt.parent.name : "Root";
                         string baseFieldName = ConvertToValidFieldName(goName);
                         string fieldName = baseFieldName;
 
-                        // Garante que o nome do campo seja único
                         if (fieldNameCounts.ContainsKey(baseFieldName))
                         {
                             fieldNameCounts[baseFieldName]++;
@@ -636,12 +598,15 @@ namespace LegendaryTools.Editor
                             fieldNameCounts[baseFieldName] = 0;
                         }
 
-                        if (!componentGroups.ContainsKey(parentName))
-                            componentGroups[parentName] = new List<ComponentInfo>();
+                        if (!componentGroups.ContainsKey(parentKey))
+                            componentGroups[parentKey] = new List<ComponentInfo>();
 
-                        componentGroups[parentName].Add(new ComponentInfo(comp, comp.gameObject.name,
-                            GetGameObjectPath(comp.gameObject), parentName, fieldName));
-                        usedFieldNames.Add(fieldName);
+                        componentGroups[parentKey].Add(new ComponentInfo(
+                            comp,
+                            comp.gameObject.name,
+                            GetGameObjectPath(comp.gameObject),
+                            parentName,
+                            fieldName));
                     }
                 }
             }
@@ -690,19 +655,24 @@ namespace LegendaryTools.Editor
             return !keywords.Contains(name);
         }
 
+        /// <summary>
+        /// Generates the class file via WeaverUtils and preserves the post-recompile auto-attachment/assignment flow.
+        /// </summary>
         private void GenerateClassFile()
         {
             List<ComponentInfo> selectedComponents =
-                componentGroups.Values.SelectMany(g => g).Where(c => c.isSelected).ToList();
+                componentGroups.Values.SelectMany(g => g).Where(c => c.isSelected && c.component != null).ToList();
             if (selectedComponents.Count == 0)
             {
                 EditorUtility.DisplayDialog("Error", "No components selected.", "OK");
                 return;
             }
 
+            // Unique name resolution per selection round
             Dictionary<string, int> fieldNameCounts = new();
             Dictionary<ComponentInfo, string> uniqueFieldNames = new();
             List<FieldAssignment> fieldAssignments = new();
+
             foreach (ComponentInfo comp in selectedComponents)
             {
                 string baseName = comp.fieldNameInput;
@@ -730,149 +700,36 @@ namespace LegendaryTools.Editor
                 fieldAssignments.Add(new FieldAssignment
                 {
                     fieldName = uniqueFieldNames[comp],
-                    componentType = comp.component.GetType().Name,
+                    componentType = comp.component.GetType().FullName,
                     gameObjectName = GetGameObjectPath(comp.component.gameObject)
                 });
             }
 
-            string classContent = "";
-            List<string> usingStatements = new() { "UnityEngine", "UnityEngine.UI" };
-            if (selectedComponents.Any(c => c.component.GetType() == typeof(TMP_Text) ||
-                                            c.component.GetType() == typeof(TextMeshProUGUI) ||
-                                            c.component.GetType() == typeof(TMP_InputField)))
-                usingStatements.Add("TMPro");
-            if (selectedComponents.Any(c => c.selectedEventIndices.Any()))
-                usingStatements.Add("UnityEngine.Events");
-
-            foreach (string us in usingStatements)
+            // Prepare binding items for WeaverUtils
+            List<WeaverUtils.UIBindingItem> items = selectedComponents.Select(ci => new WeaverUtils.UIBindingItem
             {
-                classContent += $"using {us};\n";
-            }
+                FieldName = uniqueFieldNames[ci],
+                Component = ci.component,
+                SelectedPropertyIndices = new List<int>(ci.selectedPropertyIndices),
+                SelectedEventIndices = new List<int>(ci.selectedEventIndices)
+            }).ToList();
 
-            classContent += "\n";
+            // Delegate generation + file saving to WeaverUtils
+            string relativePath = WeaverUtils.GenerateUIBindingClassFile(
+                namespaceName,
+                className,
+                items,
+                useSerializeField,
+                useBackingFields);
 
-            if (!string.IsNullOrEmpty(namespaceName))
-                classContent += $"namespace {namespaceName}\n{{\n";
+            if (string.IsNullOrEmpty(relativePath))
+                return; // user cancelled or invalid path
 
-            classContent += $"    public class {className} : MonoBehaviour\n    {{\n";
-
-            foreach (ComponentInfo comp in selectedComponents)
-            {
-                string typeName = comp.component.GetType().Name;
-                string fieldName = uniqueFieldNames[comp];
-                string accessModifier = useSerializeField ? "[SerializeField] private" : "public";
-                classContent += $"        {accessModifier} {typeName} {fieldName};\n";
-            }
-
-            classContent += "\n";
-
-            foreach (ComponentInfo comp in selectedComponents)
-            {
-                Type compType = comp.component.GetType();
-                if (!ComponentProperties.ContainsKey(compType) || ComponentProperties[compType].Count == 0)
-                    continue;
-
-                string fieldName = uniqueFieldNames[comp];
-                foreach (int propIndex in comp.selectedPropertyIndices)
-                {
-                    (string propertyName, string propertyType) prop = ComponentProperties[compType][propIndex];
-                    string propName = prop.propertyName;
-                    string propType = prop.propertyType;
-                    string capitalizedProp = char.ToUpper(propName[0]) + propName.Substring(1);
-                    string backingFieldName = $"_{fieldName}{capitalizedProp}";
-
-                    if (useBackingFields)
-                    {
-                        classContent += $"        [SerializeField] private {propType} {backingFieldName};\n";
-                        classContent += $"        public {propType} {fieldName}{capitalizedProp}\n";
-                        classContent += $"        {{\n";
-                        classContent += $"            get => {backingFieldName};\n";
-                        classContent +=
-                            $"            set {{ {backingFieldName} = value; {fieldName}.{propName} = value; }}\n";
-                        classContent += $"        }}\n";
-                    }
-                    else
-                    {
-                        classContent += $"        public {propType} {fieldName}{capitalizedProp}\n";
-                        classContent += $"        {{\n";
-                        classContent += $"            get => {fieldName}.{propName};\n";
-                        classContent += $"            set => {fieldName}.{propName} = value;\n";
-                        classContent += $"        }}\n";
-                    }
-                }
-            }
-
-            classContent += "\n";
-
-            bool hasEvents = selectedComponents.Any(c => c.selectedEventIndices.Any());
-            if (hasEvents)
-            {
-                classContent += $"        private void Awake()\n        {{\n";
-                foreach (ComponentInfo comp in selectedComponents.Where(c => c.selectedEventIndices.Any()))
-                {
-                    string fieldName = uniqueFieldNames[comp];
-                    Type compType = comp.component.GetType();
-                    foreach (int eventIndex in comp.selectedEventIndices)
-                    {
-                        (string eventName, string eventType, string handlerSignature) eventInfo =
-                            ComponentEvents[compType][eventIndex];
-                        string handlerName = $"On{fieldName}{eventInfo.eventName}";
-                        classContent += $"            {fieldName}.{eventInfo.eventName}.AddListener({handlerName});\n";
-                    }
-                }
-
-                classContent += $"        }}\n\n";
-
-                classContent += $"        private void OnDestroy()\n        {{\n";
-                foreach (ComponentInfo comp in selectedComponents.Where(c => c.selectedEventIndices.Any()))
-                {
-                    string fieldName = uniqueFieldNames[comp];
-                    Type compType = comp.component.GetType();
-                    foreach (int eventIndex in comp.selectedEventIndices)
-                    {
-                        (string eventName, string eventType, string handlerSignature) eventInfo =
-                            ComponentEvents[compType][eventIndex];
-                        string handlerName = $"On{fieldName}{eventInfo.eventName}";
-                        classContent +=
-                            $"            {fieldName}.{eventInfo.eventName}.RemoveListener({handlerName});\n";
-                    }
-                }
-
-                classContent += $"        }}\n\n";
-            }
-
-            foreach (ComponentInfo comp in selectedComponents.Where(c => c.selectedEventIndices.Any()))
-            {
-                Type compType = comp.component.GetType();
-                string fieldName = uniqueFieldNames[comp];
-                foreach (int eventIndex in comp.selectedEventIndices)
-                {
-                    (string eventName, string eventType, string handlerSignature) eventInfo =
-                        ComponentEvents[compType][eventIndex];
-                    string handlerName = $"On{fieldName}{eventInfo.eventName}";
-                    classContent += $"        private void {handlerName}{eventInfo.handlerSignature}\n";
-                    classContent += $"        {{\n";
-                    classContent += $"            // TODO: Implement {eventInfo.eventName} handler for {fieldName}\n";
-                    classContent += $"        }}\n\n";
-                }
-            }
-
-            classContent += "    }\n";
-            if (!string.IsNullOrEmpty(namespaceName))
-                classContent += "}";
-
-            string path = EditorUtility.SaveFilePanel("Save Script", "Assets", className + ".cs", "cs");
-            if (!string.IsNullOrEmpty(path))
-            {
-                File.WriteAllText(path, classContent);
-                string relativePath = "Assets" + path.Substring(Application.dataPath.Length);
-                EditorPrefs.SetBool(s_isWaitingRecompile, true);
-                EditorPrefs.SetString(s_pendingScriptPath, relativePath);
-                EditorPrefs.SetString(s_pendingTargetRectTransformPath,
-                    GetGameObjectPath(targetRectTransform.gameObject));
-                EditorPrefs.SetString(s_pendingFieldAssignments, JsonConvert.SerializeObject(fieldAssignments));
-                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
-            }
+            // Prepare data for post-compile auto-binding
+            EditorPrefs.SetBool(s_isWaitingRecompile, true);
+            EditorPrefs.SetString(s_pendingScriptPath, relativePath);
+            EditorPrefs.SetString(s_pendingTargetRectTransformPath, GetGameObjectPath(targetRectTransform.gameObject));
+            EditorPrefs.SetString(s_pendingFieldAssignments, JsonConvert.SerializeObject(fieldAssignments));
         }
 
         private void SaveWindowState()
@@ -911,7 +768,6 @@ namespace LegendaryTools.Editor
                 string json = File.ReadAllText(s_windowStatePath);
                 WindowState state = JsonConvert.DeserializeObject<WindowState>(json);
 
-                // Restaurar targetRectTransform
                 GameObject targetGO = FindGameObjectByPath(state.targetRectTransformPath);
                 targetRectTransform = targetGO != null ? targetGO.GetComponent<RectTransform>() : null;
 
@@ -926,20 +782,25 @@ namespace LegendaryTools.Editor
                 useBackingFields = state.useBackingFields;
                 usedFieldNames = state.usedFieldNames ?? new HashSet<string>();
 
-                // Reassociar componentes, pois as referências podem ter sido perdidas
-                foreach (KeyValuePair<string, List<ComponentInfo>> group in componentGroups)
+                // Rebind components (resolve by FullName)
+                foreach (KeyValuePair<string, List<ComponentInfo>> group in componentGroups.ToList())
                 {
                     foreach (ComponentInfo compInfo in group.Value)
                     {
                         GameObject go = FindGameObjectByPath(compInfo.gameObjectPath);
                         if (go != null)
-                            compInfo.component = go.GetComponent(compInfo.componentType);
+                        {
+                            Type t = ResolveType(compInfo.componentType);
+                            compInfo.component = t != null ? go.GetComponent(t) : null;
+                        }
                         else
-                            compInfo.component = null; // Marca como nulo se o GameObject não for encontrado
+                        {
+                            compInfo.component = null;
+                        }
                     }
                 }
 
-                // Remover grupos com componentes nulos
+                // Remove empty groups or entries with null components
                 foreach (string groupKey in componentGroups.Keys.ToList())
                 {
                     componentGroups[groupKey].RemoveAll(c => c.component == null);
@@ -950,7 +811,7 @@ namespace LegendaryTools.Editor
             catch (Exception ex)
             {
                 Debug.LogWarning($"UIComponentFieldGenerator: Failed to restore window state: {ex.Message}");
-                File.Delete(s_windowStatePath); // Limpar o arquivo em caso de erro
+                File.Delete(s_windowStatePath);
             }
         }
     }
