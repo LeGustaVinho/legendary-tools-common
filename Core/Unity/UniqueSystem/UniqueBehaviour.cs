@@ -81,7 +81,7 @@ namespace LegendaryTools
                         }
                         else
                         {
-                            if (uniqueObject != this)
+                            if (!ReferenceEquals(uniqueObject, this))
                                 OnGuidCollisionDetected(uniqueObject);
                         }
                     }
@@ -115,7 +115,7 @@ namespace LegendaryTools
         {
             if (!string.IsNullOrEmpty(guid) 
                 && UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique uniqueObject) 
-                && uniqueObject == this)
+                && ReferenceEquals(uniqueObject, this))
             {
                 UniqueObjectListing.UniqueObjects.Remove(guid);
             }

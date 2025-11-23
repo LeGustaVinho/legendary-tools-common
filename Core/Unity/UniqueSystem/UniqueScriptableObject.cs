@@ -113,7 +113,7 @@ namespace LegendaryTools
         {
             if (!string.IsNullOrEmpty(guid) 
                 && UniqueObjectListing.UniqueObjects.TryGetValue(guid, out IUnique registered)
-                && registered == this)
+                && ReferenceEquals(registered, this))
             {
                 UniqueObjectListing.UniqueObjects.Remove(guid);
             }
