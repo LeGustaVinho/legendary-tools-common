@@ -39,7 +39,9 @@ namespace LegendaryTools.GenericExpressionEngine
 
                 char c = Peek();
 
-                if (char.IsDigit(c) || c == '.')
+                // IMPORTANT: numbers start ONLY with digits,
+                // not with '.' by itself.
+                if (char.IsDigit(c))
                     tokens.Add(ReadNumber());
                 else if (char.IsLetter(c) || c == '_' || c == '$')
                     tokens.Add(ReadIdentifierOrKeyword());
@@ -160,8 +162,14 @@ namespace LegendaryTools.GenericExpressionEngine
                             }
 
                             break;
+                        case '.':
+                            // Scope separator: player.$hp, self.parent.$hp
+                            tokens.Add(new Token(TokenKind.Dot, "."));
+                            Advance();
+                            break;
                         default:
-                            throw new InvalidOperationException($"Unexpected character '{c}' at position {_position}.");
+                            throw new InvalidOperationException(
+                                $"Unexpected character '{c}' at position {_position}.");
                     }
             }
 
@@ -217,6 +225,7 @@ namespace LegendaryTools.GenericExpressionEngine
                 }
                 else if (c == '.' && !hasDecimalSeparator)
                 {
+                    // decimal separator inside the number, e.g. 3.14
                     hasDecimalSeparator = true;
                     Advance();
                 }
@@ -234,8 +243,7 @@ namespace LegendaryTools.GenericExpressionEngine
         {
             int start = _position;
 
-            // First character is letter, '_', or '$'
-            Advance();
+            Advance(); // first char already letter, '_', or '$'
 
             while (!IsEnd())
             {

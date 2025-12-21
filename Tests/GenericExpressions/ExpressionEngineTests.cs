@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using LegendaryTools.GenericExpressionEngine;
 
-namespace ExpressionEngineUnityTests
+namespace LegendaryTools.Tests.ExpressionEngineUnityTests
 {
     /// <summary>
     /// Unit tests for the generic ExpressionEngine using the Unity Test Runner (NUnit).

@@ -86,8 +86,7 @@ namespace LegendaryTools.GenericExpressionEngine
         {
             Token token = Peek();
 
-            // Look for pattern: Identifier '=' ...
-            if (token.Kind == TokenKind.Identifier)
+            if (token.Kind == TokenKind.Identifier && token.Text.StartsWith("$", StringComparison.Ordinal))
             {
                 Token next = Peek(1);
                 if (next.Kind == TokenKind.Equals)
@@ -351,7 +350,7 @@ namespace LegendaryTools.GenericExpressionEngine
                 return new BooleanLiteralNode<T>(false);
             }
 
-            if (token.Kind == TokenKind.Identifier) return ParseIdentifierOrFunctionCall();
+            if (token.Kind == TokenKind.Identifier) return ParseIdentifierOrScopedVariableOrFunctionCall();
 
             if (token.Kind == TokenKind.LParen)
             {
@@ -367,18 +366,25 @@ namespace LegendaryTools.GenericExpressionEngine
             throw new InvalidOperationException($"Unexpected token '{token.Text}'.");
         }
 
-        private ExpressionNode<T> ParseIdentifierOrFunctionCall()
+        /// <summary>
+        /// Parses:
+        /// - variable without scope: $x
+        /// - scoped variable: player.$hp, self.parent.$hp
+        /// - function call: func(...)
+        /// </summary>
+        private ExpressionNode<T> ParseIdentifierOrScopedVariableOrFunctionCall()
         {
             Token ident = Peek();
             if (ident.Kind != TokenKind.Identifier) throw new InvalidOperationException("Identifier expected.");
 
-            Consume();
-            string name = ident.Text;
-
             // Function call: name(...)
-            if (Peek().Kind == TokenKind.LParen)
+            if (!ident.Text.StartsWith("$", StringComparison.Ordinal) &&
+                Peek(1).Kind == TokenKind.LParen)
             {
-                Consume(); // consume '('
+                Consume(); // name
+                string funcName = ident.Text;
+
+                Consume(); // '('
                 List<ExpressionNode<T>> args = new();
 
                 if (Peek().Kind != TokenKind.RParen)
@@ -399,19 +405,64 @@ namespace LegendaryTools.GenericExpressionEngine
                         throw new InvalidOperationException($"Unexpected token '{token.Text}' in argument list.");
                     }
 
-                // Consume ')'
                 if (Peek().Kind != TokenKind.RParen)
                     throw new InvalidOperationException("Missing closing parenthesis after function arguments.");
 
                 Consume();
-                return new FunctionCallNode<T>(name, args);
+                return new FunctionCallNode<T>(funcName, args);
             }
 
-            // Variable reference must start with '$'
-            if (!name.StartsWith("$", StringComparison.Ordinal))
-                throw new InvalidOperationException($"Variable '{name}' must start with '$' prefix.");
+            // Variable without explicit scope: $x
+            if (ident.Text.StartsWith("$", StringComparison.Ordinal) &&
+                Peek(1).Kind != TokenKind.Dot)
+            {
+                Consume();
+                string name = ident.Text;
+                if (!name.StartsWith("$", StringComparison.Ordinal))
+                    throw new InvalidOperationException($"Variable '{name}' must start with '$' prefix.");
 
-            return new VariableNode<T>(name);
+                return new VariableNode<T>(name);
+            }
+
+            // Scoped variable: scopePath....$var
+            List<string> scopeSegments = new();
+
+            // First segment is a scope name, e.g. "self", "player".
+            Consume();
+            scopeSegments.Add(ident.Text);
+
+            while (true)
+            {
+                Token dot = Peek();
+                if (dot.Kind != TokenKind.Dot) break;
+
+                Consume(); // '.'
+
+                Token segToken = Peek();
+                if (segToken.Kind != TokenKind.Identifier)
+                    throw new InvalidOperationException("Identifier expected after '.'.");
+
+                // If this is the last segment and starts with '$', it is the variable name.
+                if (segToken.Text.StartsWith("$", StringComparison.Ordinal))
+                {
+                    Consume();
+                    string variableName = segToken.Text;
+                    if (!variableName.StartsWith("$", StringComparison.Ordinal))
+                        throw new InvalidOperationException($"Variable '{variableName}' must start with '$' prefix.");
+
+                    return new ScopedVariableNode<T>(scopeSegments, variableName);
+                }
+
+                // Otherwise, another scope segment (e.g. "parent", "owner").
+                Consume();
+                scopeSegments.Add(segToken.Text);
+            }
+
+            // If we got here, we had something like "player" or "self.parent" without ".$var"
+            // which is not currently supported as a stand-alone expression.
+            string path = string.Join(".", scopeSegments);
+            throw new InvalidOperationException(
+                $"Incomplete scoped variable reference '{path}'. Expected '.$variableName'.");
         }
 
         private Token Peek()

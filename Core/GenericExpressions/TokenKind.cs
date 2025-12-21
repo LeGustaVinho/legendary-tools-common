@@ -28,5 +28,7 @@
     True,
     False,
 
+    Dot,
+
     EndOfInput
 }
