@@ -54,23 +54,23 @@ namespace LegendaryTools.AttributeSystemV2.Tests
             // --- Attribute definitions ---
             _hp = CreateIntAttribute("HP", 0);
             _damage = CreateIntAttribute("Damage", 0);
-            _status = CreateFlagsAttribute("Status", new[] { "Poisoned", "Stunned" }, baseFlags: 0b01UL);
+            _status = CreateFlagsAttribute("Status", new[] { "Poisoned", "Stunned" }, 0b01UL);
 
             // --- Entity definitions ---
             _playerDef = CreateEntityDefinition("Player", new[]
             {
                 new AttributeEntry { definition = _hp, baseValue = AttributeValue.FromInt(100) },
-                new AttributeEntry { definition = _status, baseValue = AttributeValue.FromFlags(0b01UL) },
+                new AttributeEntry { definition = _status, baseValue = AttributeValue.FromFlags(0b01UL) }
             });
 
             _weaponDef = CreateEntityDefinition("Weapon", new[]
             {
-                new AttributeEntry { definition = _damage, baseValue = AttributeValue.FromInt(10) },
+                new AttributeEntry { definition = _damage, baseValue = AttributeValue.FromInt(10) }
             });
 
             _targetDef = CreateEntityDefinition("Target", new[]
             {
-                new AttributeEntry { definition = _hp, baseValue = AttributeValue.FromInt(40) },
+                new AttributeEntry { definition = _hp, baseValue = AttributeValue.FromInt(40) }
             });
 
             // --- Runtime entities ---
@@ -85,7 +85,7 @@ namespace LegendaryTools.AttributeSystemV2.Tests
             _weaponNode = new EntityTreeNode(_weapon);
             _targetNode = new EntityTreeNode(_target);
 
-            _tree.AddTreeNode(_playerNode, parentNode: null);
+            _tree.AddTreeNode(_playerNode, null);
             _tree.AddTreeNode(_weaponNode, _playerNode);
             _tree.AddTreeNode(_targetNode, _playerNode);
 
@@ -93,7 +93,7 @@ namespace LegendaryTools.AttributeSystemV2.Tests
             {
                 [_playerNode.ScopeName] = _playerNode,
                 [_weaponNode.ScopeName] = _weaponNode,
-                [_targetNode.ScopeName] = _targetNode,
+                [_targetNode.ScopeName] = _targetNode
             };
 
             // --- Expression engine + context ---
@@ -110,7 +110,7 @@ namespace LegendaryTools.AttributeSystemV2.Tests
             AddEntityScope(_ctx, "root", _player, _ops);
 
             // Add scope navigation provider backed by Tree.
-            _ctx.ScopeRelationProviders.Add(new EntityTreeScopeRelationProvider(_nodesByScope, rootScopeName: "root"));
+            _ctx.ScopeRelationProviders.Add(new EntityTreeScopeRelationProvider(_nodesByScope, "root"));
 
             // Default current scope = player.
             SetCurrentScope(_playerNode.ScopeName);
@@ -261,10 +261,10 @@ namespace LegendaryTools.AttributeSystemV2.Tests
         private void SetCurrentScope(string scopeName)
         {
             _ctx.CurrentScopeName = scopeName;
-            
+
             // clear self-scope cache when switching "self"
             _ctx.Variables.Clear();
-            
+
             // Keep unscoped variables ($HP) working by pointing "self VariableProviders" to the current entity.
             _ctx.VariableProviders.Clear();
 
@@ -277,7 +277,7 @@ namespace LegendaryTools.AttributeSystemV2.Tests
         private static void AddEntityScope(EvaluationContext<double> ctx, string scopeName, Entity entity,
             INumberOperations<double> ops)
         {
-            ScopeBinding<double> binding = new ScopeBinding<double>(scopeName, instance: entity);
+            ScopeBinding<double> binding = new(scopeName, entity);
             binding.VariableProviders.Add(new EntityAttributeVariableProvider<double>(entity, ops));
             ctx.Scopes[scopeName] = binding;
         }
@@ -314,7 +314,9 @@ namespace LegendaryTools.AttributeSystemV2.Tests
 
             def.attributes.Clear();
             foreach (AttributeEntry e in entries)
+            {
                 def.attributes.Add(e);
+            }
 
             return def;
         }
@@ -330,7 +332,9 @@ namespace LegendaryTools.AttributeSystemV2.Tests
             ctx.Variables.Clear();
 
             foreach (KeyValuePair<string, ScopeBinding<double>> kvp in ctx.Scopes)
+            {
                 kvp.Value.Variables.Clear();
+            }
         }
 
         private static void SetAttributeBaseValueViaReflection(AttributeInstance instance, AttributeValue value)
@@ -413,14 +417,10 @@ namespace LegendaryTools.AttributeSystemV2.Tests
                 }
 
                 if (relationName.Equals("nextSibling", StringComparison.OrdinalIgnoreCase))
-                {
                     return TryResolveSibling(fromNode, +1, out targetScopeName);
-                }
 
                 if (relationName.Equals("prevSibling", StringComparison.OrdinalIgnoreCase))
-                {
                     return TryResolveSibling(fromNode, -1, out targetScopeName);
-                }
 
                 return false;
             }
