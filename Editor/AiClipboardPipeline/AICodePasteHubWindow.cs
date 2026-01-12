@@ -1,3 +1,4 @@
+// File: Assets/legendary-tools-common/Editor/AiClipboardPipeline/AICodePasteHubWindow.cs
 using System;
 using UnityEditor;
 using UnityEngine;
@@ -113,7 +114,9 @@ namespace AiClipboardPipeline.Editor
                     EditorGUILayout.Space(8);
                     DrawHistoryPanel();
                     EditorGUILayout.Space(8);
-                    DrawActionsPanel();
+                    DrawBulkPanel();
+                    EditorGUILayout.Space(8);
+                    DrawActionsPanel(); // Kept, but buttons removed as requested.
                 }
 
                 GUILayout.Space(10);
@@ -280,6 +283,65 @@ namespace AiClipboardPipeline.Editor
             }
         }
 
+        private void DrawBulkPanel()
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                GUILayout.Label("Bulk", EditorStyles.boldLabel);
+
+                bool hasAnyApplicable = false;
+                for (int i = 0; i < _controller.Items.Count; i++)
+                {
+                    if (_controller.CanApply(_controller.Items[i]))
+                    {
+                        hasAnyApplicable = true;
+                        break;
+                    }
+                }
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    using (new EditorGUI.DisabledScope(!hasAnyApplicable))
+                    {
+                        if (GUILayout.Button("Apply All Pending", GUILayout.Height(26)))
+                            _controller.ApplyAllPending();
+                    }
+
+                    using (new EditorGUI.DisabledScope(_controller.Items.Count == 0))
+                    {
+                        if (GUILayout.Button("Delete All History", GUILayout.Height(26)))
+                        {
+                            bool ok = EditorUtility.DisplayDialog(
+                                "Delete All History",
+                                "This will remove all captured clipboard history entries.\n\nContinue?",
+                                "Delete",
+                                "Cancel");
+
+                            if (ok)
+                                _controller.ClearAllHistory();
+                        }
+                    }
+                }
+
+                EditorGUILayout.Space(4);
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Copy Unified Compilation Errors", GUILayout.Height(26)))
+                    {
+                        bool copied = _controller.CopyUnifiedCompilationErrorsToClipboard();
+                        if (copied)
+                            ShowNotification(new GUIContent("Compilation error report copied to clipboard."));
+                        else
+                            EditorUtility.DisplayDialog(
+                                "No Compilation Errors",
+                                "No unified compilation error report is currently available.",
+                                "OK");
+                    }
+                }
+            }
+        }
+
         private void DrawPreviewPanel()
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.ExpandHeight(true)))
@@ -314,41 +376,10 @@ namespace AiClipboardPipeline.Editor
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
                 GUILayout.Label("Actions", EditorStyles.boldLabel);
-
-                AICodePasteHubController.HistoryItem selected = _controller.SelectedItem;
-                bool hasSelection = selected != null;
-
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    using (new EditorGUI.DisabledScope(!hasSelection || !_controller.CanApply(selected) ||
-                                                       selected.Status == AICodePasteHubController.HistoryStatus
-                                                           .Applied))
-                    {
-                        if (GUILayout.Button("Apply Selected", GUILayout.Height(26)))
-                            _controller.ApplyById(selected.Id);
-                    }
-
-                    using (new EditorGUI.DisabledScope(!hasSelection || !_controller.CanUndo(selected)))
-                    {
-                        if (GUILayout.Button("Undo Selected", GUILayout.Height(26)))
-                            _controller.UndoById(selected.Id);
-                    }
-
-                    if (GUILayout.Button("Undo Last Apply", GUILayout.Height(26)))
-                        _controller.UndoLast();
-                }
-
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    using (new EditorGUI.DisabledScope(!hasSelection))
-                    {
-                        if (GUILayout.Button("Ignore Selected", GUILayout.Height(26)))
-                            _controller.IgnoreById(selected.Id);
-
-                        if (GUILayout.Button("Delete Selected", GUILayout.Height(26)))
-                            _controller.DeleteById(selected.Id);
-                    }
-                }
+                EditorGUILayout.HelpBox(
+                    "This section intentionally has no buttons.\n" +
+                    "Use History row buttons or the Bulk section above.",
+                    MessageType.Info);
             }
         }
 

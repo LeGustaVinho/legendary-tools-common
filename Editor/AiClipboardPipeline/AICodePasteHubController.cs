@@ -1,3 +1,4 @@
+// File: Assets/legendary-tools-common/Editor/AiClipboardPipeline/AICodePasteHubController.cs
 using System;
 using System.Collections.Generic;
 using UnityEditor;
@@ -190,6 +191,66 @@ namespace AiClipboardPipeline.Editor
             };
 
             AICodePasteApplier.TryApplyEntryById(id, settings);
+#endif
+        }
+
+        public void ApplyAllPending()
+        {
+#if UNITY_EDITOR_WIN
+            AICodePasteApplier.Settings settings = new()
+            {
+                FallbackFolder = FallbackFolder
+            };
+
+            IReadOnlyList<ClipboardHistoryStore.Entry> entries = ClipboardHistoryStore.instance.Entries;
+            if (entries == null || entries.Count == 0)
+                return;
+
+            // Snapshot IDs so we are not iterating a list that might change during apply.
+            List<string> ids = new(entries.Count);
+            for (int i = 0; i < entries.Count; i++)
+            {
+                ClipboardHistoryStore.Entry e = entries[i];
+                if (e == null)
+                    continue;
+
+                if (e.status == (int)ClipboardHistoryStore.EntryStatus.Applied)
+                    continue;
+
+                if (e.status == (int)ClipboardHistoryStore.EntryStatus.Ignored)
+                    continue;
+
+                if (string.IsNullOrEmpty(e.id))
+                    continue;
+
+                ids.Add(e.id);
+            }
+
+            for (int i = 0; i < ids.Count; i++)
+            {
+                _ = AICodePasteApplier.TryApplyEntryById(ids[i], settings);
+            }
+#endif
+        }
+
+        public void ClearAllHistory()
+        {
+#if UNITY_EDITOR_WIN
+            ClipboardHistoryStore.instance.Clear();
+#endif
+        }
+
+        public bool CopyUnifiedCompilationErrorsToClipboard()
+        {
+#if UNITY_EDITOR_WIN
+            string report = ClipboardHistoryStore.instance.LastCompilationErrorReport ?? string.Empty;
+            if (string.IsNullOrEmpty(report))
+                return false;
+
+            EditorGUIUtility.systemCopyBuffer = report;
+            return true;
+#else
+            return false;
 #endif
         }
 
