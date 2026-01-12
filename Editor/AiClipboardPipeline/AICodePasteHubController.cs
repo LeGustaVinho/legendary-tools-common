@@ -115,7 +115,11 @@ namespace AiClipboardPipeline.Editor
             get
             {
 #if UNITY_EDITOR_WIN
-                return Enabled ? "Running" : "Stopped";
+                if (!Enabled)
+                    return "Stopped";
+
+                // Reflect real watcher state. Start can fail (Win32 window / listener).
+                return ClipboardWatcher.IsRunning ? "Running" : "Stopped (failed to start)";
 #else
                 return "Unavailable (Windows only)";
 #endif

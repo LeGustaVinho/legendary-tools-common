@@ -119,24 +119,52 @@ namespace AiClipboardPipeline.Editor
             if (string.IsNullOrEmpty(text))
                 return string.Empty;
 
-            string t = text.Replace("\r\n", "\n").Replace("\r", "\n").Trim();
+            string t = text.Replace("\r\n", "\n").Replace("\r", "\n");
 
-            // Strip fenced code block if the entire content is fenced: ```lang ... ```
-            if (t.StartsWith("```", StringComparison.Ordinal))
+            // Try to extract the first fenced code block even if there is text around it.
+            // Supports ```lang ... ``` and ``` ... ``` (and best-effort ~~~ fences).
+            if (TryExtractFirstFencedBlock(t, "```", out string fenced))
+                return fenced.Trim();
+
+            if (TryExtractFirstFencedBlock(t, "~~~", out string fencedTilde))
+                return fencedTilde.Trim();
+
+            return t.Trim();
+        }
+
+        private static bool TryExtractFirstFencedBlock(string text, string fence, out string content)
+        {
+            content = string.Empty;
+
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(fence))
+                return false;
+
+            int start = text.IndexOf(fence, StringComparison.Ordinal);
+            if (start < 0)
+                return false;
+
+            // Find end of the fence header line (to skip optional language).
+            int headerEnd = text.IndexOf('\n', start + fence.Length);
+            if (headerEnd < 0)
+                return false;
+
+            // Find the closing fence. Prefer a fence that begins on its own line.
+            int end = text.IndexOf("\n" + fence, headerEnd + 1, StringComparison.Ordinal);
+            if (end < 0)
             {
-                int firstNl = t.IndexOf('\n');
-                if (firstNl >= 0)
-                {
-                    string body = t.Substring(firstNl + 1);
-
-                    // Remove the last fence even if it's not preceded by a newline.
-                    int endFence = body.LastIndexOf("```", StringComparison.Ordinal);
-                    if (endFence >= 0)
-                        t = body.Substring(0, endFence).Trim();
-                }
+                // Fallback: any next fence occurrence.
+                end = text.IndexOf(fence, headerEnd + 1, StringComparison.Ordinal);
+                if (end < 0)
+                    return false;
             }
 
-            return t;
+            int bodyStart = headerEnd + 1;
+            int bodyLen = end - bodyStart;
+            if (bodyLen < 0)
+                return false;
+
+            content = text.Substring(bodyStart, bodyLen);
+            return true;
         }
     }
 }

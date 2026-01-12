@@ -1,6 +1,7 @@
 #if UNITY_EDITOR_WIN
 using System;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
@@ -90,7 +91,12 @@ namespace AiClipboardPipeline.Editor
                     string abs = ProjectPaths.AssetPathToAbsolute(path);
                     if (File.Exists(abs))
                     {
-                        string content = File.ReadAllText(abs);
+                        // Read with BOM detection for better compatibility (UTF-8/UTF-16).
+                        string content;
+                        using (StreamReader sr = new(abs, Encoding.UTF8, true))
+                        {
+                            content = sr.ReadToEnd();
+                        }
 
                         if (!string.IsNullOrEmpty(namespaceName) &&
                             content.IndexOf("namespace " + namespaceName, StringComparison.Ordinal) >= 0)

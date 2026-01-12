@@ -1,4 +1,4 @@
-﻿#if UNITY_EDITOR_WIN
+#if UNITY_EDITOR_WIN
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -422,12 +422,16 @@ namespace AiClipboardPipeline.Editor
                     }
                 }
 
-                for (int i = 0; i < touched.Count; i++)
+                if (touched.Count > 0)
                 {
-                    AssetDatabase.ImportAsset(touched[i], ImportAssetOptions.ForceUpdate);
-                }
+                    for (int i = 0; i < touched.Count; i++)
+                    {
+                        AssetDatabase.ImportAsset(touched[i], ImportAssetOptions.ForceUpdate);
+                    }
 
-                AssetDatabase.Refresh();
+                    // Refresh only when we actually changed something.
+                    AssetDatabase.Refresh();
+                }
 
                 report =
                     "Undo session completed.\n" +

@@ -12,6 +12,10 @@ namespace AiClipboardPipeline.Editor
             if (string.IsNullOrEmpty(assetPath))
                 return;
 
+            if (!assetPath.StartsWith("Assets/", System.StringComparison.Ordinal) &&
+                !string.Equals(assetPath, "Assets", System.StringComparison.Ordinal))
+                return;
+
             AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
         }
 
@@ -26,8 +30,21 @@ namespace AiClipboardPipeline.Editor
                 if (string.IsNullOrEmpty(ap))
                     continue;
 
+                if (!ap.StartsWith("Assets/", System.StringComparison.Ordinal))
+                    continue;
+
                 // Avoid importing non-existing files (patch can delete files).
-                string abs = ProjectPaths.AssetPathToAbsolute(ap);
+                string abs;
+                try
+                {
+                    abs = ProjectPaths.AssetPathToAbsolute(ap);
+                }
+                catch
+                {
+                    // Defensive: ignore invalid paths to avoid throwing during refresh/import.
+                    continue;
+                }
+
                 if (File.Exists(abs))
                     ImportAsset(ap);
             }

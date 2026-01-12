@@ -16,6 +16,9 @@ namespace AiClipboardPipeline.Editor
 
         private const double ApplyLockWindowSeconds = 2.0;
 
+        // Prevent unbounded growth when many different logical keys are applied over time.
+        private const int CleanupThresholdKeys = 512;
+
         private readonly Dictionary<string, double> _lastApplyStartByKey = new(StringComparer.Ordinal);
 
         public Decision TryEnter(string logicalKey, bool userInitiated, ApplyUI ui)
@@ -25,6 +28,8 @@ namespace AiClipboardPipeline.Editor
                 return Decision.Entered;
 
             double now = EditorApplication.timeSinceStartup;
+
+            MaybeCleanup(now);
 
             if (!IsLocked(logicalKey, now, out double remaining))
             {
@@ -71,6 +76,33 @@ namespace AiClipboardPipeline.Editor
 
             remaining = Math.Max(0, ApplyLockWindowSeconds - dt);
             return true;
+        }
+
+        private void MaybeCleanup(double now)
+        {
+            if (_lastApplyStartByKey.Count < CleanupThresholdKeys)
+                return;
+
+            // Remove entries that are definitely outside the lock window.
+            // This keeps the dictionary bounded during long editor sessions.
+            List<string> toRemove = null;
+
+            foreach (KeyValuePair<string, double> kvp in _lastApplyStartByKey)
+            {
+                if (now - kvp.Value >= ApplyLockWindowSeconds * 2.0)
+                {
+                    toRemove ??= new List<string>(64);
+                    toRemove.Add(kvp.Key);
+                }
+            }
+
+            if (toRemove == null)
+                return;
+
+            for (int i = 0; i < toRemove.Count; i++)
+            {
+                _lastApplyStartByKey.Remove(toRemove[i]);
+            }
         }
     }
 }

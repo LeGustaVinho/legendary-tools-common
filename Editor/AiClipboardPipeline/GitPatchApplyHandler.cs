@@ -62,13 +62,19 @@ namespace AiClipboardPipeline.Editor
 
             string projectRoot = ProjectPaths.GetProjectRoot();
 
+            string tempDir = string.Empty;
+            string tempPatchPath = string.Empty;
+
+            // Delete temp patch only on success; keep on failure to help debugging.
+            bool deleteTempPatchOnExit = false;
+
             try
             {
                 // Write patch to temp file.
-                string tempDir = ProjectPaths.GetTempPatchDirectory(projectRoot);
+                tempDir = ProjectPaths.GetTempPatchDirectory(projectRoot);
                 Directory.CreateDirectory(tempDir);
 
-                string tempPatchPath = Path.Combine(tempDir, "patch_" + ctx.Entry.id + ".diff");
+                tempPatchPath = Path.Combine(tempDir, "patch_" + ctx.Entry.id + ".diff");
 
                 string normalized = ctx.Services.Text.NormalizeToLF(patchText);
                 normalized = ctx.Services.Text.EnsureTrailingNewline(normalized);
@@ -84,9 +90,11 @@ namespace AiClipboardPipeline.Editor
                         "Command: git apply --check\n\n" +
                         $"ExitCode: {check.ExitCode}\n\n" +
                         "STDOUT:\n" + check.StdOut + "\n\n" +
-                        "STDERR:\n" + check.StdErr;
+                        "STDERR:\n" + check.StdErr + "\n\n" +
+                        "TempPatch:\n" + tempPatchPath;
 
-                    // Must be logged to Console, and should mark entry as error.
+                    // Keep temp patch for inspection.
+                    deleteTempPatchOnExit = false;
                     return ApplyResult.Fail(report);
                 }
 
@@ -99,11 +107,16 @@ namespace AiClipboardPipeline.Editor
                         "Command: git apply\n\n" +
                         $"ExitCode: {apply.ExitCode}\n\n" +
                         "STDOUT:\n" + apply.StdOut + "\n\n" +
-                        "STDERR:\n" + apply.StdErr;
+                        "STDERR:\n" + apply.StdErr + "\n\n" +
+                        "TempPatch:\n" + tempPatchPath;
 
-                    // Must be logged to Console, and should mark entry as error.
+                    // Keep temp patch for inspection.
+                    deleteTempPatchOnExit = false;
                     return ApplyResult.Fail(report);
                 }
+
+                // Success path: we can delete the temp patch after everything.
+                deleteTempPatchOnExit = true;
 
                 // Begin compile gate now; compilation will occur after imports.
                 ctx.Services.Undo.BeginCompileGate(ctx.Entry.id, sessionId);
@@ -122,9 +135,34 @@ namespace AiClipboardPipeline.Editor
                     $"Entry: {ctx.Entry.id}\n" +
                     $"Type: {ctx.Entry.typeId}\n" +
                     $"LogicalKey: {ctx.Entry.logicalKey}\n\n" +
+                    (string.IsNullOrEmpty(tempPatchPath) ? string.Empty : "TempPatch:\n" + tempPatchPath + "\n\n") +
                     ex;
 
+                // Keep temp patch for inspection if it exists.
+                deleteTempPatchOnExit = false;
                 return ApplyResult.Fail(report);
+            }
+            finally
+            {
+                if (deleteTempPatchOnExit && !string.IsNullOrEmpty(tempPatchPath))
+                    try
+                    {
+                        if (File.Exists(tempPatchPath))
+                            File.Delete(tempPatchPath);
+
+                        // Best-effort cleanup: remove temp directory if empty.
+                        if (!string.IsNullOrEmpty(tempDir) && Directory.Exists(tempDir))
+                        {
+                            string[] files = Directory.GetFiles(tempDir);
+                            string[] dirs = Directory.GetDirectories(tempDir);
+                            if ((files == null || files.Length == 0) && (dirs == null || dirs.Length == 0))
+                                Directory.Delete(tempDir, false);
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore cleanup errors.
+                    }
             }
         }
     }

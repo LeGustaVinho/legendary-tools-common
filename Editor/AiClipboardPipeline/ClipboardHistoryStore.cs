@@ -84,7 +84,11 @@ namespace AiClipboardPipeline.Editor
             capacity = newCapacity;
 
             if (entries.Count > capacity)
+            {
                 entries.RemoveRange(capacity, entries.Count - capacity);
+                // Keep the version index consistent with the truncated list.
+                RebuildVersionIndex();
+            }
 
             SaveAndNotify();
         }
