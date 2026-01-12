@@ -18,10 +18,10 @@ namespace AiClipboardPipeline.Editor
         private GUIStyle _monoWrapStyle;
         private Texture2D _selectedBgTexture;
 
-        [MenuItem("Tools/AI Clipboard Pipeline/Hub")]
+        [MenuItem("Tools/LegendaryTools/Code/AI Clipboard Pipeline")]
         public static void Open()
         {
-            AICodePasteHubWindow w = GetWindow<AICodePasteHubWindow>("AI Code Paste Hub");
+            AICodePasteHubWindow w = GetWindow<AICodePasteHubWindow>("AI Clipboard Pipeline");
             w.minSize = new Vector2(1060, 560);
             w.Show();
         }
