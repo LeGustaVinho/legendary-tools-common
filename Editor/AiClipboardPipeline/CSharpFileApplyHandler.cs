@@ -52,6 +52,7 @@ namespace AiClipboardPipeline.Editor
                     Directory.CreateDirectory(dir);
 
                 string normalized = ctx.Services.Text.NormalizeToLF(text);
+                normalized = ctx.Services.Text.StripFileHeaderIfPresent(normalized);
                 normalized = ctx.Services.Text.EnsureTrailingNewline(normalized);
 
                 File.WriteAllText(absPath, normalized, new UTF8Encoding(false));

@@ -1,4 +1,5 @@
 // File: Assets/legendary-tools-common/Editor/AiClipboardPipeline/ClipboardHistoryStore.cs
+
 #if UNITY_EDITOR_WIN
 using System;
 using System.Collections.Generic;

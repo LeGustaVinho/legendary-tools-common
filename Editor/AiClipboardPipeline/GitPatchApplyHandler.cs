@@ -1,4 +1,5 @@
 #if UNITY_EDITOR_WIN
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -27,7 +28,6 @@ namespace AiClipboardPipeline.Editor
                     "Reason: Patch failed safety validation.\n\n" +
                     validationError;
 
-                // Validation failure should be logged + marked as error.
                 return ApplyResult.Fail(report);
             }
 
@@ -35,7 +35,6 @@ namespace AiClipboardPipeline.Editor
             if (assetPaths.Count > 1)
             {
                 if (!ctx.UserInitiated)
-                    // Auto-apply should not mark error; just skip silently.
                     return ApplyResult.Blocked(
                         "Patch skipped: multi-file patch is not allowed in auto-apply mode.",
                         false,
@@ -70,7 +69,6 @@ namespace AiClipboardPipeline.Editor
 
             try
             {
-                // Write patch to temp file.
                 tempDir = ProjectPaths.GetTempPatchDirectory(projectRoot);
                 Directory.CreateDirectory(tempDir);
 
@@ -85,15 +83,32 @@ namespace AiClipboardPipeline.Editor
                 GitResult check = ctx.Services.Git.Run(projectRoot, $"apply --check \"{tempPatchPath}\"");
                 if (check.ExitCode != 0)
                 {
+                    // Fallback to manual apply.
+                    if (ManualUnifiedDiffApplier.TryApply(projectRoot, normalized, out string manualError,
+                            out List<string> manualTouchedFiles))
+                    {
+                        deleteTempPatchOnExit = true;
+
+                        ctx.Services.Undo.BeginCompileGate(ctx.Entry.id, sessionId);
+
+                        // Prefer the extractor list for import/refresh, but manual may include create/delete.
+                        ctx.Services.Assets.ImportManyIfExists(assetPaths);
+                        ctx.Services.Assets.Refresh();
+
+                        string appliedNote =
+                            assetPaths.Count == 1 ? assetPaths[0] : $"(patch) {assetPaths.Count} files";
+                        return ApplyResult.Ok(appliedNote);
+                    }
+
                     string report =
                         "Patch apply check failed.\n\n" +
                         "Command: git apply --check\n\n" +
                         $"ExitCode: {check.ExitCode}\n\n" +
                         "STDOUT:\n" + check.StdOut + "\n\n" +
                         "STDERR:\n" + check.StdErr + "\n\n" +
+                        "Manual apply error:\n" + manualError + "\n\n" +
                         "TempPatch:\n" + tempPatchPath;
 
-                    // Keep temp patch for inspection.
                     deleteTempPatchOnExit = false;
                     return ApplyResult.Fail(report);
                 }
@@ -102,33 +117,46 @@ namespace AiClipboardPipeline.Editor
                 GitResult apply = ctx.Services.Git.Run(projectRoot, $"apply --whitespace=nowarn \"{tempPatchPath}\"");
                 if (apply.ExitCode != 0)
                 {
+                    // Fallback to manual apply.
+                    if (ManualUnifiedDiffApplier.TryApply(projectRoot, normalized, out string manualError,
+                            out List<string> manualTouchedFiles))
+                    {
+                        deleteTempPatchOnExit = true;
+
+                        ctx.Services.Undo.BeginCompileGate(ctx.Entry.id, sessionId);
+
+                        ctx.Services.Assets.ImportManyIfExists(assetPaths);
+                        ctx.Services.Assets.Refresh();
+
+                        string appliedNote =
+                            assetPaths.Count == 1 ? assetPaths[0] : $"(patch) {assetPaths.Count} files";
+                        return ApplyResult.Ok(appliedNote);
+                    }
+
                     string report =
                         "Patch apply failed.\n\n" +
                         "Command: git apply\n\n" +
                         $"ExitCode: {apply.ExitCode}\n\n" +
                         "STDOUT:\n" + apply.StdOut + "\n\n" +
                         "STDERR:\n" + apply.StdErr + "\n\n" +
+                        "Manual apply error:\n" + manualError + "\n\n" +
                         "TempPatch:\n" + tempPatchPath;
 
-                    // Keep temp patch for inspection.
                     deleteTempPatchOnExit = false;
                     return ApplyResult.Fail(report);
                 }
 
-                // Success path: we can delete the temp patch after everything.
                 deleteTempPatchOnExit = true;
 
-                // Begin compile gate now; compilation will occur after imports.
                 ctx.Services.Undo.BeginCompileGate(ctx.Entry.id, sessionId);
 
-                // Import touched assets.
                 ctx.Services.Assets.ImportManyIfExists(assetPaths);
                 ctx.Services.Assets.Refresh();
 
-                string appliedNote = assetPaths.Count == 1 ? assetPaths[0] : $"(patch) {assetPaths.Count} files";
-                return ApplyResult.Ok(appliedNote);
+                string note = assetPaths.Count == 1 ? assetPaths[0] : $"(patch) {assetPaths.Count} files";
+                return ApplyResult.Ok(note);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 string report =
                     "Patch apply failed.\n\n" +
@@ -138,7 +166,6 @@ namespace AiClipboardPipeline.Editor
                     (string.IsNullOrEmpty(tempPatchPath) ? string.Empty : "TempPatch:\n" + tempPatchPath + "\n\n") +
                     ex;
 
-                // Keep temp patch for inspection if it exists.
                 deleteTempPatchOnExit = false;
                 return ApplyResult.Fail(report);
             }
@@ -150,7 +177,6 @@ namespace AiClipboardPipeline.Editor
                         if (File.Exists(tempPatchPath))
                             File.Delete(tempPatchPath);
 
-                        // Best-effort cleanup: remove temp directory if empty.
                         if (!string.IsNullOrEmpty(tempDir) && Directory.Exists(tempDir))
                         {
                             string[] files = Directory.GetFiles(tempDir);

@@ -1,4 +1,5 @@
 // File: Assets/legendary-tools-common/Editor/AiClipboardPipeline/AICodePasteHubWindow.cs
+
 using System;
 using UnityEditor;
 using UnityEngine;

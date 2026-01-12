@@ -1,4 +1,5 @@
 // File: Assets/legendary-tools-common/Editor/AiClipboardPipeline/AICodePasteHubController.cs
+
 using System;
 using System.Collections.Generic;
 using UnityEditor;

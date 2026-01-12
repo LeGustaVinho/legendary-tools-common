@@ -1,6 +1,5 @@
-﻿#if UNITY_EDITOR_WIN
+#if UNITY_EDITOR_WIN
 using System;
-using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 namespace AiClipboardPipeline.Editor
@@ -20,13 +19,17 @@ namespace AiClipboardPipeline.Editor
         public string TypeId => "csharp_file";
         public string DisplayName => "C# Full File";
 
+        // Supports common modifiers before the type keyword.
+        // Note: This is heuristic-based and intentionally permissive.
         private static readonly Regex TypeDeclRegex =
-            new(@"\b(class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b",
+            new(
+                @"\b(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|ref|unsafe|new)\s+)*(?<kind>class|struct|interface|enum)\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b",
                 RegexOptions.Compiled);
 
-        // record Foo / record class Foo / record struct Foo
+        // Supports modifiers before 'record', plus: record Foo / record class Foo / record struct Foo
         private static readonly Regex RecordDeclRegex =
-            new(@"\brecord(\s+(class|struct))?\s+([A-Za-z_][A-Za-z0-9_]*)\b",
+            new(
+                @"\b(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|ref|unsafe|new)\s+)*record(\s+(class|struct))?\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b",
                 RegexOptions.Compiled);
 
         // Git patch signatures (multiline).
@@ -37,7 +40,8 @@ namespace AiClipboardPipeline.Editor
             new(@"(?m)^\-\-\-\s+(a\/|\/dev\/null).*$\n^\+\+\+\s+(b\/|\/dev\/null).*$",
                 RegexOptions.Compiled);
 
-        private static readonly Regex GitPatchHunkRegex = new(@"(?m)^\@\@.*\@\@\s*$", RegexOptions.Compiled);
+        private static readonly Regex GitPatchHunkRegex =
+            new(@"(?m)^\@\@.*\@\@\s*$", RegexOptions.Compiled);
 
         public bool TryClassify(string text, out ClipboardClassification classification)
         {
@@ -95,7 +99,6 @@ namespace AiClipboardPipeline.Editor
             if (mRecord.Success && (!mType.Success || mRecord.Index <= mType.Index))
             {
                 m = mRecord;
-                primaryTypeName = m.Groups[3].Value;
             }
             else
             {
@@ -105,9 +108,9 @@ namespace AiClipboardPipeline.Editor
                     reason = "No type declaration found (class/struct/interface/enum/record).";
                     return false;
                 }
-
-                primaryTypeName = m.Groups[2].Value;
             }
+
+            primaryTypeName = m.Groups["name"].Value;
 
             if (string.IsNullOrEmpty(primaryTypeName))
             {
@@ -161,17 +164,52 @@ namespace AiClipboardPipeline.Editor
             int depth = 0;
             bool sawBrace = false;
 
-            Scanner s = new(text);
+            int i = 0;
+            int n = text.Length;
 
-            while (s.MoveNext())
+            while (i < n)
             {
-                char c = s.Current;
+                char c = text[i];
+                char next = i + 1 < n ? text[i + 1] : '\0';
 
-                if (s.InLineComment || s.InBlockComment)
+                // Line comment: // ... \n
+                if (c == '/' && next == '/')
+                {
+                    i = SkipLineComment(text, i);
                     continue;
+                }
 
-                if (s.InString)
+                // Block comment: /* ... */
+                if (c == '/' && next == '*')
+                {
+                    i = SkipBlockComment(text, i);
                     continue;
+                }
+
+                // Raw string start: """ or $""" (and more quotes).
+                // Do not treat verbatim @" as raw.
+                if (IsRawStringStart(text, i, out int rawQuoteCount))
+                {
+                    i = SkipRawString(text, i, rawQuoteCount);
+                    continue;
+                }
+
+                // Verbatim string start:
+                // 1) @"..."
+                // 2) $@"..."
+                // 3) @$"..."
+                if (IsVerbatimStringStart(text, i))
+                {
+                    i = SkipVerbatimString(text, i);
+                    continue;
+                }
+
+                // Regular string / char literal start.
+                if (c == '"' || c == '\'')
+                {
+                    i = SkipRegularStringOrChar(text, i, c);
+                    continue;
+                }
 
                 if (c == '{')
                 {
@@ -188,6 +226,8 @@ namespace AiClipboardPipeline.Editor
                         return false;
                     }
                 }
+
+                i++;
             }
 
             if (!sawBrace)
@@ -210,258 +250,217 @@ namespace AiClipboardPipeline.Editor
             if (startIndex < 0)
                 startIndex = 0;
 
-            Scanner s = new(text);
-            s.JumpTo(startIndex);
+            int i = Math.Min(startIndex, text.Length);
+            int n = text.Length;
 
-            while (s.MoveNext())
+            while (i < n)
             {
-                if (s.InLineComment || s.InBlockComment || s.InString)
-                    continue;
+                char c = text[i];
+                char next = i + 1 < n ? text[i + 1] : '\0';
 
-                if (s.Current == '{')
+                // Line comment
+                if (c == '/' && next == '/')
+                {
+                    i = SkipLineComment(text, i);
+                    continue;
+                }
+
+                // Block comment
+                if (c == '/' && next == '*')
+                {
+                    i = SkipBlockComment(text, i);
+                    continue;
+                }
+
+                // Raw string
+                if (IsRawStringStart(text, i, out int rawQuoteCount))
+                {
+                    i = SkipRawString(text, i, rawQuoteCount);
+                    continue;
+                }
+
+                // Verbatim string
+                if (IsVerbatimStringStart(text, i))
+                {
+                    i = SkipVerbatimString(text, i);
+                    continue;
+                }
+
+                // Regular string / char literal
+                if (c == '"' || c == '\'')
+                {
+                    i = SkipRegularStringOrChar(text, i, c);
+                    continue;
+                }
+
+                if (c == '{')
                     return true;
+
+                i++;
             }
 
             return false;
         }
 
-        /// <summary>
-        /// Minimal scanner that tracks strings and comments, so brace parsing ignores them.
-        /// Handles:
-        /// - // line comments
-        /// - /* block comments * /
-        /// - "string" with escapes (correctly handles \\\" patterns)
-        /// - @"verbatim strings"
-        /// - $@"interpolated verbatim strings"
-        /// - @$"interpolated verbatim strings"
-        /// - """raw strings""" and $"""interpolated raw strings"""
-        /// - 'c' char literals with escapes
-        /// </summary>
-        private struct Scanner
+        private static int SkipLineComment(string text, int index)
         {
-            private readonly string _text;
-            private int _i;
+            int i = index + 2; // skip "//"
+            int n = text.Length;
 
-            public char Current { get; private set; }
-
-            public bool InLineComment { get; private set; }
-            public bool InBlockComment { get; private set; }
-            public bool InString { get; private set; }
-
-            private bool _inVerbatimString;
-            private bool _inRawString;
-            private int _rawQuoteCount;
-            private char _stringDelimiter;
-
-            public Scanner(string text)
+            while (i < n && text[i] != '\n')
             {
-                _text = text ?? string.Empty;
-                _i = -1;
-
-                Current = '\0';
-
-                InLineComment = false;
-                InBlockComment = false;
-                InString = false;
-
-                _inVerbatimString = false;
-                _inRawString = false;
-                _rawQuoteCount = 0;
-                _stringDelimiter = '\0';
+                i++;
             }
 
-            public void JumpTo(int index)
+            return i;
+        }
+
+        private static int SkipBlockComment(string text, int index)
+        {
+            int i = index + 2; // skip "/*"
+            int n = text.Length;
+
+            while (i + 1 < n)
             {
-                _i = Math.Clamp(index - 1, -1, _text.Length - 1);
-                Current = '\0';
+                if (text[i] == '*' && text[i + 1] == '/')
+                    return i + 2;
 
-                // Reset parsing state on jump (safe heuristic).
-                InLineComment = false;
-                InBlockComment = false;
-                InString = false;
-
-                _inVerbatimString = false;
-                _inRawString = false;
-                _rawQuoteCount = 0;
-                _stringDelimiter = '\0';
+                i++;
             }
 
-            public bool MoveNext()
-            {
-                if (_i + 1 >= _text.Length)
-                    return false;
+            return n;
+        }
 
-                _i++;
-                Current = _text[_i];
-
-                char prev = _i > 0 ? _text[_i - 1] : '\0';
-                char next = _i + 1 < _text.Length ? _text[_i + 1] : '\0';
-                char next2 = _i + 2 < _text.Length ? _text[_i + 2] : '\0';
-                char prev2 = _i > 1 ? _text[_i - 2] : '\0';
-
-                if (InLineComment)
-                {
-                    if (Current == '\n')
-                        InLineComment = false;
-
-                    return true;
-                }
-
-                if (InBlockComment)
-                {
-                    if (prev == '*' && Current == '/')
-                        InBlockComment = false;
-
-                    return true;
-                }
-
-                if (InString)
-                {
-                    if (_inRawString)
-                    {
-                        if (Current == '"')
-                        {
-                            int run = CountQuoteRunForward(_i);
-                            if (run >= _rawQuoteCount && !IsImmediatelyFollowedByQuote(_i, _rawQuoteCount))
-                            {
-                                // Consume the delimiter quotes.
-                                _i += _rawQuoteCount - 1;
-                                Current = '"';
-
-                                InString = false;
-                                _inRawString = false;
-                                _rawQuoteCount = 0;
-                                _stringDelimiter = '\0';
-                            }
-                        }
-
-                        return true;
-                    }
-
-                    if (_inVerbatimString)
-                    {
-                        // Verbatim string ends on " not followed by "
-                        // Escaped quote inside verbatim is "" (double quote).
-                        if (Current == '"' && next != '"')
-                        {
-                            InString = false;
-                            _inVerbatimString = false;
-                            _stringDelimiter = '\0';
-                        }
-                        else if (Current == '"' && next == '"')
-                        {
-                            // Consume the escaped quote.
-                            _i++;
-                            Current = '"';
-                        }
-
-                        return true;
-                    }
-
-                    // Regular string / char literal with backslash escapes.
-                    if (Current == _stringDelimiter && !IsEscapedByBackslashRun(_i))
-                    {
-                        InString = false;
-                        _stringDelimiter = '\0';
-                    }
-
-                    return true;
-                }
-
-                // Comments (only when not in string)
-                if (Current == '/' && next == '/')
-                {
-                    InLineComment = true;
-                    return true;
-                }
-
-                if (Current == '/' && next == '*')
-                {
-                    InBlockComment = true;
-                    return true;
-                }
-
-                // Raw string start: """ or $"""
-                // Do NOT allow raw detection when the quote is preceded by '@' (verbatim forms like @"...").
-                if (Current == '"' && next == '"' && next2 == '"' && prev != '@' && prev2 != '@')
-                {
-                    int run = CountQuoteRunForward(_i);
-                    if (run >= 3)
-                    {
-                        InString = true;
-                        _inRawString = true;
-                        _rawQuoteCount = run;
-                        _stringDelimiter = '"';
-
-                        // Consume the starting delimiter quotes.
-                        _i += run - 1;
-                        Current = '"';
-                        return true;
-                    }
-                }
-
-                // Verbatim string start patterns:
-                // 1) @"..."
-                // 2) $@"..."
-                // 3) @$"..."
-                if (Current == '"' && (prev == '@' || (prev == '$' && prev2 == '@')))
-                {
-                    InString = true;
-                    _inVerbatimString = true;
-                    _inRawString = false;
-                    _rawQuoteCount = 0;
-                    _stringDelimiter = '"';
-                    return true;
-                }
-
-                // Regular string / char literal start.
-                if (Current == '"' || Current == '\'')
-                {
-                    InString = true;
-                    _inVerbatimString = false;
-                    _inRawString = false;
-                    _rawQuoteCount = 0;
-                    _stringDelimiter = Current;
-                    return true;
-                }
-
-                return true;
-            }
-
-            private int CountQuoteRunForward(int startIndex)
-            {
-                int n = 0;
-                for (int j = startIndex; j < _text.Length; j++)
-                {
-                    if (_text[j] != '"')
-                        break;
-                    n++;
-                }
-
-                return n;
-            }
-
-            private bool IsImmediatelyFollowedByQuote(int startIndex, int quoteCount)
-            {
-                int idx = startIndex + quoteCount;
-                if (idx >= 0 && idx < _text.Length)
-                    return _text[idx] == '"';
+        private static bool IsVerbatimStringStart(string text, int quoteIndex)
+        {
+            if (quoteIndex < 0 || quoteIndex >= text.Length)
                 return false;
-            }
 
-            private bool IsEscapedByBackslashRun(int quoteIndex)
+            if (text[quoteIndex] != '"')
+                return false;
+
+            char prev = quoteIndex > 0 ? text[quoteIndex - 1] : '\0';
+            char prev2 = quoteIndex > 1 ? text[quoteIndex - 2] : '\0';
+
+            // @"...": prev == '@'
+            // $@"...": prev == '@' and prev2 == '$' (the quote is after '@')
+            // @$"...": prev == '$' and prev2 == '@' (the quote is after '$')
+            return prev == '@' || (prev == '$' && prev2 == '@') || (prev == '@' && prev2 == '$');
+        }
+
+        private static int SkipVerbatimString(string text, int quoteIndex)
+        {
+            // Starts at the opening quote character (").
+            int i = quoteIndex + 1;
+            int n = text.Length;
+
+            while (i < n)
             {
-                // Returns true when the quote is escaped by an odd number of consecutive backslashes.
-                int backslashes = 0;
-                for (int j = quoteIndex - 1; j >= 0; j--)
+                if (text[i] == '"')
                 {
-                    if (_text[j] != '\\')
-                        break;
-                    backslashes++;
+                    // Escaped quote inside verbatim is "" (double quote).
+                    if (i + 1 < n && text[i + 1] == '"')
+                    {
+                        i += 2;
+                        continue;
+                    }
+
+                    return i + 1;
                 }
 
-                return (backslashes & 1) == 1;
+                i++;
             }
+
+            return n;
+        }
+
+        private static bool IsRawStringStart(string text, int quoteIndex, out int quoteCount)
+        {
+            quoteCount = 0;
+
+            int n = text.Length;
+            if (quoteIndex < 0 || quoteIndex + 2 >= n)
+                return false;
+
+            if (text[quoteIndex] != '"' || text[quoteIndex + 1] != '"' || text[quoteIndex + 2] != '"')
+                return false;
+
+            char prev = quoteIndex > 0 ? text[quoteIndex - 1] : '\0';
+            char prev2 = quoteIndex > 1 ? text[quoteIndex - 2] : '\0';
+
+            // Do not treat verbatim @" as raw. Also avoid forms where '@' is immediately before the quote.
+            if (prev == '@' || prev2 == '@')
+                return false;
+
+            quoteCount = CountQuoteRunForward(text, quoteIndex);
+            return quoteCount >= 3;
+        }
+
+        private static int SkipRawString(string text, int quoteIndex, int quoteCount)
+        {
+            // Skip the opening delimiter quotes.
+            int i = quoteIndex + quoteCount;
+            int n = text.Length;
+
+            while (i < n)
+            {
+                if (text[i] != '"')
+                {
+                    i++;
+                    continue;
+                }
+
+                int run = CountQuoteRunForward(text, i);
+                if (run >= quoteCount)
+                    // Treat the first matching run as the closing delimiter.
+                    return i + quoteCount;
+
+                i += run;
+            }
+
+            return n;
+        }
+
+        private static int SkipRegularStringOrChar(string text, int quoteIndex, char delimiter)
+        {
+            // Starts at the opening quote character (either " or ').
+            int i = quoteIndex + 1;
+            int n = text.Length;
+
+            while (i < n)
+            {
+                char c = text[i];
+
+                if (c == '\\')
+                {
+                    // Skip escaped character (best-effort).
+                    i += i + 1 < n ? 2 : 1;
+                    continue;
+                }
+
+                if (c == delimiter)
+                    return i + 1;
+
+                i++;
+            }
+
+            return n;
+        }
+
+        private static int CountQuoteRunForward(string text, int startIndex)
+        {
+            int n = text.Length;
+            int count = 0;
+
+            for (int i = startIndex; i < n; i++)
+            {
+                if (text[i] != '"')
+                    break;
+
+                count++;
+            }
+
+            return count;
         }
     }
 }
