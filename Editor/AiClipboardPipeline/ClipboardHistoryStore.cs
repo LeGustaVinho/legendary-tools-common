@@ -56,13 +56,24 @@ namespace AiClipboardPipeline.Editor
 
         [SerializeField] private int capacity = 200;
         [SerializeField] private List<Entry> entries = new();
+
+        // Global last compilation/apply error report shown in the Hub.
         [SerializeField] private string lastErrorReport = string.Empty;
+
+        // Timestamp for lastErrorReport (UTC ticks). Used to detect stale reports and to diagnose update issues.
+        [SerializeField] private long lastErrorReportTicks;
 
         private readonly Dictionary<string, int> _latestVersionByKey = new(StringComparer.Ordinal);
 
         public int Capacity => capacity;
         public IReadOnlyList<Entry> Entries => entries;
+
         public string LastErrorReport => lastErrorReport ?? string.Empty;
+
+        /// <summary>
+        /// UTC ticks when LastErrorReport was last written.
+        /// </summary>
+        public long LastErrorReportTicks => lastErrorReportTicks;
 
         public void SetCapacity(int newCapacity)
         {
@@ -86,6 +97,7 @@ namespace AiClipboardPipeline.Editor
             entries.Clear();
             _latestVersionByKey.Clear();
             lastErrorReport = string.Empty;
+            lastErrorReportTicks = 0;
             SaveAndNotify();
         }
 
@@ -120,6 +132,7 @@ namespace AiClipboardPipeline.Editor
         public void SetLastErrorReport(string report)
         {
             lastErrorReport = report ?? string.Empty;
+            lastErrorReportTicks = string.IsNullOrEmpty(lastErrorReport) ? 0 : DateTime.UtcNow.Ticks;
             SaveAndNotify();
         }
 

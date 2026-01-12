@@ -5,20 +5,15 @@ namespace AiClipboardPipeline.Editor
 {
     public sealed class AICodePasteHubWindow : EditorWindow
     {
-        private const float BottomPanelHeight = 210f;
         private const float LeftPaneWidthRatio = 0.42f;
 
         private AICodePasteHubController _controller;
 
         private Vector2 _historyScroll;
         private Vector2 _previewScroll;
-        private Vector2 _errorScroll;
 
         private GUIStyle _monoWrapStyle;
         private Texture2D _selectedBgTexture;
-
-        private bool _stylesInitialized;
-        private bool _stylesInitQueued;
 
         [MenuItem("Tools/AI Clipboard Pipeline/Hub")]
         public static void Open()
@@ -33,9 +28,9 @@ namespace AiClipboardPipeline.Editor
             _controller = new AICodePasteHubController();
             _controller.StateChanged += Repaint;
 
-            // Do not call EnsureStyles() here.
-            // During early editor initialization/domain reload, EditorStyles may not be ready yet.
-            QueueEnsureStyles();
+            // IMPORTANT:
+            // Do not touch EditorStyles / GUI.skin here.
+            // During domain reload or early editor init, EditorStyles.textArea can be null and throw.
         }
 
         private void OnDisable()
@@ -54,8 +49,6 @@ namespace AiClipboardPipeline.Editor
             }
 
             _monoWrapStyle = null;
-            _stylesInitialized = false;
-            _stylesInitQueued = false;
         }
 
         private void OnGUI()
@@ -66,31 +59,25 @@ namespace AiClipboardPipeline.Editor
                 return;
             }
 
-            EnsureStyles();
-
-            if (!_stylesInitialized || _monoWrapStyle == null)
+            EnsureStylesReady();
+            if (_monoWrapStyle == null)
             {
-                // If styles are still unavailable (very early editor state), avoid breaking the window.
-                EditorGUILayout.HelpBox("Initializing editor styles...", MessageType.Info);
-                QueueEnsureStyles();
+                // Editor GUI is not fully ready yet; skip drawing this frame.
+                // This avoids null refs during early initialization.
+                Repaint();
                 return;
             }
 
             DrawTopStatusBar();
             EditorGUILayout.Space(6);
 
-            Rect full = new(
+            Rect area = new(
                 0,
                 EditorGUIUtility.singleLineHeight + 8,
                 position.width,
                 position.height - (EditorGUIUtility.singleLineHeight + 8));
 
-            Rect bottom = new(full.x, full.yMax - BottomPanelHeight, full.width, BottomPanelHeight);
-            Rect top = new(full.x, full.y, full.width, full.height - BottomPanelHeight - 6);
-
-            DrawTopArea(top);
-            GUILayout.Space(6);
-            DrawBottomFixedPanel(bottom);
+            DrawTopArea(area);
         }
 
         private void DrawTopStatusBar()
@@ -139,17 +126,6 @@ namespace AiClipboardPipeline.Editor
             GUILayout.EndArea();
         }
 
-        private void DrawBottomFixedPanel(Rect area)
-        {
-            GUILayout.BeginArea(area);
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-            {
-                DrawLastErrorReportPanel();
-            }
-
-            GUILayout.EndArea();
-        }
-
         private void DrawControlPanel()
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
@@ -160,9 +136,9 @@ namespace AiClipboardPipeline.Editor
                 {
                     bool newAutoCapture = EditorGUILayout.ToggleLeft("Auto-capture", _controller.AutoCapture);
                     bool newAutoApply = EditorGUILayout.ToggleLeft("Auto-apply", _controller.AutoApply);
-                    bool newAutoCopy = EditorGUILayout.ToggleLeft(
-                        "Auto-copy error report on failure",
-                        _controller.AutoCopyErrorReport);
+
+                    bool newAutoUndo = EditorGUILayout.ToggleLeft("Auto-undo on compile errors",
+                        _controller.AutoUndoOnCompileError);
 
                     if (newAutoCapture != _controller.AutoCapture)
                         _controller.SetAutoCapture(newAutoCapture);
@@ -170,8 +146,8 @@ namespace AiClipboardPipeline.Editor
                     if (newAutoApply != _controller.AutoApply)
                         _controller.SetAutoApply(newAutoApply);
 
-                    if (newAutoCopy != _controller.AutoCopyErrorReport)
-                        _controller.SetAutoCopyErrorReport(newAutoCopy);
+                    if (newAutoUndo != _controller.AutoUndoOnCompileError)
+                        _controller.SetAutoUndoOnCompileError(newAutoUndo);
                 }
 
                 EditorGUILayout.Space(8);
@@ -186,12 +162,9 @@ namespace AiClipboardPipeline.Editor
 
                     using (new EditorGUILayout.HorizontalScope())
                     {
-                        string newFolder = EditorGUILayout.TextField(
-                            new GUIContent("Fallback folder"),
+                        string newFolder = EditorGUILayout.TextField(new GUIContent("Fallback folder"),
                             _controller.FallbackFolder);
-
-                        GUILayout.Button("...", GUILayout.Width(32)); // Visual placeholder
-
+                        GUILayout.Button("...", GUILayout.Width(32)); // visual placeholder
                         if (newFolder != _controller.FallbackFolder)
                             _controller.SetFallbackFolder(newFolder);
                     }
@@ -227,20 +200,15 @@ namespace AiClipboardPipeline.Editor
                     AICodePasteHubController.HistoryItem item = _controller.Items[i];
                     Rect rowRect = new(0, i * rowH, viewRect.width, rowH);
 
-                    // Buttons layout (right side)
                     const float btnW = 72f;
                     const float btnH = 22f;
                     float btnY = rowRect.y + (rowRect.height - btnH) * 0.5f;
 
-                    Rect applyRect = new(rowRect.xMax - btnW * 2f - 10f, btnY, btnW, btnH);
+                    Rect actionRect = new(rowRect.xMax - btnW * 2f - 10f, btnY, btnW, btnH);
                     Rect delRect = new(rowRect.xMax - btnW - 6f, btnY, btnW, btnH);
 
-                    // Selection rect excludes button area.
                     float reservedRight = btnW * 2f + 18f;
-                    Rect selectRect = new(
-                        rowRect.x,
-                        rowRect.y,
-                        Mathf.Max(1f, rowRect.width - reservedRight),
+                    Rect selectRect = new(rowRect.x, rowRect.y, Mathf.Max(1f, rowRect.width - reservedRight),
                         rowRect.height);
 
                     bool isSelected = i == _controller.SelectedIndex;
@@ -250,25 +218,36 @@ namespace AiClipboardPipeline.Editor
                     if (GUI.Button(selectRect, GUIContent.none, GUIStyle.none))
                         _controller.SelectIndex(i);
 
-                    // Status icon
                     Rect statusRect = new(rowRect.x + 6, rowRect.y + 14, 18, 18);
                     GUI.Label(statusRect, GetStatusIcon(item.Status));
 
-                    // Type + title
                     Rect line1 = new(rowRect.x + 28, rowRect.y + 6, rowRect.width - reservedRight - 34, 18);
                     GUI.Label(line1, $"{GetTypeLabel(item.Type)} • {item.Title}", EditorStyles.miniBoldLabel);
 
-                    // Timestamp + status
                     Rect line2 = new(rowRect.x + 28, rowRect.y + 24, rowRect.width - reservedRight - 34, 18);
                     GUI.Label(line2, $"{item.Timestamp:yyyy-MM-dd HH:mm:ss} • {item.Status}", EditorStyles.miniLabel);
 
                     bool canApply = _controller.CanApply(item);
-                    bool isApplied = item.Status == AICodePasteHubController.HistoryStatus.Applied;
+                    bool canUndo = _controller.CanUndo(item);
 
-                    using (new EditorGUI.DisabledScope(!canApply || isApplied))
+                    bool showUndo = canUndo &&
+                                    (item.Status == AICodePasteHubController.HistoryStatus.Applied ||
+                                     item.Status == AICodePasteHubController.HistoryStatus.Error);
+
+                    if (showUndo)
                     {
-                        if (GUI.Button(applyRect, "Apply"))
-                            _controller.ApplyById(item.Id);
+                        if (GUI.Button(actionRect, "Undo"))
+                            _controller.UndoById(item.Id);
+                    }
+                    else
+                    {
+                        bool isApplied = item.Status == AICodePasteHubController.HistoryStatus.Applied;
+
+                        using (new EditorGUI.DisabledScope(!canApply || isApplied))
+                        {
+                            if (GUI.Button(actionRect, "Apply"))
+                                _controller.ApplyById(item.Id);
+                        }
                     }
 
                     if (GUI.Button(delRect, "Delete"))
@@ -302,7 +281,8 @@ namespace AiClipboardPipeline.Editor
                 EditorGUILayout.Space(6);
 
                 _previewScroll = EditorGUILayout.BeginScrollView(_previewScroll, GUILayout.ExpandHeight(true));
-                EditorGUILayout.TextArea(_controller.PreviewText ?? string.Empty, _monoWrapStyle, GUILayout.ExpandHeight(true));
+                EditorGUILayout.TextArea(_controller.PreviewText ?? string.Empty, _monoWrapStyle,
+                    GUILayout.ExpandHeight(true));
                 EditorGUILayout.EndScrollView();
             }
         }
@@ -318,15 +298,26 @@ namespace AiClipboardPipeline.Editor
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    using (new EditorGUI.DisabledScope(
-                               !hasSelection ||
-                               !_controller.CanApply(selected) ||
-                               selected.Status == AICodePasteHubController.HistoryStatus.Applied))
+                    using (new EditorGUI.DisabledScope(!hasSelection || !_controller.CanApply(selected) ||
+                                                       selected.Status == AICodePasteHubController.HistoryStatus
+                                                           .Applied))
                     {
                         if (GUILayout.Button("Apply Selected", GUILayout.Height(26)))
                             _controller.ApplyById(selected.Id);
                     }
 
+                    using (new EditorGUI.DisabledScope(!hasSelection || !_controller.CanUndo(selected)))
+                    {
+                        if (GUILayout.Button("Undo Selected", GUILayout.Height(26)))
+                            _controller.UndoById(selected.Id);
+                    }
+
+                    if (GUILayout.Button("Undo Last Apply", GUILayout.Height(26)))
+                        _controller.UndoLast();
+                }
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
                     using (new EditorGUI.DisabledScope(!hasSelection))
                     {
                         if (GUILayout.Button("Ignore Selected", GUILayout.Height(26)))
@@ -339,105 +330,45 @@ namespace AiClipboardPipeline.Editor
             }
         }
 
-        private void DrawLastErrorReportPanel()
+        private void EnsureStylesReady()
         {
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                GUILayout.Label("Last Error Report", EditorStyles.boldLabel);
-                GUILayout.FlexibleSpace();
-
-                if (GUILayout.Button("Copy", GUILayout.Width(70)))
-                    _controller.CopyLastErrorReportToClipboard();
-
-                if (GUILayout.Button("Clear", GUILayout.Width(70)))
-                    _controller.ClearLastErrorReport();
-            }
-
-            EditorGUILayout.Space(6);
-
-            Rect box = GUILayoutUtility.GetRect(10, 10, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
-            GUI.Box(box, GUIContent.none);
-
-            Rect inner = new(box.x + 2, box.y + 2, box.width - 4, box.height - 4);
-
-            GUILayout.BeginArea(inner);
-            _errorScroll = EditorGUILayout.BeginScrollView(_errorScroll, GUILayout.ExpandHeight(true));
-            EditorGUILayout.TextArea(_controller.LastErrorReport ?? string.Empty, _monoWrapStyle, GUILayout.ExpandHeight(true));
-            EditorGUILayout.EndScrollView();
-            GUILayout.EndArea();
-        }
-
-        private void QueueEnsureStyles()
-        {
-            if (_stylesInitQueued)
+            if (_monoWrapStyle != null && _selectedBgTexture != null)
                 return;
 
-            _stylesInitQueued = true;
-            EditorApplication.delayCall += EnsureStylesDelayed;
-        }
-
-        private void EnsureStylesDelayed()
-        {
-            _stylesInitQueued = false;
-
-            if (this == null)
-                return;
-
-            EnsureStyles();
-            Repaint();
-        }
-
-        private void EnsureStyles()
-        {
-            if (_stylesInitialized && _monoWrapStyle != null && _selectedBgTexture != null)
-                return;
+            // EditorStyles can be unavailable during OnEnable or early init.
+            GUIStyle baseStyle = null;
 
             try
             {
-                // EditorStyles might be unavailable during early initialization.
-                GUIStyle baseStyle = null;
+                baseStyle = EditorStyles.textArea;
+            }
+            catch
+            {
+                // Ignore: EditorStyles not ready yet.
+            }
 
-                try
-                {
-                    baseStyle = EditorStyles.textArea;
-                }
-                catch
-                {
-                    // Ignore and fallback.
-                }
+            if (baseStyle == null && GUI.skin != null)
+                baseStyle = GUI.skin.textArea;
 
-                if (baseStyle == null)
-                {
-                    try
-                    {
-                        if (GUI.skin != null)
-                            baseStyle = GUI.skin.textArea;
-                    }
-                    catch
-                    {
-                        // Ignore and fallback.
-                    }
-                }
+            if (baseStyle == null)
+                return; // Not ready this frame.
 
-                if (baseStyle == null)
-                    baseStyle = new GUIStyle();
-
+            if (_monoWrapStyle == null)
+            {
                 _monoWrapStyle = new GUIStyle(baseStyle)
                 {
                     wordWrap = true,
                     richText = false
                 };
-
-                if (_selectedBgTexture == null)
-                    _selectedBgTexture = MakeTex(1, 1, new Color(0.22f, 0.45f, 0.95f, 0.18f));
-
-                _stylesInitialized = _monoWrapStyle != null && _selectedBgTexture != null;
             }
-            catch
+            else
             {
-                // Never throw from style initialization; retry later.
-                _stylesInitialized = false;
+                _monoWrapStyle.wordWrap = true;
+                _monoWrapStyle.richText = false;
             }
+
+            if (_selectedBgTexture == null)
+                _selectedBgTexture = MakeTex(1, 1, new Color(0.22f, 0.45f, 0.95f, 0.18f));
         }
 
         private static Texture2D MakeTex(int width, int height, Color color)
@@ -449,7 +380,9 @@ namespace AiClipboardPipeline.Editor
 
             Color[] pixels = new Color[width * height];
             for (int i = 0; i < pixels.Length; i++)
+            {
                 pixels[i] = color;
+            }
 
             tex.SetPixels(pixels);
             tex.Apply();

@@ -19,7 +19,7 @@ namespace AiClipboardPipeline.Editor
             public IClipboardClassifier Classifier;
         }
 
-        private static readonly List<ClassifierEntry> _classifiers = new List<ClassifierEntry>(8);
+        private static readonly List<ClassifierEntry> _classifiers = new(8);
         private static bool _initialized;
 
         static ClipboardClassifierRegistry()
@@ -37,8 +37,8 @@ namespace AiClipboardPipeline.Editor
             _classifiers.Clear();
 
             // Default classifiers (safe set).
-            Register(new CSharpFileClipboardClassifier(), priority: 100);
-            Register(new GitPatchClipboardClassifier(), priority: 50);
+            Register(new CSharpFileClipboardClassifier(), 100);
+            Register(new GitPatchClipboardClassifier(), 50);
 
             SortByPriority();
         }

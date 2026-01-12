@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace AiClipboardPipeline.Editor
 {
@@ -17,40 +18,29 @@ namespace AiClipboardPipeline.Editor
     /// - Validates full C# file heuristically when applying "csharp_file".
     /// - Applies "git_patch" using "git apply" with a "git apply --check" validation step.
     /// - Prevents modifying outside Assets/ (path traversal and out-of-project protection).
-    /// - Rate limits repeated applies for the same logicalKey (lock/queue/confirm).
+    /// - Rate limits repeated applies for the same logicalKey (lock/confirm).
+    /// - Creates persistent undo sessions and uses a compile gate to offer/perform rollback on compile errors.
     /// </summary>
     public static class AICodePasteApplier
     {
         private const double ApplyLockWindowSeconds = 2.0;
-        private const int MaxQueuedAttempts = 12;
 
         private static readonly Dictionary<string, double> s_LastApplyStartByKey = new(StringComparer.Ordinal);
-        private static readonly Queue<QueuedApply> s_QueuedApplies = new();
-        private static bool s_UpdateHooked;
 
         private static readonly Regex TypeRegex =
-            new Regex(@"\b(class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b", RegexOptions.Compiled);
+            new(@"\b(class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b", RegexOptions.Compiled);
 
         private static readonly Regex NamespaceRegex =
-            new Regex(@"\bnamespace\s+([A-Za-z_][A-Za-z0-9_\.]*)\s*[{;]", RegexOptions.Compiled);
+            new(@"\bnamespace\s+([A-Za-z_][A-Za-z0-9_\.]*)\s*[{;]", RegexOptions.Compiled);
 
         private static readonly Regex FileHeaderRegex =
-            new Regex(@"^\s*//\s*File\s*:\s*(.+?)\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            new(@"^\s*//\s*File\s*:\s*(.+?)\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex GitDiffHeaderRegex =
-            new Regex(@"^diff --git a\/(.+?) b\/(.+?)\s*$", RegexOptions.Compiled | RegexOptions.Multiline);
+            new(@"^diff --git a\/(.+?) b\/(.+?)\s*$", RegexOptions.Compiled | RegexOptions.Multiline);
 
         private static readonly Regex GitPlusPlusPlusRegex =
-            new Regex(@"^\+\+\+\s+(b\/|\/dev\/null)(.+?)\s*$", RegexOptions.Compiled | RegexOptions.Multiline);
-
-        private struct QueuedApply
-        {
-            public string EntryId;
-            public Settings Settings;
-            public string LogicalKey;
-            public double EnqueuedAt;
-            public int Attempts;
-        }
+            new(@"^\+\+\+\s+(b\/|\/dev\/null)(.+?)\s*$", RegexOptions.Compiled | RegexOptions.Multiline);
 
         public sealed class Settings
         {
@@ -59,22 +49,23 @@ namespace AiClipboardPipeline.Editor
 
         public static bool TryApplyEntryById(string entryId, Settings settings)
         {
-            var store = ClipboardHistoryStore.instance;
-            var entry = store.GetById(entryId);
+            ClipboardHistoryStore store = ClipboardHistoryStore.instance;
+            ClipboardHistoryStore.Entry entry = store.GetById(entryId);
             if (entry == null)
             {
-                ReportFailure("Apply failed: entry not found.", entryId, setEntryError: false);
+                ReportFailure("Apply failed: entry not found.", entryId, false);
                 return false;
             }
 
-            return TryApplyEntry(entry, settings, userInitiated: true);
+            return TryApplyEntry(entry, settings, true);
         }
 
-        public static bool TryApplyEntry(ClipboardHistoryStore.Entry entry, Settings settings, bool userInitiated = false)
+        public static bool TryApplyEntry(ClipboardHistoryStore.Entry entry, Settings settings,
+            bool userInitiated = false)
         {
             if (entry == null)
             {
-                ReportFailure("Apply failed: entry is null.", null, setEntryError: false);
+                ReportFailure("Apply failed: entry is null.", null, false);
                 return false;
             }
 
@@ -87,7 +78,7 @@ namespace AiClipboardPipeline.Editor
                 return TryApplyGitPatch(entry, text, userInitiated);
 
             string msg = $"Apply not implemented for type '{entry.typeId}'.";
-            ReportFailure(msg, entry.id, setEntryError: true);
+            ReportFailure(msg, entry.id, true);
             return false;
         }
 
@@ -95,7 +86,8 @@ namespace AiClipboardPipeline.Editor
         // Apply: C# full file
         // ---------------------------------------------------------------------
 
-        private static bool TryApplyCSharpFile(ClipboardHistoryStore.Entry entry, string text, Settings settings, bool userInitiated)
+        private static bool TryApplyCSharpFile(ClipboardHistoryStore.Entry entry, string text, Settings settings,
+            bool userInitiated)
         {
             if (!CSharpFileClipboardClassifier.IsValidCSharpCode(text, out _))
             {
@@ -107,7 +99,7 @@ namespace AiClipboardPipeline.Editor
                     " - Must contain '{' and '}'\n" +
                     " - Braces must be balanced (ignoring comments and strings)\n";
 
-                ReportFailure(report, entry.id, setEntryError: true);
+                ReportFailure(report, entry.id, true);
                 return false;
             }
 
@@ -115,12 +107,22 @@ namespace AiClipboardPipeline.Editor
             if (string.IsNullOrEmpty(logicalKey))
                 logicalKey = ExtractPrimaryTypeName(text);
 
-            if (!TryEnterApplyLock(logicalKey, userInitiated, entry.id, settings))
+            if (!TryEnterApplyLock(logicalKey, userInitiated))
                 return false;
+
+            string sessionId = string.Empty;
 
             try
             {
                 string assetPath = ResolveTargetAssetPath(text, settings?.FallbackFolder, out _);
+
+                // Create persistent undo snapshot before writing.
+                if (!AICodePasteUndoManager.TryCreateUndoSession(entry.id, new[] { assetPath }, out sessionId,
+                        out string undoErr))
+                {
+                    ReportFailure("Apply blocked: failed to create undo session.\n\n" + undoErr, entry.id, true);
+                    return false;
+                }
 
                 string absPath = ToAbsolutePathStrict(assetPath);
                 string dir = Path.GetDirectoryName(absPath);
@@ -133,14 +135,17 @@ namespace AiClipboardPipeline.Editor
 
                 File.WriteAllText(absPath, normalized, new UTF8Encoding(false));
 
+                // Start compile gate now; compilation will occur after import/refresh.
+                AICodePasteUndoManager.BeginCompileGate(entry.id, sessionId);
+
                 AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
                 AssetDatabase.Refresh();
 
                 ClipboardHistoryStore.instance.UpdateEntryResult(
                     entry.id,
                     ClipboardHistoryStore.EntryStatus.Applied,
-                    appliedAssetPath: assetPath,
-                    errorReport: string.Empty);
+                    assetPath,
+                    string.Empty);
 
                 return true;
             }
@@ -153,7 +158,7 @@ namespace AiClipboardPipeline.Editor
                     $"LogicalKey: {entry.logicalKey}\n\n" +
                     ex;
 
-                ReportFailure(report, entry.id, setEntryError: true);
+                ReportFailure(report, entry.id, true);
                 return false;
             }
         }
@@ -166,7 +171,9 @@ namespace AiClipboardPipeline.Editor
         {
             if (string.IsNullOrWhiteSpace(patchText))
             {
-                ReportFailure("Apply blocked: patch text is empty.", entry.id, setEntryError: true);
+                const string report = "Apply blocked: patch text is empty.";
+                ReportFailure(report, entry.id, true);
+                LogPatchFailure(report, entry.id);
                 return false;
             }
 
@@ -177,16 +184,17 @@ namespace AiClipboardPipeline.Editor
                     "Reason: Patch failed safety validation.\n\n" +
                     validationError;
 
-                ReportFailure(report, entry.id, setEntryError: true);
+                ReportFailure(report, entry.id, true);
+                LogPatchFailure(report, entry.id);
                 return false;
             }
 
             string logicalKey = string.IsNullOrEmpty(entry.logicalKey) ? "patch:unknown" : entry.logicalKey;
 
-            if (!TryEnterApplyLock(logicalKey, userInitiated, entry.id, settings: null))
+            if (!TryEnterApplyLock(logicalKey, userInitiated))
                 return false;
 
-            // Auto-apply is enabled: confirm multi-file patches (both auto + manual).
+            // Confirm multi-file patches.
             if (assetPaths.Count > 1)
             {
                 string msg =
@@ -199,8 +207,20 @@ namespace AiClipboardPipeline.Editor
                     return false;
             }
 
+            string sessionId = string.Empty;
+
             try
             {
+                // Create persistent undo snapshot before applying patch.
+                if (!AICodePasteUndoManager.TryCreateUndoSession(entry.id, assetPaths, out sessionId,
+                        out string undoErr))
+                {
+                    string report = "Apply blocked: failed to create undo session.\n\n" + undoErr;
+                    ReportFailure(report, entry.id, true);
+                    LogPatchFailure(report, entry.id);
+                    return false;
+                }
+
                 string projectRoot = GetProjectRoot();
 
                 string tempDir = Path.Combine(projectRoot, "Library", "AICodePasteTemp");
@@ -224,7 +244,8 @@ namespace AiClipboardPipeline.Editor
                         "STDOUT:\n" + check.StdOut + "\n\n" +
                         "STDERR:\n" + check.StdErr;
 
-                    ReportFailure(report, entry.id, setEntryError: true);
+                    ReportFailure(report, entry.id, true);
+                    LogPatchFailure(report, entry.id);
                     return false;
                 }
 
@@ -238,11 +259,14 @@ namespace AiClipboardPipeline.Editor
                         "STDOUT:\n" + apply.StdOut + "\n\n" +
                         "STDERR:\n" + apply.StdErr;
 
-                    ReportFailure(report, entry.id, setEntryError: true);
+                    ReportFailure(report, entry.id, true);
+                    LogPatchFailure(report, entry.id);
                     return false;
                 }
 
-                // Import modified assets (defense-in-depth: strict absolute validation).
+                // Start compile gate now; compilation will occur after imports.
+                AICodePasteUndoManager.BeginCompileGate(entry.id, sessionId);
+
                 for (int i = 0; i < assetPaths.Count; i++)
                 {
                     string ap = assetPaths[i];
@@ -258,8 +282,8 @@ namespace AiClipboardPipeline.Editor
                 ClipboardHistoryStore.instance.UpdateEntryResult(
                     entry.id,
                     ClipboardHistoryStore.EntryStatus.Applied,
-                    appliedAssetPath: appliedNote,
-                    errorReport: string.Empty);
+                    appliedNote,
+                    string.Empty);
 
                 return true;
             }
@@ -272,12 +296,23 @@ namespace AiClipboardPipeline.Editor
                     $"LogicalKey: {entry.logicalKey}\n\n" +
                     ex;
 
-                ReportFailure(report, entry.id, setEntryError: true);
+                ReportFailure(report, entry.id, true);
+                LogPatchFailure(report, entry.id);
                 return false;
             }
         }
 
-        private static bool TryExtractAffectedAssetsFromPatch(string patchText, out List<string> assetPaths, out string error)
+        private static void LogPatchFailure(string report, string entryId)
+        {
+            string header = string.IsNullOrEmpty(entryId)
+                ? "[AI Code Paste] Patch apply failed."
+                : $"[AI Code Paste] Patch apply failed (EntryId: {entryId}).";
+
+            Debug.LogError(header + "\n\n" + (report ?? string.Empty));
+        }
+
+        private static bool TryExtractAffectedAssetsFromPatch(string patchText, out List<string> assetPaths,
+            out string error)
         {
             assetPaths = new List<string>(4);
             error = string.Empty;
@@ -324,7 +359,7 @@ namespace AiClipboardPipeline.Editor
                 return false;
             }
 
-            var seen = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> seen = new(StringComparer.Ordinal);
             int write = 0;
             for (int i = 0; i < assetPaths.Count; i++)
             {
@@ -392,7 +427,7 @@ namespace AiClipboardPipeline.Editor
 
         private static GitResult RunGit(string workingDirectory, string args)
         {
-            var psi = new ProcessStartInfo
+            ProcessStartInfo psi = new()
             {
                 FileName = "git",
                 Arguments = args,
@@ -405,7 +440,7 @@ namespace AiClipboardPipeline.Editor
                 StandardErrorEncoding = Encoding.UTF8
             };
 
-            using var p = new Process { StartInfo = psi };
+            using Process p = new() { StartInfo = psi };
 
             try
             {
@@ -439,129 +474,6 @@ namespace AiClipboardPipeline.Editor
             string assetsAbs = Application.dataPath.Replace("\\", "/");
             DirectoryInfo parent = Directory.GetParent(assetsAbs);
             return parent?.FullName?.Replace("\\", "/") ?? assetsAbs;
-        }
-
-        // ---------------------------------------------------------------------
-        // Lock / queue
-        // ---------------------------------------------------------------------
-
-        private static bool TryEnterApplyLock(string logicalKey, bool userInitiated, string entryId, Settings settings)
-        {
-            logicalKey ??= string.Empty;
-
-            double now = EditorApplication.timeSinceStartup;
-            if (IsLocked(logicalKey, now, out double remaining))
-            {
-                string msg =
-                    "This entry was applied very recently.\n\n" +
-                    $"LogicalKey: {logicalKey}\n" +
-                    $"Lock remaining: {remaining:0.00}s\n\n" +
-                    "Apply again anyway?";
-
-                bool ok = EditorUtility.DisplayDialog("AI Code Paste - Apply Rate Limit", msg, "Apply Anyway", "Cancel");
-                if (!ok)
-                    return false;
-
-                s_LastApplyStartByKey[logicalKey] = now;
-                return true;
-            }
-
-            s_LastApplyStartByKey[logicalKey] = now;
-            return true;
-        }
-
-        private static bool IsLocked(string logicalKey, double now, out double remaining)
-        {
-            remaining = 0;
-
-            if (string.IsNullOrEmpty(logicalKey))
-                return false;
-
-            if (!s_LastApplyStartByKey.TryGetValue(logicalKey, out double last))
-                return false;
-
-            double dt = now - last;
-            if (dt >= ApplyLockWindowSeconds)
-                return false;
-
-            remaining = Math.Max(0, ApplyLockWindowSeconds - dt);
-            return true;
-        }
-
-        private static void EnqueueApply(string entryId, Settings settings, string logicalKey, double now)
-        {
-            if (string.IsNullOrEmpty(entryId))
-                return;
-
-            EnsureUpdateHooked();
-
-            foreach (QueuedApply q in s_QueuedApplies)
-            {
-                if (string.Equals(q.EntryId, entryId, StringComparison.Ordinal))
-                    return;
-            }
-
-            s_QueuedApplies.Enqueue(new QueuedApply
-            {
-                EntryId = entryId,
-                Settings = settings,
-                LogicalKey = logicalKey ?? string.Empty,
-                EnqueuedAt = now,
-                Attempts = 0
-            });
-        }
-
-        private static void EnsureUpdateHooked()
-        {
-            if (s_UpdateHooked)
-                return;
-
-            s_UpdateHooked = true;
-            EditorApplication.update -= PumpQueue;
-            EditorApplication.update += PumpQueue;
-        }
-
-        private static void PumpQueue()
-        {
-            if (s_QueuedApplies.Count == 0)
-                return;
-
-            int budget = 2;
-            double now = EditorApplication.timeSinceStartup;
-
-            while (budget-- > 0 && s_QueuedApplies.Count > 0)
-            {
-                QueuedApply q = s_QueuedApplies.Dequeue();
-
-                if (string.IsNullOrEmpty(q.EntryId))
-                    continue;
-
-                if (IsLocked(q.LogicalKey, now, out _))
-                {
-                    q.Attempts++;
-                    if (q.Attempts > MaxQueuedAttempts)
-                    {
-                        string report =
-                            "Auto-apply was throttled too many times.\n\n" +
-                            $"Entry: {q.EntryId}\n" +
-                            $"LogicalKey: {q.LogicalKey}\n" +
-                            "Reason: Repeated applies in a short time window.\n" +
-                            "Action: Apply manually from the Hub if needed.";
-
-                        ReportFailure(report, q.EntryId, setEntryError: false);
-                        continue;
-                    }
-
-                    s_QueuedApplies.Enqueue(q);
-                    continue;
-                }
-
-                ClipboardHistoryStore.Entry entry = ClipboardHistoryStore.instance.GetById(q.EntryId);
-                if (entry == null)
-                    continue;
-
-                TryApplyEntry(entry, q.Settings, userInitiated: false);
-            }
         }
 
         // ---------------------------------------------------------------------
@@ -731,7 +643,9 @@ namespace AiClipboardPipeline.Editor
                 p = p.Substring(1, p.Length - 2).Trim();
 
             while (p.StartsWith("./", StringComparison.Ordinal))
+            {
                 p = p.Substring(2);
+            }
 
             int idx = p.IndexOf("/Assets/", StringComparison.OrdinalIgnoreCase);
             if (idx >= 0)
@@ -746,7 +660,8 @@ namespace AiClipboardPipeline.Editor
         {
             string p = (assetPath ?? string.Empty).Replace("\\", "/").Trim();
 
-            if (!p.StartsWith("Assets/", StringComparison.Ordinal) && !string.Equals(p, "Assets", StringComparison.Ordinal))
+            if (!p.StartsWith("Assets/", StringComparison.Ordinal) &&
+                !string.Equals(p, "Assets", StringComparison.Ordinal))
                 throw new InvalidOperationException($"Invalid asset path: {assetPath}");
 
             string assetsAbs = Application.dataPath.Replace("\\", "/");
@@ -777,7 +692,8 @@ namespace AiClipboardPipeline.Editor
 
             string r = rel.Replace("\\", "/");
 
-            if (r.StartsWith("../", StringComparison.Ordinal) || r.Contains("/../") || r.EndsWith("/..", StringComparison.Ordinal))
+            if (r.StartsWith("../", StringComparison.Ordinal) || r.Contains("/../") ||
+                r.EndsWith("/..", StringComparison.Ordinal))
                 return true;
 
             string[] segs = r.Split('/');
@@ -790,6 +706,58 @@ namespace AiClipboardPipeline.Editor
             return false;
         }
 
+        // ---------------------------------------------------------------------
+        // Lock
+        // ---------------------------------------------------------------------
+
+        private static bool TryEnterApplyLock(string logicalKey, bool userInitiated)
+        {
+            logicalKey ??= string.Empty;
+
+            double now = EditorApplication.timeSinceStartup;
+            if (IsLocked(logicalKey, now, out double remaining))
+            {
+                string msg =
+                    "This entry was applied very recently.\n\n" +
+                    $"LogicalKey: {logicalKey}\n" +
+                    $"Lock remaining: {remaining:0.00}s\n\n" +
+                    "Apply again anyway?";
+
+                bool ok = EditorUtility.DisplayDialog("AI Code Paste - Apply Rate Limit", msg, "Apply Anyway",
+                    "Cancel");
+                if (!ok)
+                    return false;
+
+                s_LastApplyStartByKey[logicalKey] = now;
+                return true;
+            }
+
+            s_LastApplyStartByKey[logicalKey] = now;
+            return true;
+        }
+
+        private static bool IsLocked(string logicalKey, double now, out double remaining)
+        {
+            remaining = 0;
+
+            if (string.IsNullOrEmpty(logicalKey))
+                return false;
+
+            if (!s_LastApplyStartByKey.TryGetValue(logicalKey, out double last))
+                return false;
+
+            double dt = now - last;
+            if (dt >= ApplyLockWindowSeconds)
+                return false;
+
+            remaining = Math.Max(0, ApplyLockWindowSeconds - dt);
+            return true;
+        }
+
+        // ---------------------------------------------------------------------
+        // Error handling
+        // ---------------------------------------------------------------------
+
         private static void ReportFailure(string report, string entryId, bool setEntryError)
         {
             if (string.IsNullOrEmpty(report))
@@ -798,13 +766,11 @@ namespace AiClipboardPipeline.Editor
             ClipboardHistoryStore.instance.SetLastErrorReport(report);
 
             if (!string.IsNullOrEmpty(entryId) && setEntryError)
-            {
                 ClipboardHistoryStore.instance.UpdateEntryResult(
                     entryId,
                     ClipboardHistoryStore.EntryStatus.Error,
-                    appliedAssetPath: string.Empty,
-                    errorReport: report);
-            }
+                    string.Empty,
+                    report);
         }
     }
 }

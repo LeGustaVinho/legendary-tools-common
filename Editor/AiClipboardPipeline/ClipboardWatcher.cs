@@ -9,8 +9,7 @@ namespace AiClipboardPipeline.Editor
 {
     /// <summary>
     /// Watches Windows clipboard updates using a message-only Win32 window and WM_CLIPBOARDUPDATE.
-    /// Important: WM_CLIPBOARDUPDATE can arrive before EditorGUIUtility.systemCopyBuffer is populated.
-    /// This watcher uses a short retry loop to read clipboard text reliably.
+    /// This version reads clipboard text with retry to avoid false negatives when clipboard is not ready.
     /// </summary>
     [InitializeOnLoad]
     public static class ClipboardWatcher
@@ -20,9 +19,6 @@ namespace AiClipboardPipeline.Editor
         private const int WM_CLIPBOARDUPDATE = 0x031D;
         private const int PM_REMOVE = 0x0001;
 
-        private const int MaxClipboardReadAttempts = 8;
-        private const double ClipboardReadRetryDelaySeconds = 0.05;
-
         private static IntPtr _hwnd = IntPtr.Zero;
         private static IntPtr _hInstance = IntPtr.Zero;
         private static bool _running;
@@ -30,11 +26,16 @@ namespace AiClipboardPipeline.Editor
 
         private static WndProc _wndProcDelegate;
 
-        // Pending clipboard read (retry loop)
+        // Retry state (clipboard can be temporarily locked or not populated yet).
         private static bool _pendingRead;
         private static int _readAttempts;
-        private static double _nextReadTime;
-        private static string _lastDeliveredText;
+        private static double _nextReadAt;
+        private static string _lastRead;
+        private static int _stableReads;
+
+        private const int MaxReadAttempts = 8;
+        private const double ReadRetryIntervalSeconds = 0.04;
+        private const int RequiredStableReads = 2;
 
         static ClipboardWatcher()
         {
@@ -61,6 +62,7 @@ namespace AiClipboardPipeline.Editor
 
                 _running = true;
                 EditorApplication.update += PumpMessages;
+                EditorApplication.update += RetryClipboardReadUpdate;
 
                 Debug.Log("[ClipboardWatcher] Started successfully.");
             }
@@ -79,6 +81,7 @@ namespace AiClipboardPipeline.Editor
             try
             {
                 EditorApplication.update -= PumpMessages;
+                EditorApplication.update -= RetryClipboardReadUpdate;
 
                 if (_hwnd != IntPtr.Zero)
                 {
@@ -103,91 +106,94 @@ namespace AiClipboardPipeline.Editor
 
                 _pendingRead = false;
                 _readAttempts = 0;
-                _nextReadTime = 0;
+                _nextReadAt = 0;
+                _lastRead = null;
+                _stableReads = 0;
             }
         }
 
         private static void PumpMessages()
         {
-            // Unity Editor does not automatically pump messages for our hidden Win32 window.
             while (PeekMessage(out MSG msg, IntPtr.Zero, 0, 0, PM_REMOVE))
             {
                 TranslateMessage(ref msg);
                 DispatchMessage(ref msg);
-            }
-
-            PumpPendingClipboardRead();
-        }
-
-        private static void PumpPendingClipboardRead()
-        {
-            if (!_pendingRead)
-                return;
-
-            double now = EditorApplication.timeSinceStartup;
-            if (now < _nextReadTime)
-                return;
-
-            _readAttempts++;
-
-            string text = string.Empty;
-
-            try
-            {
-                // Unity-managed way to read text clipboard in Editor.
-                text = EditorGUIUtility.systemCopyBuffer ?? string.Empty;
-            }
-            catch
-            {
-                // Clipboard can be temporarily locked by another process.
-                text = string.Empty;
-            }
-
-            // If clipboard is empty, it might still be updating; retry shortly.
-            if (string.IsNullOrEmpty(text))
-            {
-                if (_readAttempts >= MaxClipboardReadAttempts)
-                {
-                    _pendingRead = false;
-                    return;
-                }
-
-                _nextReadTime = now + ClipboardReadRetryDelaySeconds;
-                return;
-            }
-
-            // Avoid re-delivering identical text spam.
-            if (string.Equals(text, _lastDeliveredText, StringComparison.Ordinal))
-            {
-                _pendingRead = false;
-                return;
-            }
-
-            _lastDeliveredText = text;
-
-            _pendingRead = false;
-
-            try
-            {
-                ClipboardChanged?.Invoke(text);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[ClipboardWatcher] ClipboardChanged handler threw: {ex}");
             }
         }
 
         private static IntPtr WindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
             if (msg == WM_CLIPBOARDUPDATE)
-            {
-                // Schedule a delayed read + retry loop.
-                _pendingRead = true;
-                _readAttempts = 0;
-                _nextReadTime = EditorApplication.timeSinceStartup + ClipboardReadRetryDelaySeconds;
-            }
+                // Schedule the read instead of reading immediately.
+                // Clipboard content may not be ready in the same tick.
+                ScheduleClipboardRead();
 
             return DefWindowProc(hWnd, msg, wParam, lParam);
+        }
+
+        private static void ScheduleClipboardRead()
+        {
+            _pendingRead = true;
+            _readAttempts = 0;
+            _stableReads = 0;
+            _lastRead = null;
+            _nextReadAt = EditorApplication.timeSinceStartup;
+
+            // Also try one delayed call quickly.
+            EditorApplication.delayCall += () =>
+            {
+                if (_pendingRead)
+                    _nextReadAt = Math.Min(_nextReadAt, EditorApplication.timeSinceStartup);
+            };
+        }
+
+        private static void RetryClipboardReadUpdate()
+        {
+            if (!_pendingRead)
+                return;
+
+            double now = EditorApplication.timeSinceStartup;
+            if (now < _nextReadAt)
+                return;
+
+            _readAttempts++;
+            _nextReadAt = now + ReadRetryIntervalSeconds;
+
+            string text = string.Empty;
+            try
+            {
+                text = EditorGUIUtility.systemCopyBuffer ?? string.Empty;
+            }
+            catch
+            {
+                // Clipboard might be locked by another process.
+                text = string.Empty;
+            }
+
+            // Stabilization: require the same read twice to avoid partial reads.
+            if (_lastRead != null && string.Equals(text, _lastRead, StringComparison.Ordinal))
+                _stableReads++;
+            else
+                _stableReads = 0;
+
+            _lastRead = text;
+
+            bool isStableEnough = _stableReads >= RequiredStableReads;
+            bool attemptsExceeded = _readAttempts >= MaxReadAttempts;
+
+            if (!isStableEnough && !attemptsExceeded)
+                return;
+
+            _pendingRead = false;
+
+            try
+            {
+                ClipboardChanged?.Invoke(text ?? string.Empty);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ClipboardWatcher] ClipboardChanged handler threw: {ex}");
+            }
         }
 
         private static void CreateMessageOnlyWindowOrThrow()
@@ -210,7 +216,6 @@ namespace AiClipboardPipeline.Editor
             if (atom == 0)
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "RegisterClassEx failed.");
 
-            // HWND_MESSAGE creates a message-only window.
             IntPtr HWND_MESSAGE = new(-3);
 
             _hwnd = CreateWindowEx(
@@ -227,33 +232,6 @@ namespace AiClipboardPipeline.Editor
             if (_hwnd == IntPtr.Zero)
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateWindowEx failed.");
         }
-
-        // -------------------------
-        // Self-test helpers
-        // -------------------------
-
-        [MenuItem("Tools/AI Clipboard Pipeline/Clipboard Watcher/Start")]
-        private static void MenuStart()
-        {
-            Start();
-        }
-
-        [MenuItem("Tools/AI Clipboard Pipeline/Clipboard Watcher/Stop")]
-        private static void MenuStop()
-        {
-            Stop();
-        }
-
-        [MenuItem("Tools/AI Clipboard Pipeline/Clipboard Watcher/Print Status")]
-        private static void MenuStatus()
-        {
-            Debug.Log(
-                $"[ClipboardWatcher] Running={_running}, HWND={_hwnd}, hInstance={_hInstance}, class={_className}");
-        }
-
-        // -------------------------
-        // Win32 Interop
-        // -------------------------
 
         private delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 

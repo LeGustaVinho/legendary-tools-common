@@ -10,16 +10,27 @@ namespace AiClipboardPipeline.Editor
         internal static class PrefKeys
         {
             public const string Enabled = "AICodePasteHub.Enabled";
+            public const string AutomationMode = "AICodePasteHub.AutomationMode";
             public const string AutoCapture = "AICodePasteHub.AutoCapture";
             public const string AutoApply = "AICodePasteHub.AutoApply";
-            public const string AutoCopyError = "AICodePasteHub.AutoCopyError";
-            public const string LogErrorToConsole = "AICodePasteHub.LogErrorToConsole";
             public const string MaxHistory = "AICodePasteHub.MaxHistory";
             public const string FallbackFolder = "AICodePasteHub.FallbackFolder";
             public const string LintTimeout = "AICodePasteHub.LintTimeout";
+            public const string RiskLinesRemoved = "AICodePasteHub.RiskLinesRemoved";
+            public const string RiskPercentChanged = "AICodePasteHub.RiskPercentChanged";
+            public const string RiskFilesChanged = "AICodePasteHub.RiskFilesChanged";
+
+            public const string AutoUndoOnCompileError = "AICodePasteHub.AutoUndoOnCompileError";
 
             // Window prefs
             public const string ShowFullDiff = "AICodePasteHub.ShowFullDiff";
+        }
+
+        public enum AutomationMode
+        {
+            Manual = 0,
+            SmartConfirm = 1,
+            Auto = 2
         }
 
         public enum HistoryStatus
@@ -56,15 +67,20 @@ namespace AiClipboardPipeline.Editor
         public event Action StateChanged;
 
         public bool Enabled { get; private set; }
+        public AutomationMode Mode { get; private set; }
 
         public bool AutoCapture { get; private set; }
         public bool AutoApply { get; private set; }
-        public bool AutoCopyErrorReport { get; private set; }
-        public bool LogErrorReportToConsole { get; private set; }
+
+        public bool AutoUndoOnCompileError { get; private set; }
 
         public int MaxHistory { get; private set; }
         public string FallbackFolder { get; private set; }
         public float LintTimeoutSeconds { get; private set; }
+
+        public int RiskLinesRemoved { get; private set; }
+        public float RiskPercentChanged { get; private set; }
+        public int RiskFilesChanged { get; private set; }
 
         public bool ShowFullDiff { get; private set; }
 
@@ -91,18 +107,6 @@ namespace AiClipboardPipeline.Editor
                     return string.Empty;
 
                 return item.Diff ?? string.Empty;
-            }
-        }
-
-        public string LastErrorReport
-        {
-            get
-            {
-#if UNITY_EDITOR_WIN
-                return ClipboardHistoryStore.instance.LastErrorReport;
-#else
-                return string.Empty;
-#endif
             }
         }
 
@@ -148,8 +152,19 @@ namespace AiClipboardPipeline.Editor
             if (item == null)
                 return false;
 
-            // Full file and patch are supported now.
-            return item.Type == HistoryType.FullFile || item.Type == HistoryType.Patch;
+            return true;
+        }
+
+        public bool CanUndo(HistoryItem item)
+        {
+#if UNITY_EDITOR_WIN
+            if (item == null)
+                return false;
+
+            return AICodePasteUndoManager.HasUndoForEntry(item.Id);
+#else
+            return false;
+#endif
         }
 
         public void ApplyById(string id)
@@ -164,6 +179,25 @@ namespace AiClipboardPipeline.Editor
             };
 
             AICodePasteApplier.TryApplyEntryById(id, settings);
+#endif
+        }
+
+        public void UndoById(string id)
+        {
+#if UNITY_EDITOR_WIN
+            if (string.IsNullOrEmpty(id))
+                return;
+
+            _ = AICodePasteUndoManager.TryUndoEntry(id, out _);
+            NotifyChanged();
+#endif
+        }
+
+        public void UndoLast()
+        {
+#if UNITY_EDITOR_WIN
+            _ = AICodePasteUndoManager.TryUndoLast(out _);
+            NotifyChanged();
 #endif
         }
 
@@ -221,6 +255,16 @@ namespace AiClipboardPipeline.Editor
             NotifyChanged();
         }
 
+        public void SetAutomationMode(AutomationMode mode)
+        {
+            if (Mode == mode)
+                return;
+
+            Mode = mode;
+            SavePrefs();
+            NotifyChanged();
+        }
+
         public void SetAutoCapture(bool value)
         {
             if (AutoCapture == value)
@@ -242,23 +286,17 @@ namespace AiClipboardPipeline.Editor
             NotifyChanged();
         }
 
-        public void SetAutoCopyErrorReport(bool value)
+        public void SetAutoUndoOnCompileError(bool value)
         {
-            if (AutoCopyErrorReport == value)
+            if (AutoUndoOnCompileError == value)
                 return;
 
-            AutoCopyErrorReport = value;
+            AutoUndoOnCompileError = value;
             SavePrefs();
-            NotifyChanged();
-        }
-
-        public void SetLogErrorReportToConsole(bool value)
-        {
-            if (LogErrorReportToConsole == value)
-                return;
-
-            LogErrorReportToConsole = value;
-            SavePrefs();
+            EditorPrefs.SetBool(PrefKeys.AutoUndoOnCompileError, AutoUndoOnCompileError);
+#if UNITY_EDITOR_WIN
+            AICodePasteUndoManager.SetAutoUndoOnCompileError(value);
+#endif
             NotifyChanged();
         }
 
@@ -297,6 +335,28 @@ namespace AiClipboardPipeline.Editor
             NotifyChanged();
         }
 
+        public void SetRiskThresholds(int linesRemoved, float percentChanged, int filesChanged)
+        {
+            linesRemoved = Mathf.Clamp(linesRemoved, 0, 200000);
+            percentChanged = Mathf.Clamp(percentChanged, 0f, 100f);
+            filesChanged = Mathf.Clamp(filesChanged, 0, 20000);
+
+            bool changed =
+                RiskLinesRemoved != linesRemoved ||
+                Math.Abs(RiskPercentChanged - percentChanged) > 0.0001f ||
+                RiskFilesChanged != filesChanged;
+
+            if (!changed)
+                return;
+
+            RiskLinesRemoved = linesRemoved;
+            RiskPercentChanged = percentChanged;
+            RiskFilesChanged = filesChanged;
+
+            SavePrefs();
+            NotifyChanged();
+        }
+
         public void SetShowFullDiff(bool value)
         {
             if (ShowFullDiff == value)
@@ -304,19 +364,6 @@ namespace AiClipboardPipeline.Editor
 
             ShowFullDiff = value;
             EditorPrefs.SetBool(PrefKeys.ShowFullDiff, ShowFullDiff);
-            NotifyChanged();
-        }
-
-        public void CopyLastErrorReportToClipboard()
-        {
-            EditorGUIUtility.systemCopyBuffer = LastErrorReport ?? string.Empty;
-        }
-
-        public void ClearLastErrorReport()
-        {
-#if UNITY_EDITOR_WIN
-            ClipboardHistoryStore.instance.SetLastErrorReport(string.Empty);
-#endif
             NotifyChanged();
         }
 
@@ -469,7 +516,7 @@ namespace AiClipboardPipeline.Editor
             return e.typeName ?? "Unknown";
         }
 
-        private string BuildSummary(ClipboardHistoryStore.Entry e)
+        private static string BuildSummary(ClipboardHistoryStore.Entry e)
         {
             if (e == null)
                 return string.Empty;
@@ -487,12 +534,15 @@ namespace AiClipboardPipeline.Editor
                     " • Full file captured\n";
             }
 
-            // git_patch
+            string patchNote = string.IsNullOrEmpty(e.appliedAssetPath)
+                ? "(pending apply)"
+                : e.appliedAssetPath;
+
             return
                 "Targets:\n" +
-                " • (git patch)\n\n" +
+                $" • {patchNote}\n\n" +
                 "Details:\n" +
-                " • Patch captured (apply supported)\n";
+                " • Patch captured\n";
         }
 #endif
 
@@ -503,15 +553,23 @@ namespace AiClipboardPipeline.Editor
         private void LoadPrefs()
         {
             Enabled = EditorPrefs.GetBool(PrefKeys.Enabled, true);
+            Mode = (AutomationMode)EditorPrefs.GetInt(PrefKeys.AutomationMode, (int)AutomationMode.SmartConfirm);
 
             AutoCapture = EditorPrefs.GetBool(PrefKeys.AutoCapture, true);
             AutoApply = EditorPrefs.GetBool(PrefKeys.AutoApply, true);
-            AutoCopyErrorReport = EditorPrefs.GetBool(PrefKeys.AutoCopyError, true);
-            LogErrorReportToConsole = EditorPrefs.GetBool(PrefKeys.LogErrorToConsole, true);
 
             MaxHistory = Mathf.Clamp(EditorPrefs.GetInt(PrefKeys.MaxHistory, 200), 1, 5000);
             FallbackFolder = EditorPrefs.GetString(PrefKeys.FallbackFolder, "Assets/Scripts/Generated/");
             LintTimeoutSeconds = Mathf.Clamp(EditorPrefs.GetFloat(PrefKeys.LintTimeout, 15f), 1f, 600f);
+
+            RiskLinesRemoved = Mathf.Max(0, EditorPrefs.GetInt(PrefKeys.RiskLinesRemoved, 200));
+            RiskPercentChanged = Mathf.Clamp(EditorPrefs.GetFloat(PrefKeys.RiskPercentChanged, 35f), 0f, 100f);
+            RiskFilesChanged = Mathf.Max(0, EditorPrefs.GetInt(PrefKeys.RiskFilesChanged, 3));
+
+            AutoUndoOnCompileError = EditorPrefs.GetBool(PrefKeys.AutoUndoOnCompileError, false);
+#if UNITY_EDITOR_WIN
+            AICodePasteUndoManager.SetAutoUndoOnCompileError(AutoUndoOnCompileError);
+#endif
 
             ShowFullDiff = EditorPrefs.GetBool(PrefKeys.ShowFullDiff, false);
         }
@@ -519,15 +577,20 @@ namespace AiClipboardPipeline.Editor
         private void SavePrefs()
         {
             EditorPrefs.SetBool(PrefKeys.Enabled, Enabled);
+            EditorPrefs.SetInt(PrefKeys.AutomationMode, (int)Mode);
 
             EditorPrefs.SetBool(PrefKeys.AutoCapture, AutoCapture);
             EditorPrefs.SetBool(PrefKeys.AutoApply, AutoApply);
-            EditorPrefs.SetBool(PrefKeys.AutoCopyError, AutoCopyErrorReport);
-            EditorPrefs.SetBool(PrefKeys.LogErrorToConsole, LogErrorReportToConsole);
 
             EditorPrefs.SetInt(PrefKeys.MaxHistory, MaxHistory);
             EditorPrefs.SetString(PrefKeys.FallbackFolder, FallbackFolder);
             EditorPrefs.SetFloat(PrefKeys.LintTimeout, LintTimeoutSeconds);
+
+            EditorPrefs.SetInt(PrefKeys.RiskLinesRemoved, RiskLinesRemoved);
+            EditorPrefs.SetFloat(PrefKeys.RiskPercentChanged, RiskPercentChanged);
+            EditorPrefs.SetInt(PrefKeys.RiskFilesChanged, RiskFilesChanged);
+
+            EditorPrefs.SetBool(PrefKeys.AutoUndoOnCompileError, AutoUndoOnCompileError);
 
             EditorPrefs.SetBool(PrefKeys.ShowFullDiff, ShowFullDiff);
         }
