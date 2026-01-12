@@ -1,3 +1,4 @@
+using System;
 using UnityEditor;
 using UnityEngine;
 
@@ -137,7 +138,8 @@ namespace AiClipboardPipeline.Editor
                     bool newAutoCapture = EditorGUILayout.ToggleLeft("Auto-capture", _controller.AutoCapture);
                     bool newAutoApply = EditorGUILayout.ToggleLeft("Auto-apply", _controller.AutoApply);
 
-                    bool newAutoUndo = EditorGUILayout.ToggleLeft("Auto-undo on compile errors",
+                    bool newAutoUndo = EditorGUILayout.ToggleLeft(
+                        "Auto-undo on compile errors",
                         _controller.AutoUndoOnCompileError);
 
                     if (newAutoCapture != _controller.AutoCapture)
@@ -162,9 +164,29 @@ namespace AiClipboardPipeline.Editor
 
                     using (new EditorGUILayout.HorizontalScope())
                     {
-                        string newFolder = EditorGUILayout.TextField(new GUIContent("Fallback folder"),
+                        string newFolder = EditorGUILayout.TextField(
+                            new GUIContent("Fallback folder"),
                             _controller.FallbackFolder);
-                        GUILayout.Button("...", GUILayout.Width(32)); // visual placeholder
+
+                        if (GUILayout.Button("...", GUILayout.Width(32)))
+                        {
+                            string picked = EditorUtility.OpenFolderPanel(
+                                "Select fallback folder (must be under Assets)",
+                                string.Empty,
+                                string.Empty);
+
+                            if (!string.IsNullOrEmpty(picked))
+                            {
+                                if (TryConvertAbsoluteFolderToAssetsPath(picked, out string assetsFolder))
+                                    _controller.SetFallbackFolder(EnsureTrailingSlash(assetsFolder));
+                                else
+                                    EditorUtility.DisplayDialog(
+                                        "Invalid folder",
+                                        "Selected folder must be inside this project's Assets folder.",
+                                        "OK");
+                            }
+                        }
+
                         if (newFolder != _controller.FallbackFolder)
                             _controller.SetFallbackFolder(newFolder);
                     }
@@ -414,6 +436,33 @@ namespace AiClipboardPipeline.Editor
                 default:
                     return "Patch";
             }
+        }
+
+        private static bool TryConvertAbsoluteFolderToAssetsPath(string folderAbs, out string assetsPath)
+        {
+            assetsPath = string.Empty;
+
+            if (string.IsNullOrEmpty(folderAbs))
+                return false;
+
+            string assetsAbs = Application.dataPath.Replace("\\", "/").TrimEnd('/');
+            string picked = folderAbs.Replace("\\", "/").TrimEnd('/');
+
+            if (!picked.StartsWith(assetsAbs, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string rel = picked.Substring(assetsAbs.Length).TrimStart('/');
+            assetsPath = string.IsNullOrEmpty(rel) ? "Assets" : "Assets/" + rel;
+            return true;
+        }
+
+        private static string EnsureTrailingSlash(string p)
+        {
+            if (string.IsNullOrEmpty(p))
+                return "Assets/";
+
+            p = p.Replace("\\", "/");
+            return p.EndsWith("/", StringComparison.Ordinal) ? p : p + "/";
         }
     }
 }

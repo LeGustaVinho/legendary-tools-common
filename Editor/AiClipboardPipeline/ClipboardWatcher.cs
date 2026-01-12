@@ -1,4 +1,4 @@
-﻿#if UNITY_EDITOR_WIN
+#if UNITY_EDITOR_WIN
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
@@ -39,7 +39,7 @@ namespace AiClipboardPipeline.Editor
 
         static ClipboardWatcher()
         {
-            EditorApplication.delayCall += Start;
+            // Do not auto-start here. Bootstrap controls Start/Stop based on prefs.
             EditorApplication.quitting += Stop;
             AssemblyReloadEvents.beforeAssemblyReload += Stop;
         }

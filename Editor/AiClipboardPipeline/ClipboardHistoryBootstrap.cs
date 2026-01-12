@@ -119,25 +119,24 @@ namespace AiClipboardPipeline.Editor
             if (string.IsNullOrEmpty(text))
                 return string.Empty;
 
-            string t = text.Replace("\r\n", "\n").Replace("\r", "\n");
+            string t = text.Replace("\r\n", "\n").Replace("\r", "\n").Trim();
 
-            // Strip common Markdown fenced code blocks: ```csharp ... ```
-            int fenceStart = t.IndexOf("```", StringComparison.Ordinal);
-            if (fenceStart >= 0)
+            // Strip fenced code block if the entire content is fenced: ```lang ... ```
+            if (t.StartsWith("```", StringComparison.Ordinal))
             {
-                int fenceLangEnd = t.IndexOf('\n', fenceStart + 3);
-                if (fenceLangEnd > fenceStart)
+                int firstNl = t.IndexOf('\n');
+                if (firstNl >= 0)
                 {
-                    int fenceEnd = t.IndexOf("\n```", fenceLangEnd, StringComparison.Ordinal);
-                    if (fenceEnd > fenceLangEnd)
-                    {
-                        string inside = t.Substring(fenceLangEnd + 1, fenceEnd - (fenceLangEnd + 1));
-                        t = inside;
-                    }
+                    string body = t.Substring(firstNl + 1);
+
+                    // Remove the last fence even if it's not preceded by a newline.
+                    int endFence = body.LastIndexOf("```", StringComparison.Ordinal);
+                    if (endFence >= 0)
+                        t = body.Substring(0, endFence).Trim();
                 }
             }
 
-            return t.Trim();
+            return t;
         }
     }
 }

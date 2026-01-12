@@ -152,6 +152,13 @@ namespace AiClipboardPipeline.Editor
             if (item == null)
                 return false;
 
+            // Keep behavior consistent with UI: do not apply ignored or already applied items.
+            if (item.Status == HistoryStatus.Ignored)
+                return false;
+
+            if (item.Status == HistoryStatus.Applied)
+                return false;
+
             return true;
         }
 
