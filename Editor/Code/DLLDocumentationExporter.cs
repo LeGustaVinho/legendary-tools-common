@@ -26,13 +26,14 @@ namespace LegendaryTools.Editor
         private void OnGUI()
         {
             GUILayout.Label("Select DLL and XML Documentation", EditorStyles.boldLabel);
-        
+
             if (GUILayout.Button("Select DLL"))
             {
                 string path = EditorUtility.OpenFilePanel("Select DLL", "", "dll");
                 if (!string.IsNullOrEmpty(path))
                     dllPath = path;
             }
+
             GUILayout.Label("DLL: " + (string.IsNullOrEmpty(dllPath) ? "Not selected" : dllPath));
 
             if (GUILayout.Button("Select XML Documentation"))
@@ -41,6 +42,7 @@ namespace LegendaryTools.Editor
                 if (!string.IsNullOrEmpty(path))
                     xmlPath = path;
             }
+
             GUILayout.Label("XML: " + (string.IsNullOrEmpty(xmlPath) ? "Not selected" : xmlPath));
 
             if (GUILayout.Button("Select Output Folder"))
@@ -49,6 +51,7 @@ namespace LegendaryTools.Editor
                 if (!string.IsNullOrEmpty(path))
                     outputFolder = path;
             }
+
             GUILayout.Label("Output Folder: " + (string.IsNullOrEmpty(outputFolder) ? "Not selected" : outputFolder));
 
             exportSingleFile = EditorGUILayout.Toggle("Export as single file", exportSingleFile);
@@ -56,9 +59,11 @@ namespace LegendaryTools.Editor
 
             if (GUILayout.Button("Export API"))
             {
-                if (string.IsNullOrEmpty(dllPath) || string.IsNullOrEmpty(xmlPath) || string.IsNullOrEmpty(outputFolder))
+                if (string.IsNullOrEmpty(dllPath) || string.IsNullOrEmpty(xmlPath) ||
+                    string.IsNullOrEmpty(outputFolder))
                 {
-                    EditorUtility.DisplayDialog("Error", "Please select the DLL, XML documentation, and output folder.", "OK");
+                    EditorUtility.DisplayDialog("Error", "Please select the DLL, XML documentation, and output folder.",
+                        "OK");
                     return;
                 }
 
@@ -74,7 +79,8 @@ namespace LegendaryTools.Editor
             }
         }
 
-        private static void ExportAPI(string dllPath, string xmlPath, string outputFolder, bool exportSingleFile, string filterTypes)
+        private static void ExportAPI(string dllPath, string xmlPath, string outputFolder, bool exportSingleFile,
+            string filterTypes)
         {
             // Load the assembly.
             Assembly assembly = Assembly.LoadFrom(dllPath);
@@ -86,27 +92,27 @@ namespace LegendaryTools.Editor
                     x => x.Element("summary") != null ? x.Element("summary").Value.Trim() : "");
 
             // Gather eligible types: classes, structs, enums, and interfaces.
-            var allTypes = assembly.GetExportedTypes().Where(t => t.IsClass || t.IsValueType || t.IsEnum || t.IsInterface);
-            List<string> filterList = new List<string>();
+            IEnumerable<Type> allTypes = assembly.GetExportedTypes()
+                .Where(t => t.IsClass || t.IsValueType || t.IsEnum || t.IsInterface);
+            List<string> filterList = new();
             if (!string.IsNullOrEmpty(filterTypes))
-            {
                 filterList = filterTypes.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
                     .Select(s => s.Trim())
                     .ToList();
-            }
             // If filter list is non-empty, only export types whose simple name is in the filter.
-            IEnumerable<Type> types = (filterList.Count > 0) ?
-                allTypes.Where(t => filterList.Contains(GetSimpleTypeName(t))) :
-                allTypes;
+            IEnumerable<Type> types = filterList.Count > 0
+                ? allTypes.Where(t => filterList.Contains(GetSimpleTypeName(t)))
+                : allTypes;
 
             if (exportSingleFile)
             {
-                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                System.Text.StringBuilder sb = new();
                 foreach (Type type in types)
                 {
                     sb.AppendLine(GenerateTypeCode(type, docs));
                     sb.AppendLine(); // extra space between types
                 }
+
                 string filePath = Path.Combine(outputFolder, "APIDocumentation.cs");
                 File.WriteAllText(filePath, sb.ToString());
             }
@@ -120,12 +126,13 @@ namespace LegendaryTools.Editor
                     File.WriteAllText(filePath, code);
                 }
             }
+
             AssetDatabase.Refresh();
         }
 
         private static string GenerateTypeCode(Type type, Dictionary<string, string> docs)
         {
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            System.Text.StringBuilder sb = new();
 
             // If the type is in a namespace, add a namespace block.
             if (!string.IsNullOrEmpty(type.Namespace))
@@ -137,9 +144,7 @@ namespace LegendaryTools.Editor
             // Write XML documentation for the type if available.
             string typeKey = "T:" + GetTypeFullName(type);
             if (docs.TryGetValue(typeKey, out string typeSummary) && !string.IsNullOrEmpty(typeSummary))
-            {
                 WriteXmlSummary(sb, typeSummary, "    ");
-            }
 
             // Build the type declaration.
             string typeDecl = "";
@@ -166,9 +171,7 @@ namespace LegendaryTools.Editor
                     string memberName = names[i];
                     string memberKey = "F:" + GetTypeFullName(type) + "." + memberName;
                     if (docs.TryGetValue(memberKey, out string enumSummary) && !string.IsNullOrEmpty(enumSummary))
-                    {
                         WriteXmlSummary(sb, enumSummary, "        ");
-                    }
                     sb.AppendLine("        " + memberName + (i < names.Length - 1 ? "," : ""));
                 }
             }
@@ -176,7 +179,8 @@ namespace LegendaryTools.Editor
             {
                 // For interfaces, export only properties and methods (no fields, no access modifiers).
                 // Properties:
-                PropertyInfo[] properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
+                PropertyInfo[] properties =
+                    type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
                 foreach (PropertyInfo prop in properties)
                 {
                     if (prop.GetIndexParameters().Length > 0)
@@ -184,9 +188,7 @@ namespace LegendaryTools.Editor
 
                     string propKey = "P:" + GetTypeFullName(type) + "." + prop.Name;
                     if (docs.TryGetValue(propKey, out string propSummary) && !string.IsNullOrEmpty(propSummary))
-                    {
                         WriteXmlSummary(sb, propSummary, "        ");
-                    }
                     string accessor = "";
                     if (prop.CanRead && prop.CanWrite)
                         accessor = " { get; set; }";
@@ -199,26 +201,27 @@ namespace LegendaryTools.Editor
                 }
 
                 // Methods:
-                MethodInfo[] methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
+                MethodInfo[] methods = type
+                    .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
                     .Where(m => !m.IsSpecialName).ToArray();
                 foreach (MethodInfo method in methods)
                 {
                     string methodKey = "M:" + GetTypeFullName(type) + "." + method.Name;
                     string docText = "";
                     if (docs.TryGetValue(methodKey, out string temp))
+                    {
                         docText = temp;
+                    }
                     else
                     {
-                        var keyMatch = docs.Keys.FirstOrDefault(k => k.StartsWith(methodKey + "("));
+                        string keyMatch = docs.Keys.FirstOrDefault(k => k.StartsWith(methodKey + "("));
                         if (!string.IsNullOrEmpty(keyMatch))
                             docText = docs[keyMatch];
                     }
-                    if (!string.IsNullOrEmpty(docText))
-                    {
-                        WriteXmlSummary(sb, docText, "        ");
-                    }
+
+                    if (!string.IsNullOrEmpty(docText)) WriteXmlSummary(sb, docText, "        ");
                     // Generate the method signature with generic parameters and constraints.
-                    sb.AppendLine("        " + GenerateMethodSignature(method, isInterface: true));
+                    sb.AppendLine("        " + GenerateMethodSignature(method, true));
                 }
             }
             else
@@ -232,26 +235,26 @@ namespace LegendaryTools.Editor
                         continue;
                     string fieldKey = "F:" + GetTypeFullName(type) + "." + field.Name;
                     if (docs.TryGetValue(fieldKey, out string fieldSummary) && !string.IsNullOrEmpty(fieldSummary))
-                    {
                         WriteXmlSummary(sb, fieldSummary, "        ");
-                    }
                     string modifiers = field.IsStatic ? "static " : "";
-                    sb.AppendLine("        public " + modifiers + GetFriendlyName(field.FieldType) + " " + field.Name + ";");
+                    sb.AppendLine("        public " + modifiers + GetFriendlyName(field.FieldType) + " " + field.Name +
+                                  ";");
                 }
 
                 // Properties:
-                PropertyInfo[] properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
+                PropertyInfo[] properties =
+                    type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
                 foreach (PropertyInfo prop in properties)
                 {
                     if (prop.GetIndexParameters().Length > 0)
                         continue;
                     string propKey = "P:" + GetTypeFullName(type) + "." + prop.Name;
                     if (docs.TryGetValue(propKey, out string propSummary) && !string.IsNullOrEmpty(propSummary))
-                    {
                         WriteXmlSummary(sb, propSummary, "        ");
-                    }
-                    string modifiers = ((prop.GetGetMethod() != null && prop.GetGetMethod().IsStatic) ||
-                                        (prop.GetSetMethod() != null && prop.GetSetMethod().IsStatic)) ? "static " : "";
+                    string modifiers = (prop.GetGetMethod() != null && prop.GetGetMethod().IsStatic) ||
+                                       (prop.GetSetMethod() != null && prop.GetSetMethod().IsStatic)
+                        ? "static "
+                        : "";
                     string accessor = "";
                     if (prop.CanRead && prop.CanWrite)
                         accessor = " { get; set; }";
@@ -260,29 +263,31 @@ namespace LegendaryTools.Editor
                     else if (prop.CanWrite)
                         accessor = " { set; }";
 
-                    sb.AppendLine("        public " + modifiers + GetFriendlyName(prop.PropertyType) + " " + prop.Name + accessor);
+                    sb.AppendLine("        public " + modifiers + GetFriendlyName(prop.PropertyType) + " " + prop.Name +
+                                  accessor);
                 }
 
                 // Methods:
-                MethodInfo[] methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
+                MethodInfo[] methods = type
+                    .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
                     .Where(m => !m.IsSpecialName).ToArray();
                 foreach (MethodInfo method in methods)
                 {
                     string methodKey = "M:" + GetTypeFullName(type) + "." + method.Name;
                     string docText = "";
                     if (docs.TryGetValue(methodKey, out string temp))
+                    {
                         docText = temp;
+                    }
                     else
                     {
-                        var keyMatch = docs.Keys.FirstOrDefault(k => k.StartsWith(methodKey + "("));
+                        string keyMatch = docs.Keys.FirstOrDefault(k => k.StartsWith(methodKey + "("));
                         if (!string.IsNullOrEmpty(keyMatch))
                             docText = docs[keyMatch];
                     }
-                    if (!string.IsNullOrEmpty(docText))
-                    {
-                        WriteXmlSummary(sb, docText, "        ");
-                    }
-                    sb.AppendLine("        public " + GenerateMethodSignature(method, isInterface: false));
+
+                    if (!string.IsNullOrEmpty(docText)) WriteXmlSummary(sb, docText, "        ");
+                    sb.AppendLine("        public " + GenerateMethodSignature(method, false));
                 }
             }
 
@@ -301,9 +306,10 @@ namespace LegendaryTools.Editor
             // Return type: if void then "void"
             string returnType = method.ReturnType == typeof(void) ? "void" : GetFriendlyName(method.ReturnType);
             // Parameters:
-            string parameters = string.Join(", ", method.GetParameters().Select(p => {
-                string typeName = p.ParameterType.IsByRef 
-                    ? GetFriendlyName(p.ParameterType.GetElementType()) 
+            string parameters = string.Join(", ", method.GetParameters().Select(p =>
+            {
+                string typeName = p.ParameterType.IsByRef
+                    ? GetFriendlyName(p.ParameterType.GetElementType())
                     : GetFriendlyName(p.ParameterType);
                 string prefix = "";
                 if (p.IsOut)
@@ -312,20 +318,21 @@ namespace LegendaryTools.Editor
                     prefix = "ref ";
                 return prefix + typeName + " " + p.Name;
             }));
-        
+
             // Handle generic method parameters and constraints.
             string genericParameters = "";
             string genericConstraints = "";
             if (method.IsGenericMethod)
             {
-                var genericArgs = method.GetGenericArguments();
+                Type[] genericArgs = method.GetGenericArguments();
                 genericParameters = "<" + string.Join(", ", genericArgs.Select(a => a.Name)) + ">";
-                List<string> constraintsClauses = new List<string>();
-                foreach (var arg in genericArgs)
+                List<string> constraintsClauses = new();
+                foreach (Type arg in genericArgs)
                 {
-                    List<string> constraintsList = new List<string>();
+                    List<string> constraintsList = new();
                     // struct constraint (if set, then must be a value type)
-                    if (arg.GenericParameterAttributes.HasFlag(GenericParameterAttributes.NotNullableValueTypeConstraint))
+                    if (arg.GenericParameterAttributes.HasFlag(
+                            GenericParameterAttributes.NotNullableValueTypeConstraint))
                         constraintsList.Add("struct");
                     else if (arg.GenericParameterAttributes.HasFlag(GenericParameterAttributes.ReferenceTypeConstraint))
                         constraintsList.Add("class");
@@ -335,17 +342,17 @@ namespace LegendaryTools.Editor
                     {
                         constraintsList.Add(GetFriendlyName(constraint));
                     }
+
                     // new() constraint.
-                    if (arg.GenericParameterAttributes.HasFlag(GenericParameterAttributes.DefaultConstructorConstraint) &&
-                        !arg.GenericParameterAttributes.HasFlag(GenericParameterAttributes.NotNullableValueTypeConstraint))
-                    {
+                    if (arg.GenericParameterAttributes.HasFlag(GenericParameterAttributes
+                            .DefaultConstructorConstraint) &&
+                        !arg.GenericParameterAttributes.HasFlag(GenericParameterAttributes
+                            .NotNullableValueTypeConstraint))
                         constraintsList.Add("new()");
-                    }
                     if (constraintsList.Count > 0)
-                    {
                         constraintsClauses.Add("where " + arg.Name + " : " + string.Join(", ", constraintsList));
-                    }
                 }
+
                 if (constraintsClauses.Count > 0)
                     genericConstraints = " " + string.Join(" ", constraintsClauses);
             }
@@ -353,14 +360,11 @@ namespace LegendaryTools.Editor
             string methodName = method.Name + genericParameters;
             string signature = "";
             if (isInterface)
-            {
                 // For interfaces, no access modifiers.
                 signature = returnType + " " + methodName + "(" + parameters + ") " + genericConstraints + ";";
-            }
             else
-            {
-                signature = modifiers + returnType + " " + methodName + "(" + parameters + ") " + genericConstraints + ";";
-            }
+                signature = modifiers + returnType + " " + methodName + "(" + parameters + ") " + genericConstraints +
+                            ";";
             return signature;
         }
 
@@ -405,6 +409,7 @@ namespace LegendaryTools.Editor
                 Type[] args = type.GetGenericArguments();
                 name += "<" + string.Join(", ", args.Select(t => t.Name)) + ">";
             }
+
             return name;
         }
 
@@ -413,14 +418,12 @@ namespace LegendaryTools.Editor
         {
             string name = type.Name;
             int backtickIndex = name.IndexOf('`');
-            if (backtickIndex > 0)
-            {
-                name = name.Substring(0, backtickIndex);
-            }
+            if (backtickIndex > 0) name = name.Substring(0, backtickIndex);
             foreach (char c in Path.GetInvalidFileNameChars())
             {
                 name = name.Replace(c, '_');
             }
+
             return name;
         }
 
@@ -429,10 +432,7 @@ namespace LegendaryTools.Editor
         {
             string name = type.Name;
             int index = name.IndexOf('`');
-            if (index > 0)
-            {
-                name = name.Substring(0, index);
-            }
+            if (index > 0) name = name.Substring(0, index);
             return name;
         }
 
@@ -442,11 +442,12 @@ namespace LegendaryTools.Editor
             if (string.IsNullOrWhiteSpace(summary))
                 return;
             sb.AppendLine(indent + "/// <summary>");
-            var lines = summary.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
-            foreach (var line in lines)
+            string[] lines = summary.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            foreach (string line in lines)
             {
                 sb.AppendLine(indent + "/// " + line.Trim());
             }
+
             sb.AppendLine(indent + "/// </summary>");
         }
     }

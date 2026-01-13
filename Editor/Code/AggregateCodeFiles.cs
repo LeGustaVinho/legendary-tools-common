@@ -40,7 +40,8 @@ namespace LegendaryTools.Editor
             // Button to add a new folder
             if (GUILayout.Button("Add Folder"))
             {
-                string folder = EditorUtility.OpenFolderPanel("Select Folder for Aggregation", Application.dataPath, "");
+                string folder =
+                    EditorUtility.OpenFolderPanel("Select Folder for Aggregation", Application.dataPath, "");
                 if (!string.IsNullOrEmpty(folder)) selectedFolders.Add(folder);
             }
 
@@ -54,13 +55,15 @@ namespace LegendaryTools.Editor
         {
             if (selectedFolders.Count == 0)
             {
-                EditorUtility.DisplayDialog("No Folders Selected", "Please add at least one folder to aggregate code from.",
+                EditorUtility.DisplayDialog("No Folders Selected",
+                    "Please add at least one folder to aggregate code from.",
                     "OK");
                 return;
             }
 
             // Prompt the user to select the destination folder
-            string destinationFolder = EditorUtility.OpenFolderPanel("Select Destination Folder", Application.dataPath, "");
+            string destinationFolder =
+                EditorUtility.OpenFolderPanel("Select Destination Folder", Application.dataPath, "");
             if (string.IsNullOrEmpty(destinationFolder))
             {
                 Debug.Log("Destination folder not selected. Operation canceled.");
@@ -70,7 +73,9 @@ namespace LegendaryTools.Editor
             // Gather all .cs files from the selected folders recursively
             List<string> csFiles = new();
             foreach (string folder in selectedFolders)
+            {
                 csFiles.AddRange(Directory.GetFiles(folder, "*.cs", SearchOption.AllDirectories));
+            }
 
             if (csFiles.Count == 0)
             {
@@ -108,11 +113,13 @@ namespace LegendaryTools.Editor
 
                 List<string> chunkBlocks = new();
                 for (int j = 0; j < numberOfBlocks; j++)
+                {
                     if (currentIndex < totalBlocks)
                     {
                         chunkBlocks.Add(fileBlocks[currentIndex]);
                         currentIndex++;
                     }
+                }
 
                 // Join blocks to create the aggregated content for this chunk
                 string chunkContent = string.Join("\n", chunkBlocks);

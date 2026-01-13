@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEditor;
@@ -25,7 +24,6 @@ namespace AiClipboardPipeline.Editor
         }
 
         private static readonly List<CompilerMessage> s_Errors = new(64);
-        private static double s_LastLogTime;
 
         static AiFriendlyCompilationErrorReporter()
         {
@@ -54,14 +52,15 @@ namespace AiClipboardPipeline.Editor
 
             bool hadErrors = s_Errors.Count > 0;
 
+            // Compile-gate markers (must be accurate even if we skip logging).
             EditorPrefs.SetString(PrefKeys.LastCompilationFinishedAtTicks, nowTicks.ToString());
             EditorPrefs.SetBool(PrefKeys.LastCompilationHadErrors, hadErrors);
 
             if (!hadErrors)
             {
-                // Clear stale error report to prevent false positives in other systems.
+                // Clear stale unified compilation error report to prevent false positives in other systems.
 #if UNITY_EDITOR_WIN
-                ClipboardHistoryStore.instance.SetLastErrorReport(string.Empty);
+                ClipboardHistoryStore.instance.SetLastCompilationErrorReport(string.Empty);
 #endif
                 s_Errors.Clear();
                 return;
@@ -70,18 +69,14 @@ namespace AiClipboardPipeline.Editor
             // Build report for Console.
             string report = AiFriendlyCompilationErrorFormatter.BuildReport(s_Errors);
 
-            // Optional local rate limiting to avoid Console spam, while still keeping markers accurate.
-            double now = EditorApplication.timeSinceStartup;
-            bool canLog = now - s_LastLogTime >= 0.25;
-            if (canLog)
-            {
-                s_LastLogTime = now;
-                Debug.LogError(report);
-            }
+            // IMPORTANT:
+            // Always log on errors. Time-based throttling can suppress the only useful report,
+            // especially during domain reload/fast recompiles.
+            Debug.LogError(report);
 
 #if UNITY_EDITOR_WIN
-            // Keep a copy in the store for internal use, but UI should not display it.
-            ClipboardHistoryStore.instance.SetLastErrorReport(report);
+            // Store the unified compilation error report where the Hub expects it.
+            ClipboardHistoryStore.instance.SetLastCompilationErrorReport(report);
 #endif
 
             s_Errors.Clear();

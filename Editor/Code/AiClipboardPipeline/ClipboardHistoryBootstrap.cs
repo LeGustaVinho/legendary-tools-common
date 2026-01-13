@@ -121,25 +121,82 @@ namespace AiClipboardPipeline.Editor
 
             string t = text.Replace("\r\n", "\n").Replace("\r", "\n");
 
-            // Try to extract the first fenced code block even if there is text around it.
-            // Supports ```lang ... ``` and ``` ... ``` (and best-effort ~~~ fences).
-            if (TryExtractFirstFencedBlock(t, "```", out string fenced))
+            // Prefer extracting a fenced block ONLY if it contains a valid, classifiable payload.
+            // This prevents accidental extraction of small code fences (e.g., Console reports)
+            // that do not represent a full C# file or a git patch.
+            if (TryExtractBestClassifiableFencedBlock(t, "```", out string fenced))
                 return fenced.Trim();
 
-            if (TryExtractFirstFencedBlock(t, "~~~", out string fencedTilde))
+            if (TryExtractBestClassifiableFencedBlock(t, "~~~", out string fencedTilde))
                 return fencedTilde.Trim();
 
             return t.Trim();
         }
 
-        private static bool TryExtractFirstFencedBlock(string text, string fence, out string content)
+        private static bool TryExtractBestClassifiableFencedBlock(string text, string fence, out string content)
         {
             content = string.Empty;
 
             if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(fence))
                 return false;
 
-            int start = text.IndexOf(fence, StringComparison.Ordinal);
+            int searchIndex = 0;
+            string best = string.Empty;
+
+            while (true)
+            {
+                if (!TryExtractNextFencedBlock(text, fence, searchIndex, out string candidate, out int nextIndex))
+                    break;
+
+                searchIndex = Math.Max(nextIndex, searchIndex + 1);
+
+                string c = (candidate ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(c))
+                    continue;
+
+                // Validate as C# full file or git patch before accepting.
+                bool isCSharp = CSharpFileClipboardClassifier.IsValidCSharpCode(c, out _, out _);
+
+                bool isPatch = false;
+                try
+                {
+                    GitPatchClipboardClassifier patchClassifier = new();
+                    isPatch = patchClassifier.TryClassify(c, out _);
+                }
+                catch
+                {
+                    isPatch = false;
+                }
+
+                if (!isCSharp && !isPatch)
+                    continue;
+
+                if (c.Length > best.Length)
+                    best = c;
+            }
+
+            if (string.IsNullOrEmpty(best))
+                return false;
+
+            content = best;
+            return true;
+        }
+
+        private static bool TryExtractNextFencedBlock(
+            string text,
+            string fence,
+            int startSearchIndex,
+            out string content,
+            out int nextSearchIndex)
+        {
+            content = string.Empty;
+            nextSearchIndex = startSearchIndex;
+
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(fence))
+                return false;
+
+            int n = text.Length;
+            int start = text.IndexOf(fence, startSearchIndex, StringComparison.Ordinal);
             if (start < 0)
                 return false;
 
@@ -164,6 +221,7 @@ namespace AiClipboardPipeline.Editor
                 return false;
 
             content = text.Substring(bodyStart, bodyLen);
+            nextSearchIndex = Math.Min(n, end + fence.Length);
             return true;
         }
     }
