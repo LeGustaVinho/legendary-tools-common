@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using UnityEditor;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
 
 namespace LegendaryTools.Editor
 {
@@ -14,6 +15,7 @@ namespace LegendaryTools.Editor
         public static string GetTextureDisplayName(Texture tex, int maxLen)
         {
             if (tex == null) return "(None)";
+
             string baseName = Clamp(tex.name, Math.Max(4, maxLen));
             return $"{baseName} {GetTextureSizeSuffix(tex)}";
         }
@@ -32,7 +34,7 @@ namespace LegendaryTools.Editor
             }
             catch
             {
-                /* ignore */
+                // Intentionally ignored.
             }
 
             return string.Empty;
@@ -56,6 +58,7 @@ namespace LegendaryTools.Editor
             const long KB = 1024;
             const long MB = 1024 * 1024;
             const long GB = 1024L * 1024L * 1024L;
+
             if (bytes >= GB) return $"{bytes / (double)GB:0.##} GB";
             if (bytes >= MB) return $"{bytes / (double)MB:0.##} MB";
             if (bytes >= KB) return $"{bytes / (double)KB:0.##} KB";
@@ -64,7 +67,7 @@ namespace LegendaryTools.Editor
 
         /// <summary>
         /// Estimates the memory footprint of a texture including mipmaps (rough).
-        /// Works best for Texture2D. Falls back to 4 bytes per pixel heuristic.
+        /// Uses GraphicsFormat for better Unity 6 compatibility.
         /// </summary>
         public static long EstimateTextureMemory(Texture tex)
         {
@@ -84,115 +87,132 @@ namespace LegendaryTools.Editor
             if (w <= 0 || h <= 0) return 0;
 
             double bytesPerPixel = 4.0;
-            double mipFactor = 1.33;
+            double mipFactor = 1.0;
 
-#if UNITY_EDITOR
-            Texture2D tex2D = tex as Texture2D;
-            if (tex2D != null)
+            // Prefer Texture2D for mip info and accurate format info.
+            if (tex is Texture2D tex2D)
             {
-                double bpp = 4.0;
-                switch (tex2D.format)
-                {
-                    // Uncompressed (kept conservative)
-                    case TextureFormat.RGBA32:
-                    case TextureFormat.ARGB32:
-                    case TextureFormat.BGRA32:
-                    case TextureFormat.RGB24:
-                    case TextureFormat.RGBA4444:
-                    case TextureFormat.RGBAFloat:
-                        bpp = 4.0; break;
+                bytesPerPixel = GetBytesPerPixelSafe(tex2D.graphicsFormat);
 
-                    // BC / DXT
-                    case TextureFormat.DXT1:
-                        bpp = 0.5; break;
-                    case TextureFormat.DXT5:
-                        bpp = 1.0; break;
-
-                    // ETC / ETC2
-                    case TextureFormat.ETC_RGB4:
-                        bpp = 0.5; break;
-                    case TextureFormat.ETC2_RGBA8:
-                        bpp = 1.0; break;
-
-                    // ASTC (approximate)
-                    case TextureFormat.ASTC_4x4:
-                        bpp = 1.0; break;
-                    case TextureFormat.ASTC_6x6:
-                        bpp = 0.44; break;
-                    case TextureFormat.ASTC_8x8:
-                        bpp = 0.25; break;
-
-                    // PVRTC (rough)
-                    case TextureFormat.PVRTC_RGB2:
-                    case TextureFormat.PVRTC_RGBA2:
-                        bpp = 0.25; break;
-                    case TextureFormat.PVRTC_RGB4:
-                    case TextureFormat.PVRTC_RGBA4:
-                        bpp = 0.5; break;
-
-                    default:
-                        bpp = 4.0; break;
-                }
-
-                bytesPerPixel = bpp;
-
-                // Use real mip count if available; otherwise keep heuristic
+                int mips = 1;
                 try
                 {
-                    int mips = tex2D.mipmapCount;
-                    if (mips > 1)
-                        // Approx: 1 + 1/4 + 1/16 + ... ≈ 1.33 (cap)
-                        mipFactor = Math.Min(1.33, 1.0 + (mips - 1) * 0.25);
-                    else
-                        mipFactor = 1.0;
+                    mips = tex2D.mipmapCount;
                 }
                 catch
                 {
-                    /* keep heuristic */
+                    // Intentionally ignored.
                 }
+
+                mipFactor = GetMipChainFactor(mips);
             }
-#endif
-            long baseBytes = (long)Math.Round(w * h * bytesPerPixel);
+            else
+            {
+                // Fallback heuristic for non-Texture2D types.
+                mipFactor = 1.33;
+            }
+
+            double baseBytes = w * (double)h * bytesPerPixel;
             return (long)Math.Round(baseBytes * mipFactor);
         }
 
         /// <summary>
         /// Collects all textures referenced by the given materials across all texture properties.
-        /// Unity 6 note: checks only TexEnv.
+        /// Unity 6: uses Shader.GetProperty* and UnityEngine.Rendering.ShaderPropertyType.
         /// </summary>
         public static Texture[] CollectAllTextures(Material[] materials)
         {
+            if (materials == null || materials.Length == 0)
+                return Array.Empty<Texture>();
+
             HashSet<Texture> set = new();
-#if UNITY_EDITOR
+
             foreach (Material mat in materials)
             {
-                if (mat == null || mat.shader == null)
-                    continue;
+                if (mat == null) continue;
 
                 Shader shader = mat.shader;
-                int propCount = ShaderUtil.GetPropertyCount(shader);
-                for (int i = 0; i < propCount; i++)
+                if (shader == null) continue;
+
+                int propCount;
+                try
                 {
-                    ShaderUtil.ShaderPropertyType type = ShaderUtil.GetPropertyType(shader, i);
-#if UNITY_6000_0_OR_NEWER
-                    if (type == ShaderUtil.ShaderPropertyType.TexEnv)
-#else
-                    if (type == ShaderUtil.ShaderPropertyType.TexEnv
-                        || type == ShaderUtil.ShaderPropertyType.Texture)
-#endif
-                    {
-                        string propName = ShaderUtil.GetPropertyName(shader, i);
-                        Texture tex = mat.GetTexture(propName);
-                        if (tex != null) set.Add(tex);
-                    }
+                    propCount = shader.GetPropertyCount();
+                }
+                catch
+                {
+                    continue;
                 }
 
-                // Fallback alias
-                Texture mainTex = mat.HasProperty("_MainTex") ? mat.GetTexture("_MainTex") : null;
-                if (mainTex != null) set.Add(mainTex);
+                for (int i = 0; i < propCount; i++)
+                {
+                    ShaderPropertyType type;
+                    try
+                    {
+                        type = shader.GetPropertyType(i);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    if (type != ShaderPropertyType.Texture)
+                        continue;
+
+                    string propName;
+                    try
+                    {
+                        propName = shader.GetPropertyName(i);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    Texture tex = mat.GetTexture(propName);
+                    if (tex != null) set.Add(tex);
+                }
+
+                // Fallback alias.
+                if (mat.HasProperty("_MainTex"))
+                {
+                    Texture mainTex = mat.GetTexture("_MainTex");
+                    if (mainTex != null) set.Add(mainTex);
+                }
             }
-#endif
+
             return set.ToArray();
+        }
+
+        private static double GetBytesPerPixelSafe(GraphicsFormat format)
+        {
+            // GraphicsFormatUtility provides block metrics. For uncompressed formats,
+            // block width/height are 1, so this also yields bytes-per-pixel.
+            try
+            {
+                uint blockWidth = GraphicsFormatUtility.GetBlockWidth(format);
+                uint blockHeight = GraphicsFormatUtility.GetBlockHeight(format);
+                uint blockSizeBytes = GraphicsFormatUtility.GetBlockSize(format);
+
+                if (blockWidth > 0 && blockHeight > 0 && blockSizeBytes > 0)
+                    return blockSizeBytes / (double)(blockWidth * blockHeight);
+            }
+            catch
+            {
+                // Intentionally ignored.
+            }
+
+            // Conservative fallback.
+            return 4.0;
+        }
+
+        private static double GetMipChainFactor(int mipCount)
+        {
+            if (mipCount <= 1) return 1.0;
+
+            // Sum of geometric series: 1 + 1/4 + 1/16 + ... for mipCount terms.
+            // factor = (1 - 0.25^mipCount) / (1 - 0.25) = (4/3) * (1 - 0.25^mipCount)
+            return (4.0 / 3.0) * (1.0 - Math.Pow(0.25, mipCount));
         }
     }
 }
