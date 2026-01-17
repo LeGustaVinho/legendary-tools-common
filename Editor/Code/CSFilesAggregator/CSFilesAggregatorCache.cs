@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using CSharpRegexStripper;
 
 namespace LegendaryTools.Editor
 {
@@ -20,8 +21,8 @@ namespace LegendaryTools.Editor
         private readonly Dictionary<string, string> rawCache = new(System.StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> sanitizedCache = new(System.StringComparer.OrdinalIgnoreCase);
 
-        // Processed output depends on removeUsings flag, so cache by key.
-        private readonly Dictionary<(string path, bool removeUsings), string> processedOutputCache = new();
+        // Processed output depends on multiple flags, so cache by key.
+        private readonly Dictionary<(string path, bool removeUsings, bool stripImplementations), string> processedOutputCache = new();
 
         private readonly Dictionary<string, FileAnalysis> analysisCache = new(System.StringComparer.OrdinalIgnoreCase);
 
@@ -52,19 +53,24 @@ namespace LegendaryTools.Editor
             return sanitized;
         }
 
-        public string GetOrBuildProcessedForOutput(string absolutePath, bool removeUsings)
+        public string GetOrBuildProcessedForOutput(string absolutePath, bool removeUsings, bool stripImplementations)
         {
             string path = CSFilesAggregatorUtils.NormalizePath(absolutePath);
 
-            (string path, bool removeUsings) key = (path, removeUsings);
+            (string path, bool removeUsings, bool stripImplementations) key = (path, removeUsings, stripImplementations);
             if (processedOutputCache.TryGetValue(key, out string processed))
                 return processed;
 
             string raw = GetOrBuildRaw(path);
 
-            processed = removeUsings
-                ? CSFilesAggregatorUtils.RemoveUsingDirectives(raw)
+            // 1) Optionally strip implementations (keep signatures).
+            processed = stripImplementations
+                ? CSharpImplementationStripper.StripFromString(raw, StripOptions.Default)
                 : raw;
+
+            // 2) Optionally remove using directives (post-strip keeps output cleaner).
+            if (removeUsings)
+                processed = CSFilesAggregatorUtils.RemoveUsingDirectives(processed);
 
             processedOutputCache[key] = processed;
             return processed;

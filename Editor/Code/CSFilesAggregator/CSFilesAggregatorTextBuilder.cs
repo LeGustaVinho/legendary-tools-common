@@ -9,6 +9,7 @@ namespace LegendaryTools.Editor
             IReadOnlyList<string> rootFiles,
             CSFilesAggregatorDiscovery.DependencyScanResult depScan,
             bool removeUsings,
+            bool stripImplementations,
             bool resolveDependencies,
             CSFilesAggregatorCache cache)
         {
@@ -26,7 +27,7 @@ namespace LegendaryTools.Editor
                 // Append root once.
                 if (appended.Add(root))
                 {
-                    string rootContent = cache.GetOrBuildProcessedForOutput(root, removeUsings);
+                    string rootContent = cache.GetOrBuildProcessedForOutput(root, removeUsings, stripImplementations);
                     sb.AppendLine(rootContent);
                     sb.AppendLine();
                 }
@@ -44,7 +45,7 @@ namespace LegendaryTools.Editor
                     if (!appended.Add(dep))
                         continue;
 
-                    string depContent = cache.GetOrBuildProcessedForOutput(dep, removeUsings);
+                    string depContent = cache.GetOrBuildProcessedForOutput(dep, removeUsings, stripImplementations);
                     sb.AppendLine(depContent);
                     sb.AppendLine();
                 }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -7,10 +8,27 @@ namespace LegendaryTools.Editor
 {
     public sealed class CSFilesAggregatorWindow : EditorWindow
     {
+        private const string PrefsKey = "LegendaryTools.CSFilesAggregatorWindow.State.v1";
+
+        [Serializable]
+        private sealed class PersistedState
+        {
+            public List<string> Paths = new List<string>();
+
+            public bool IncludeSubfolders;
+            public bool RemoveUsings;
+            public bool StripImplementations;
+
+            public bool ResolveDependencies;
+            public int DependencyDepth = 1;
+            public int ReportMaxItems = 40;
+        }
+
         private readonly List<string> paths = new();
 
         private bool includeSubfolders;
         private bool removeUsings;
+        private bool stripImplementations;
 
         private bool resolveDependencies;
         private int dependencyDepth = 1;
@@ -18,6 +36,7 @@ namespace LegendaryTools.Editor
         private int reportMaxItems = 40;
 
         private string aggregatedText = string.Empty;
+        private Vector2 aggregatedScroll;
 
         private CSFilesAggregatorController controller;
 
@@ -30,6 +49,17 @@ namespace LegendaryTools.Editor
         private void OnEnable()
         {
             controller ??= new CSFilesAggregatorController();
+            LoadState();
+        }
+
+        private void OnDisable()
+        {
+            SaveState();
+        }
+
+        private void OnDestroy()
+        {
+            SaveState();
         }
 
         private void OnGUI()
@@ -44,6 +74,7 @@ namespace LegendaryTools.Editor
 
             includeSubfolders = EditorGUILayout.Toggle("Include subfolders", includeSubfolders);
             removeUsings = EditorGUILayout.Toggle("Remove 'using' declarations", removeUsings);
+            stripImplementations = EditorGUILayout.Toggle("Strip implementations (keep signatures)", stripImplementations);
 
             GUILayout.Space(6);
 
@@ -52,20 +83,52 @@ namespace LegendaryTools.Editor
             {
                 dependencyDepth = EditorGUILayout.IntField("Dependency depth", Mathf.Max(0, dependencyDepth));
                 reportMaxItems = EditorGUILayout.IntField("Report max items", Mathf.Clamp(reportMaxItems, 5, 500));
-
-                EditorGUILayout.HelpBox(
-                    "When Resolve dependencies is enabled, dependency contents are always included in the aggregated output.",
-                    MessageType.Info);
             }
 
             GUILayout.Space(10);
 
-            if (GUILayout.Button("Aggregate .cs Files")) AggregateNow();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Aggregate .cs Files"))
+                AggregateNow();
+
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(aggregatedText)))
+            {
+                if (GUILayout.Button("Copy Aggregated Text", GUILayout.MaxWidth(170)))
+                {
+                    EditorGUIUtility.systemCopyBuffer = aggregatedText ?? string.Empty;
+                    ShowCopyToast();
+                }
+            }
+            GUILayout.EndHorizontal();
 
             GUILayout.Space(10);
             GUILayout.Label("Aggregated Content", EditorStyles.boldLabel);
 
+            DrawAggregatedTextAreaWithScroll();
+
+            if (GUI.changed)
+                SaveState();
+        }
+
+        private void DrawAggregatedTextAreaWithScroll()
+        {
+            aggregatedScroll = EditorGUILayout.BeginScrollView(aggregatedScroll, GUILayout.ExpandHeight(true));
+
+            EditorGUI.BeginChangeCheck();
             aggregatedText = EditorGUILayout.TextArea(aggregatedText, GUILayout.ExpandHeight(true));
+            if (EditorGUI.EndChangeCheck())
+            {
+                // Keep state consistent if the user edits the text manually.
+                SaveState();
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void ShowCopyToast()
+        {
+            // Unity doesn't have a true toast API everywhere; this gives lightweight feedback.
+            ShowNotification(new GUIContent("Aggregated text copied to clipboard."));
         }
 
         private void DrawAddButtons()
@@ -78,8 +141,7 @@ namespace LegendaryTools.Editor
                 if (!string.IsNullOrEmpty(selected))
                 {
                     string rel = CSFilesAggregatorUtils.TryToProjectRelativePath(selected);
-                    if (!paths.Contains(rel))
-                        paths.Add(rel);
+                    TryAddPath(rel);
                 }
             }
 
@@ -89,8 +151,7 @@ namespace LegendaryTools.Editor
                 if (!string.IsNullOrEmpty(selected))
                 {
                     string rel = CSFilesAggregatorUtils.TryToProjectRelativePath(selected);
-                    if (!paths.Contains(rel))
-                        paths.Add(rel);
+                    TryAddPath(rel);
                 }
             }
 
@@ -116,16 +177,14 @@ namespace LegendaryTools.Editor
                 DragAndDrop.AcceptDrag();
                 foreach (string p in DragAndDrop.paths)
                 {
-                    string rel = CSFilesAggregatorUtils.TryToProjectRelativePath(p);
-
                     bool isDir = Directory.Exists(p);
-                    bool isCs = File.Exists(p) && p.EndsWith(".cs");
+                    bool isCs = File.Exists(p) && p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
 
                     if (!isDir && !isCs)
                         continue;
 
-                    if (!paths.Contains(rel))
-                        paths.Add(rel);
+                    string rel = CSFilesAggregatorUtils.TryToProjectRelativePath(p);
+                    TryAddPath(rel);
                 }
 
                 evt.Use();
@@ -145,9 +204,32 @@ namespace LegendaryTools.Editor
                 {
                     paths.RemoveAt(i);
                     i--;
+                    SaveState();
                 }
 
                 GUILayout.EndHorizontal();
+            }
+
+            if (paths.Count > 0)
+            {
+                GUILayout.Space(4);
+                if (GUILayout.Button("Clear All"))
+                {
+                    paths.Clear();
+                    SaveState();
+                }
+            }
+        }
+
+        private void TryAddPath(string relOrAbs)
+        {
+            if (string.IsNullOrWhiteSpace(relOrAbs))
+                return;
+
+            if (!paths.Contains(relOrAbs))
+            {
+                paths.Add(relOrAbs);
+                SaveState();
             }
         }
 
@@ -162,6 +244,7 @@ namespace LegendaryTools.Editor
             CSFilesAggregatorController.Options options = new(
                 includeSubfolders,
                 removeUsings,
+                stripImplementations,
                 resolveDependencies,
                 Mathf.Max(0, dependencyDepth),
                 Mathf.Clamp(reportMaxItems, 5, 500));
@@ -171,7 +254,64 @@ namespace LegendaryTools.Editor
             aggregatedText = result.AggregatedText;
             EditorGUIUtility.systemCopyBuffer = aggregatedText;
 
+            // Optional: scroll to top after aggregation so user sees the start.
+            aggregatedScroll = Vector2.zero;
+
             CSFilesAggregatorUtils.ShowSingleReportPrompt(result.ReportText);
+
+            SaveState();
+        }
+
+        private void SaveState()
+        {
+            PersistedState state = new PersistedState
+            {
+                Paths = new List<string>(paths),
+
+                IncludeSubfolders = includeSubfolders,
+                RemoveUsings = removeUsings,
+                StripImplementations = stripImplementations,
+
+                ResolveDependencies = resolveDependencies,
+                DependencyDepth = dependencyDepth,
+                ReportMaxItems = reportMaxItems
+            };
+
+            string json = EditorJsonUtility.ToJson(state);
+            EditorPrefs.SetString(PrefsKey, json);
+        }
+
+        private void LoadState()
+        {
+            if (!EditorPrefs.HasKey(PrefsKey))
+                return;
+
+            string json = EditorPrefs.GetString(PrefsKey, string.Empty);
+            if (string.IsNullOrEmpty(json))
+                return;
+
+            PersistedState state = new PersistedState();
+
+            try
+            {
+                EditorJsonUtility.FromJsonOverwrite(json, state);
+            }
+            catch
+            {
+                return;
+            }
+
+            paths.Clear();
+            if (state.Paths != null)
+                paths.AddRange(state.Paths);
+
+            includeSubfolders = state.IncludeSubfolders;
+            removeUsings = state.RemoveUsings;
+            stripImplementations = state.StripImplementations;
+
+            resolveDependencies = state.ResolveDependencies;
+            dependencyDepth = Mathf.Max(0, state.DependencyDepth);
+            reportMaxItems = Mathf.Clamp(state.ReportMaxItems, 5, 500);
         }
     }
 }

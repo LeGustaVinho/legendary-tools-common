@@ -9,12 +9,14 @@ namespace LegendaryTools.Editor
             public Options(
                 bool includeSubfolders,
                 bool removeUsings,
+                bool stripImplementations,
                 bool resolveDependencies,
                 int dependencyDepth,
                 int reportMaxItems)
             {
                 IncludeSubfolders = includeSubfolders;
                 RemoveUsings = removeUsings;
+                StripImplementations = stripImplementations;
                 ResolveDependencies = resolveDependencies;
                 DependencyDepth = dependencyDepth;
                 ReportMaxItems = reportMaxItems;
@@ -22,6 +24,7 @@ namespace LegendaryTools.Editor
 
             public bool IncludeSubfolders { get; }
             public bool RemoveUsings { get; }
+            public bool StripImplementations { get; }
             public bool ResolveDependencies { get; }
             public int DependencyDepth { get; }
             public int ReportMaxItems { get; }
@@ -71,6 +74,7 @@ namespace LegendaryTools.Editor
                 rootFiles,
                 depScan,
                 options.RemoveUsings,
+                options.StripImplementations,
                 options.ResolveDependencies,
                 cache);
 
