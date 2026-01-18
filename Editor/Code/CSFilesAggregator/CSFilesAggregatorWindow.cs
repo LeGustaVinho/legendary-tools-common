@@ -1,44 +1,24 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
+using CSharpRegexStripper;
 using UnityEditor;
 using UnityEngine;
 
-namespace LegendaryTools.Editor
+namespace LegendaryTools.Editor.Code.CSFilesAggregator
 {
+    /// <summary>
+    /// View-only EditorWindow for aggregating C# files.
+    /// </summary>
     public sealed class CSFilesAggregatorWindow : EditorWindow
     {
-        private const string PrefsKey = "LegendaryTools.CSFilesAggregatorWindow.State.v1";
-
-        [Serializable]
-        private sealed class PersistedState
+        private enum Tab
         {
-            public List<string> Paths = new List<string>();
-
-            public bool IncludeSubfolders;
-            public bool RemoveUsings;
-            public bool StripImplementations;
-
-            public bool ResolveDependencies;
-            public int DependencyDepth = 1;
-            public int ReportMaxItems = 40;
+            Selection = 0,
+            Settings = 1,
+            Output = 2
         }
 
-        private readonly List<string> paths = new();
-
-        private bool includeSubfolders;
-        private bool removeUsings;
-        private bool stripImplementations;
-
-        private bool resolveDependencies;
-        private int dependencyDepth = 1;
-
-        private int reportMaxItems = 40;
-
-        private string aggregatedText = string.Empty;
-        private Vector2 aggregatedScroll;
-
-        private CSFilesAggregatorController controller;
+        private CSFilesAggregatorController _controller;
+        private Vector2 _scrollPosition;
+        private Tab _activeTab;
 
         [MenuItem("Tools/LegendaryTools/Code/C# File Aggregator")]
         public static void ShowWindow()
@@ -48,114 +28,241 @@ namespace LegendaryTools.Editor
 
         private void OnEnable()
         {
-            controller ??= new CSFilesAggregatorController();
-            LoadState();
+            _controller = CSFilesAggregatorCompositionRoot.CreateController();
+            _controller.StateChanged += Repaint;
         }
 
         private void OnDisable()
         {
-            SaveState();
-        }
-
-        private void OnDestroy()
-        {
-            SaveState();
+            if (_controller != null)
+            {
+                _controller.StateChanged -= Repaint;
+            }
         }
 
         private void OnGUI()
         {
-            GUILayout.Label("Settings", EditorStyles.boldLabel);
+            if (_controller == null)
+            {
+                EditorGUILayout.HelpBox("Controller not initialized.", MessageType.Error);
+                return;
+            }
+
+            DrawToolbar();
+
+            EditorGUILayout.Space(6);
+
+            switch (_activeTab)
+            {
+                case Tab.Selection:
+                    DrawSelectionTab();
+                    break;
+
+                case Tab.Settings:
+                    DrawSettingsTab();
+                    break;
+
+                case Tab.Output:
+                    DrawOutputTab();
+                    break;
+            }
+        }
+
+        private void DrawToolbar()
+        {
+            string[] tabs = { "Selection", "Settings", "Output" };
+            _activeTab = (Tab)GUILayout.Toolbar((int)_activeTab, tabs);
+        }
+
+        private void DrawSelectionTab()
+        {
+            CSFilesAggregatorState state = _controller.State;
+
+            EditorGUILayout.LabelField("Selection", EditorStyles.boldLabel);
 
             DrawAddButtons();
             DrawDropArea();
-            DrawPathList();
 
-            GUILayout.Space(10);
+            EditorGUILayout.Space(8);
 
-            includeSubfolders = EditorGUILayout.Toggle("Include subfolders", includeSubfolders);
-            removeUsings = EditorGUILayout.Toggle("Remove 'using' declarations", removeUsings);
-            stripImplementations = EditorGUILayout.Toggle("Strip implementations (keep signatures)", stripImplementations);
+            DrawSelectedPathsList(state);
+        }
 
-            GUILayout.Space(6);
+        private void DrawSettingsTab()
+        {
+            CSFilesAggregatorState state = _controller.State;
 
-            resolveDependencies = EditorGUILayout.Toggle("Resolve dependencies (Assets-only)", resolveDependencies);
-            using (new EditorGUI.DisabledScope(!resolveDependencies))
+            EditorGUILayout.LabelField("Settings", EditorStyles.boldLabel);
+
+            bool includeSubfolders = EditorGUILayout.Toggle("Include subfolders", state.IncludeSubfolders);
+            if (includeSubfolders != state.IncludeSubfolders)
             {
-                dependencyDepth = EditorGUILayout.IntField("Dependency depth", Mathf.Max(0, dependencyDepth));
-                reportMaxItems = EditorGUILayout.IntField("Report max items", Mathf.Clamp(reportMaxItems, 5, 500));
+                _controller.SetIncludeSubfolders(includeSubfolders);
             }
 
-            GUILayout.Space(10);
-
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Aggregate .cs Files"))
-                AggregateNow();
-
-            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(aggregatedText)))
+            bool removeUsings = EditorGUILayout.Toggle("Remove 'using' declarations", state.RemoveUsings);
+            if (removeUsings != state.RemoveUsings)
             {
-                if (GUILayout.Button("Copy Aggregated Text", GUILayout.MaxWidth(170)))
+                _controller.SetRemoveUsings(removeUsings);
+            }
+
+            bool appendDelimiters = EditorGUILayout.Toggle("Append end markers (End of file/folder)", state.AppendDelimiters);
+            if (appendDelimiters != state.AppendDelimiters)
+            {
+                _controller.SetAppendDelimiters(appendDelimiters);
+            }
+
+            EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("Implementation Stripper", EditorStyles.boldLabel);
+
+            bool useStripper = EditorGUILayout.Toggle("Strip implementation (method bodies)", state.UseImplementationStripper);
+            if (useStripper != state.UseImplementationStripper)
+            {
+                _controller.SetUseImplementationStripper(useStripper);
+            }
+
+            using (new EditorGUI.DisabledScope(!state.UseImplementationStripper))
+            {
+                MethodBodyMode bodyMode = (MethodBodyMode)EditorGUILayout.EnumPopup("Method body mode", state.StripMethodBodyMode);
+                if (bodyMode != state.StripMethodBodyMode)
                 {
-                    EditorGUIUtility.systemCopyBuffer = aggregatedText ?? string.Empty;
-                    ShowCopyToast();
+                    _controller.SetStripMethodBodyMode(bodyMode);
+                }
+
+                bool convertProps = EditorGUILayout.Toggle("Convert non-auto properties", state.StripConvertNonAutoProperties);
+                if (convertProps != state.StripConvertNonAutoProperties)
+                {
+                    _controller.SetStripConvertNonAutoProperties(convertProps);
+                }
+
+                bool mask = EditorGUILayout.Toggle("Mask strings & comments", state.StripMaskStringsAndComments);
+                if (mask != state.StripMaskStringsAndComments)
+                {
+                    _controller.SetStripMaskStringsAndComments(mask);
+                }
+
+                bool skipInterface = EditorGUILayout.Toggle("Skip interface members", state.StripSkipInterfaceMembers);
+                if (skipInterface != state.StripSkipInterfaceMembers)
+                {
+                    _controller.SetStripSkipInterfaceMembers(skipInterface);
+                }
+
+                bool skipAbstract = EditorGUILayout.Toggle("Skip abstract members", state.StripSkipAbstractMembers);
+                if (skipAbstract != state.StripSkipAbstractMembers)
+                {
+                    _controller.SetStripSkipAbstractMembers(skipAbstract);
                 }
             }
-            GUILayout.EndHorizontal();
 
-            GUILayout.Space(10);
-            GUILayout.Label("Aggregated Content", EditorStyles.boldLabel);
+            EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("Dependency Scan", EditorStyles.boldLabel);
 
-            DrawAggregatedTextAreaWithScroll();
-
-            if (GUI.changed)
-                SaveState();
-        }
-
-        private void DrawAggregatedTextAreaWithScroll()
-        {
-            aggregatedScroll = EditorGUILayout.BeginScrollView(aggregatedScroll, GUILayout.ExpandHeight(true));
-
-            EditorGUI.BeginChangeCheck();
-            aggregatedText = EditorGUILayout.TextArea(aggregatedText, GUILayout.ExpandHeight(true));
-            if (EditorGUI.EndChangeCheck())
+            bool includeDeps = EditorGUILayout.Toggle("Include dependencies of selected files", state.IncludeDependencies);
+            if (includeDeps != state.IncludeDependencies)
             {
-                // Keep state consistent if the user edits the text manually.
-                SaveState();
+                _controller.SetIncludeDependencies(includeDeps);
             }
 
-            EditorGUILayout.EndScrollView();
+            using (new EditorGUI.DisabledScope(!state.IncludeDependencies))
+            {
+                int maxDepth = EditorGUILayout.IntSlider("Max depth", state.DependencyMaxDepth, 0, 10);
+                if (maxDepth != state.DependencyMaxDepth)
+                {
+                    _controller.SetDependencyMaxDepth(maxDepth);
+                }
+
+                bool ignorePackages = EditorGUILayout.Toggle("Ignore Packages/", state.DependencyIgnorePackagesFolder);
+                if (ignorePackages != state.DependencyIgnorePackagesFolder)
+                {
+                    _controller.SetDependencyIgnorePackagesFolder(ignorePackages);
+                }
+
+                bool ignoreCache = EditorGUILayout.Toggle("Ignore Library/PackageCache/", state.DependencyIgnorePackageCache);
+                if (ignoreCache != state.DependencyIgnorePackageCache)
+                {
+                    _controller.SetDependencyIgnorePackageCache(ignoreCache);
+                }
+
+                bool ignoreUnresolved = EditorGUILayout.Toggle("Ignore unresolved types", state.DependencyIgnoreUnresolvedTypes);
+                if (ignoreUnresolved != state.DependencyIgnoreUnresolvedTypes)
+                {
+                    _controller.SetDependencyIgnoreUnresolvedTypes(ignoreUnresolved);
+                }
+
+                bool includeInputsInResult = EditorGUILayout.Toggle("Include input files in result", state.DependencyIncludeInputFilesInResult);
+                if (includeInputsInResult != state.DependencyIncludeInputFilesInResult)
+                {
+                    _controller.SetDependencyIncludeInputFilesInResult(includeInputsInResult);
+                }
+
+                bool includeVirtual = EditorGUILayout.Toggle("Include in-memory virtual paths", state.DependencyIncludeInMemoryVirtualPathsInResult);
+                if (includeVirtual != state.DependencyIncludeInMemoryVirtualPathsInResult)
+                {
+                    _controller.SetDependencyIncludeInMemoryVirtualPathsInResult(includeVirtual);
+                }
+
+                EditorGUILayout.HelpBox(
+                    "When enabled, the tool rebuilds the Type Index before scanning dependencies to ensure results are up to date.",
+                    MessageType.Info);
+            }
+
+            EditorGUILayout.Space(6);
+            EditorGUILayout.HelpBox("Settings and selection persist between assembly reloads.", MessageType.Info);
         }
 
-        private void ShowCopyToast()
+        private void DrawOutputTab()
         {
-            // Unity doesn't have a true toast API everywhere; this gives lightweight feedback.
-            ShowNotification(new GUIContent("Aggregated text copied to clipboard."));
+            CSFilesAggregatorState state = _controller.State;
+
+            EditorGUILayout.LabelField("Output", EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginHorizontal();
+
+            using (new EditorGUI.DisabledScope(state.Paths.Count == 0))
+            {
+                if (GUILayout.Button("Aggregate .cs Files"))
+                {
+                    _controller.Aggregate();
+                }
+            }
+
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(state.AggregatedText)))
+            {
+                if (GUILayout.Button("Copy", GUILayout.MaxWidth(100)))
+                {
+                    _controller.CopyAggregatedTextToClipboard();
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(8);
+
+            _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition, GUILayout.ExpandHeight(true));
+            string editedText = EditorGUILayout.TextArea(state.AggregatedText ?? string.Empty, GUILayout.ExpandHeight(true));
+            EditorGUILayout.EndScrollView();
+
+            if (!string.Equals(editedText, state.AggregatedText, System.StringComparison.Ordinal))
+            {
+                _controller.SetAggregatedText(editedText);
+            }
         }
 
         private void DrawAddButtons()
         {
-            GUILayout.BeginHorizontal();
+            EditorGUILayout.BeginHorizontal();
 
             if (GUILayout.Button("Add Folder"))
             {
-                string selected = EditorUtility.OpenFolderPanel("Select folder", Application.dataPath, string.Empty);
-                if (!string.IsNullOrEmpty(selected))
-                {
-                    string rel = CSFilesAggregatorUtils.TryToProjectRelativePath(selected);
-                    TryAddPath(rel);
-                }
+                _controller.RequestAddFolder();
             }
 
             if (GUILayout.Button("Add .cs File"))
             {
-                string selected = EditorUtility.OpenFilePanel("Select .cs file", Application.dataPath, "cs");
-                if (!string.IsNullOrEmpty(selected))
-                {
-                    string rel = CSFilesAggregatorUtils.TryToProjectRelativePath(selected);
-                    TryAddPath(rel);
-                }
+                _controller.RequestAddFile();
             }
 
-            GUILayout.EndHorizontal();
+            EditorGUILayout.EndHorizontal();
         }
 
         private void DrawDropArea()
@@ -164,7 +271,6 @@ namespace LegendaryTools.Editor
             GUI.Box(dropArea, "Drag and Drop Folders or .cs Files Here");
 
             Event evt = Event.current;
-
             if (evt.type == EventType.DragUpdated && dropArea.Contains(evt.mousePosition))
             {
                 DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
@@ -175,143 +281,33 @@ namespace LegendaryTools.Editor
             if (evt.type == EventType.DragPerform && dropArea.Contains(evt.mousePosition))
             {
                 DragAndDrop.AcceptDrag();
-                foreach (string p in DragAndDrop.paths)
-                {
-                    bool isDir = Directory.Exists(p);
-                    bool isCs = File.Exists(p) && p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
-
-                    if (!isDir && !isCs)
-                        continue;
-
-                    string rel = CSFilesAggregatorUtils.TryToProjectRelativePath(p);
-                    TryAddPath(rel);
-                }
-
+                _controller.AddPathsFromDragAndDrop(DragAndDrop.paths);
                 evt.Use();
             }
         }
 
-        private void DrawPathList()
+        private void DrawSelectedPathsList(CSFilesAggregatorState state)
         {
-            GUILayout.Label("Selected Folders and Files:");
+            EditorGUILayout.LabelField("Selected Folders and Files:");
 
-            for (int i = 0; i < paths.Count; i++)
+            if (state.Paths.Count == 0)
             {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(paths[i]);
+                EditorGUILayout.HelpBox("No paths selected. Add a folder or a .cs file.", MessageType.Info);
+                return;
+            }
+
+            for (int i = 0; i < state.Paths.Count; i++)
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField(state.Paths[i]);
 
                 if (GUILayout.Button("Remove", GUILayout.MaxWidth(70)))
                 {
-                    paths.RemoveAt(i);
-                    i--;
-                    SaveState();
+                    _controller.RemovePathAt(i);
                 }
 
-                GUILayout.EndHorizontal();
+                EditorGUILayout.EndHorizontal();
             }
-
-            if (paths.Count > 0)
-            {
-                GUILayout.Space(4);
-                if (GUILayout.Button("Clear All"))
-                {
-                    paths.Clear();
-                    SaveState();
-                }
-            }
-        }
-
-        private void TryAddPath(string relOrAbs)
-        {
-            if (string.IsNullOrWhiteSpace(relOrAbs))
-                return;
-
-            if (!paths.Contains(relOrAbs))
-            {
-                paths.Add(relOrAbs);
-                SaveState();
-            }
-        }
-
-        private void AggregateNow()
-        {
-            if (paths.Count == 0)
-            {
-                EditorUtility.DisplayDialog("Error", "Please add at least one folder or .cs file.", "OK");
-                return;
-            }
-
-            CSFilesAggregatorController.Options options = new(
-                includeSubfolders,
-                removeUsings,
-                stripImplementations,
-                resolveDependencies,
-                Mathf.Max(0, dependencyDepth),
-                Mathf.Clamp(reportMaxItems, 5, 500));
-
-            CSFilesAggregatorController.AggregationResult result = controller.Aggregate(paths, options);
-
-            aggregatedText = result.AggregatedText;
-            EditorGUIUtility.systemCopyBuffer = aggregatedText;
-
-            // Optional: scroll to top after aggregation so user sees the start.
-            aggregatedScroll = Vector2.zero;
-
-            CSFilesAggregatorUtils.ShowSingleReportPrompt(result.ReportText);
-
-            SaveState();
-        }
-
-        private void SaveState()
-        {
-            PersistedState state = new PersistedState
-            {
-                Paths = new List<string>(paths),
-
-                IncludeSubfolders = includeSubfolders,
-                RemoveUsings = removeUsings,
-                StripImplementations = stripImplementations,
-
-                ResolveDependencies = resolveDependencies,
-                DependencyDepth = dependencyDepth,
-                ReportMaxItems = reportMaxItems
-            };
-
-            string json = EditorJsonUtility.ToJson(state);
-            EditorPrefs.SetString(PrefsKey, json);
-        }
-
-        private void LoadState()
-        {
-            if (!EditorPrefs.HasKey(PrefsKey))
-                return;
-
-            string json = EditorPrefs.GetString(PrefsKey, string.Empty);
-            if (string.IsNullOrEmpty(json))
-                return;
-
-            PersistedState state = new PersistedState();
-
-            try
-            {
-                EditorJsonUtility.FromJsonOverwrite(json, state);
-            }
-            catch
-            {
-                return;
-            }
-
-            paths.Clear();
-            if (state.Paths != null)
-                paths.AddRange(state.Paths);
-
-            includeSubfolders = state.IncludeSubfolders;
-            removeUsings = state.RemoveUsings;
-            stripImplementations = state.StripImplementations;
-
-            resolveDependencies = state.ResolveDependencies;
-            dependencyDepth = Mathf.Max(0, state.DependencyDepth);
-            reportMaxItems = Mathf.Clamp(state.ReportMaxItems, 5, 500);
         }
     }
 }
