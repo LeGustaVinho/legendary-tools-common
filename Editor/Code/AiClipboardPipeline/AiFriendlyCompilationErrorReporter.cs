@@ -132,9 +132,6 @@ namespace AiClipboardPipeline.Editor
                 string assetPath = kvp.Key;
                 List<CompilerMessage> list = kvp.Value;
 
-                sb.AppendLine($"FILE: {assetPath}");
-                sb.AppendLine(new string('-', Mathf.Clamp(assetPath.Length + 6, 18, 80)));
-
                 string[] lines = TryReadAllLines(assetPath);
                 for (int i = 0; i < list.Count; i++)
                 {
