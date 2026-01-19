@@ -40,6 +40,11 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         public IReadOnlyList<ITextTransform> Transforms { get; }
 
         /// <summary>
+        /// Display paths for files that should NOT be implementation-stripped (checkbox true).
+        /// </summary>
+        public IReadOnlyCollection<string> DoNotStripDisplayPaths { get; }
+
+        /// <summary>
         /// Creates a new request.
         /// </summary>
         public CSFilesAggregationRequest(
@@ -48,7 +53,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
             bool appendDelimiters,
             bool includeDependencies,
             DependencyScanSettings dependencyScanSettings,
-            IReadOnlyList<ITextTransform> transforms)
+            IReadOnlyList<ITextTransform> transforms,
+            IReadOnlyCollection<string> doNotStripDisplayPaths)
         {
             InputPaths = inputPaths ?? throw new ArgumentNullException(nameof(inputPaths));
             IncludeSubfolders = includeSubfolders;
@@ -56,6 +62,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
             IncludeDependencies = includeDependencies;
             DependencyScanSettings = dependencyScanSettings ?? new DependencyScanSettings();
             Transforms = transforms ?? Array.Empty<ITextTransform>();
+            DoNotStripDisplayPaths = doNotStripDisplayPaths ?? Array.Empty<string>();
         }
     }
 }

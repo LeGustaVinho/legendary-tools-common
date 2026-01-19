@@ -150,24 +150,24 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             StripOptions defaults = StripOptions.Default;
 
             return new CSFilesAggregatorState(
-                paths: new List<string>(),
-                includeSubfolders: false,
-                removeUsings: false,
-                appendDelimiters: true,
-                useImplementationStripper: false,
-                stripMethodBodyMode: defaults.MethodBodyMode,
-                stripConvertNonAutoProperties: defaults.ConvertNonAutoGetSetPropertiesToAutoProperties,
-                stripMaskStringsAndComments: defaults.MaskStringsAndCommentsBeforeStripping,
-                stripSkipInterfaceMembers: defaults.SkipInterfaceMembers,
-                stripSkipAbstractMembers: defaults.SkipAbstractMembers,
-                includeDependencies: false,
-                dependencyMaxDepth: 3,
-                dependencyIgnorePackagesFolder: true,
-                dependencyIgnorePackageCache: true,
-                dependencyIgnoreUnresolvedTypes: true,
-                dependencyIncludeInputFilesInResult: false,
-                dependencyIncludeInMemoryVirtualPathsInResult: true,
-                aggregatedText: string.Empty);
+                new List<string>(),
+                false,
+                false,
+                true,
+                false,
+                defaults.MethodBodyMode,
+                defaults.ConvertNonAutoGetSetPropertiesToAutoProperties,
+                defaults.MaskStringsAndCommentsBeforeStripping,
+                defaults.SkipInterfaceMembers,
+                defaults.SkipAbstractMembers,
+                false,
+                3,
+                true,
+                true,
+                true,
+                false,
+                true,
+                string.Empty);
         }
 
         /// <summary>
@@ -182,7 +182,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 IgnorePackageCache = DependencyIgnorePackageCache,
                 IgnoreUnresolvedTypes = DependencyIgnoreUnresolvedTypes,
                 IncludeInputFilesInResult = DependencyIncludeInputFilesInResult,
-                IncludeInMemoryVirtualPathsInResult = DependencyIncludeInMemoryVirtualPathsInResult,
+                IncludeInMemoryVirtualPathsInResult = DependencyIncludeInMemoryVirtualPathsInResult
             };
         }
 
@@ -192,11 +192,11 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         public StripOptions BuildStripOptions()
         {
             return new StripOptions(
-                methodBodyMode: StripMethodBodyMode,
-                convertNonAutoGetSetPropertiesToAutoProperties: StripConvertNonAutoProperties,
-                maskStringsAndCommentsBeforeStripping: StripMaskStringsAndComments,
-                skipInterfaceMembers: StripSkipInterfaceMembers,
-                skipAbstractMembers: StripSkipAbstractMembers);
+                StripMethodBodyMode,
+                StripConvertNonAutoProperties,
+                StripMaskStringsAndComments,
+                StripSkipInterfaceMembers,
+                StripSkipAbstractMembers);
         }
 
         /// <summary>

@@ -22,10 +22,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public TextDocument Transform(TextDocument document, List<Diagnostic> diagnostics)
         {
-            if (document == null)
-            {
-                return document;
-            }
+            if (document == null) return document;
 
             try
             {

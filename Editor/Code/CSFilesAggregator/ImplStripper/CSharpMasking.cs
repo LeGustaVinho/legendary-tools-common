@@ -4,7 +4,7 @@ namespace CSharpRegexStripper
 {
     public static class CSharpMasking
     {
-        private static readonly Regex MaskTargets = new Regex(
+        private static readonly Regex MaskTargets = new(
             @"(?sx)
                 (//[^\r\n]*)
               | (/\*.*?\*/)

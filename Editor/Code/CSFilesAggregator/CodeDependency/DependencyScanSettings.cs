@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/DependencyScan/DependencyScanSettings.cs
 using System;
 using System.Collections.Generic;
 
@@ -31,7 +30,7 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
         /// Gets or sets additional project-relative path prefixes to ignore (e.g. "Assets/ThirdParty/").
         /// Prefix comparison is ordinal-ignore-case.
         /// </summary>
-        public List<string> IgnoredPathPrefixes = new List<string>();
+        public List<string> IgnoredPathPrefixes = new();
 
         /// <summary>
         /// Gets or sets a value indicating whether unresolved types should be treated as external

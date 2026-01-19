@@ -11,12 +11,9 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public IReadOnlyList<ITextTransform> BuildTransforms(CSFilesAggregatorState state)
         {
-            List<ITextTransform> transforms = new List<ITextTransform>();
+            List<ITextTransform> transforms = new();
 
-            if (state != null && state.RemoveUsings)
-            {
-                transforms.Add(new RemoveUsingsTransform());
-            }
+            if (state != null && state.RemoveUsings) transforms.Add(new RemoveUsingsTransform());
 
             if (state != null && state.UseImplementationStripper)
             {

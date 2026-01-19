@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/TypeIndex/TypeNameBuilder.cs
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -12,7 +11,8 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
     /// </summary>
     internal static class TypeNameBuilder
     {
-        private const string FileScopedNamespaceSyntaxFullName = "Microsoft.CodeAnalysis.CSharp.Syntax.FileScopedNamespaceDeclarationSyntax";
+        private const string FileScopedNamespaceSyntaxFullName =
+            "Microsoft.CodeAnalysis.CSharp.Syntax.FileScopedNamespaceDeclarationSyntax";
 
         /// <summary>
         /// Gets the fully qualified type name for a declaration node.
@@ -24,15 +24,9 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             string ns = GetNamespace(declaration);
             string typeChain = GetContainingTypeChain(declaration);
 
-            if (string.IsNullOrEmpty(ns))
-            {
-                return typeChain;
-            }
+            if (string.IsNullOrEmpty(ns)) return typeChain;
 
-            if (string.IsNullOrEmpty(typeChain))
-            {
-                return ns;
-            }
+            if (string.IsNullOrEmpty(typeChain)) return ns;
 
             return ns + "." + typeChain;
         }
@@ -40,27 +34,20 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
         private static string GetNamespace(SyntaxNode node)
         {
             // Handles nested namespaces and (when available) file-scoped namespaces.
-            var parts = new Stack<string>();
+            Stack<string> parts = new();
 
             SyntaxNode current = node;
             while (current != null)
             {
                 if (current is NamespaceDeclarationSyntax nds)
-                {
                     parts.Push(nds.Name.ToString());
-                }
                 else if (TryGetFileScopedNamespaceName(current, out string fileScopedNamespace))
-                {
                     parts.Push(fileScopedNamespace);
-                }
 
                 current = current.Parent;
             }
 
-            if (parts.Count == 0)
-            {
-                return string.Empty;
-            }
+            if (parts.Count == 0) return string.Empty;
 
             return string.Join(".", parts);
         }
@@ -71,31 +58,20 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
 
             // Unity/Roslyn versions prior to C# 10 do not include FileScopedNamespaceDeclarationSyntax.
             // To keep compatibility, detect it via reflection at runtime instead of referencing the type directly.
-            if (node == null)
-            {
-                return false;
-            }
+            if (node == null) return false;
 
             Type nodeType = node.GetType();
             if (!string.Equals(nodeType.FullName, FileScopedNamespaceSyntaxFullName, StringComparison.Ordinal))
-            {
                 return false;
-            }
 
             // Expected property: "Name" (a NameSyntax). We only need its textual form.
             try
             {
                 PropertyInfo nameProp = nodeType.GetProperty("Name", BindingFlags.Instance | BindingFlags.Public);
-                if (nameProp == null)
-                {
-                    return false;
-                }
+                if (nameProp == null) return false;
 
                 object value = nameProp.GetValue(node, null);
-                if (value == null)
-                {
-                    return false;
-                }
+                if (value == null) return false;
 
                 namespaceName = value.ToString();
                 return !string.IsNullOrEmpty(namespaceName);
@@ -109,18 +85,15 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
         private static string GetContainingTypeChain(SyntaxNode node)
         {
             // Build from outermost to innermost, including the node itself if it is a type declaration.
-            var typeParts = new List<string>(4);
+            List<string> typeParts = new(4);
 
             // Collect containing types by walking up and then reversing.
-            var stack = new Stack<string>();
+            Stack<string> stack = new();
 
             SyntaxNode current = node;
             while (current != null)
             {
-                if (TryGetTypePart(current, out string part))
-                {
-                    stack.Push(part);
-                }
+                if (TryGetTypePart(current, out string part)) stack.Push(part);
 
                 current = current.Parent;
             }
@@ -166,16 +139,10 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
 
         private static string WithArity(string name, TypeParameterListSyntax typeParameters)
         {
-            if (typeParameters == null)
-            {
-                return name;
-            }
+            if (typeParameters == null) return name;
 
             int count = typeParameters.Parameters.Count;
-            if (count <= 0)
-            {
-                return name;
-            }
+            if (count <= 0) return name;
 
             // Use CLR-style arity marker for determinism (avoids formatting and whitespace issues).
             return name + "`" + count;

@@ -93,7 +93,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
             }
         }
 
-        [MenuItem("Tools/Legendary Tools/Type Index/Roslyn/Uninstall")]
+        [MenuItem("Tools/LegendaryTools/Installers/Roslyn/Uninstall")]
         private static void Uninstall()
         {
             try

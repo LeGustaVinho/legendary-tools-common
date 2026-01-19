@@ -18,6 +18,9 @@ namespace CSharpRegexStripper
             return start < End && end > Start;
         }
 
-        public bool Contains(int index) => index >= Start && index < End;
+        public bool Contains(int index)
+        {
+            return index >= Start && index < End;
+        }
     }
 }

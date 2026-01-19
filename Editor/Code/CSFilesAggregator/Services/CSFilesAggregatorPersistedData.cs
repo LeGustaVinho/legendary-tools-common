@@ -11,7 +11,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
         /// <summary>
         /// Selected folder and file paths (display or absolute; will be normalized on load).
         /// </summary>
-        public List<string> Paths { get; set; } = new List<string>();
+        public List<string> Paths { get; set; } = new();
 
         /// <summary>
         /// Whether folder discovery includes subfolders.
@@ -41,12 +41,14 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
         /// <summary>
         /// Stripper: convert non-auto properties to auto-properties.
         /// </summary>
-        public bool StripConvertNonAutoProperties { get; set; } = StripOptions.Default.ConvertNonAutoGetSetPropertiesToAutoProperties;
+        public bool StripConvertNonAutoProperties { get; set; } =
+            StripOptions.Default.ConvertNonAutoGetSetPropertiesToAutoProperties;
 
         /// <summary>
         /// Stripper: mask strings & comments before stripping.
         /// </summary>
-        public bool StripMaskStringsAndComments { get; set; } = StripOptions.Default.MaskStringsAndCommentsBeforeStripping;
+        public bool StripMaskStringsAndComments { get; set; } =
+            StripOptions.Default.MaskStringsAndCommentsBeforeStripping;
 
         /// <summary>
         /// Stripper: skip interface members.

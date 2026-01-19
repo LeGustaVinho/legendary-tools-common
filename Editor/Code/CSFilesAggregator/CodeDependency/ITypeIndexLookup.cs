@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/DependencyScan/ITypeIndexLookup.cs
 using System.Collections.Generic;
 using LegendaryTools.CSFilesAggregator.TypeIndex;
 

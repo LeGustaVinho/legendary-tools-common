@@ -10,10 +10,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public void AppendFileContent(StringBuilder sb, TextDocument document)
         {
-            if (sb == null || document == null)
-            {
-                return;
-            }
+            if (sb == null || document == null) return;
 
             sb.AppendLine(document.Text ?? string.Empty);
         }
@@ -21,10 +18,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public void AppendEndOfFile(StringBuilder sb, string displayPath)
         {
-            if (sb == null)
-            {
-                return;
-            }
+            if (sb == null) return;
 
             sb.AppendLine($"// End of file: {displayPath}");
         }
@@ -32,10 +26,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public void AppendEndOfFolder(StringBuilder sb, string displayFolderPath)
         {
-            if (sb == null)
-            {
-                return;
-            }
+            if (sb == null) return;
 
             sb.AppendLine($"// End of folder: {displayFolderPath}");
         }
@@ -43,10 +34,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public void AppendNoFilesInFolder(StringBuilder sb, string displayFolderPath)
         {
-            if (sb == null)
-            {
-                return;
-            }
+            if (sb == null) return;
 
             sb.AppendLine($"// No .cs files found in folder: {displayFolderPath}");
         }
@@ -54,10 +42,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public void AppendInvalidPath(StringBuilder sb, string inputPath)
         {
-            if (sb == null)
-            {
-                return;
-            }
+            if (sb == null) return;
 
             sb.AppendLine($"// Invalid path: {inputPath}");
         }
@@ -65,10 +50,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public void AppendSkippedNonCsFile(StringBuilder sb, string displayPath)
         {
-            if (sb == null)
-            {
-                return;
-            }
+            if (sb == null) return;
 
             sb.AppendLine($"// Skipped non-.cs file: {displayPath}");
         }
@@ -76,10 +58,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public void AppendFileReadError(StringBuilder sb, string displayPath, string errorMessage)
         {
-            if (sb == null)
-            {
-                return;
-            }
+            if (sb == null) return;
 
             sb.AppendLine($"// Error reading file: {displayPath}");
             sb.AppendLine($"// Details: {errorMessage}");
@@ -88,10 +67,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public void AppendSpacing(StringBuilder sb)
         {
-            if (sb == null)
-            {
-                return;
-            }
+            if (sb == null) return;
 
             sb.AppendLine();
         }

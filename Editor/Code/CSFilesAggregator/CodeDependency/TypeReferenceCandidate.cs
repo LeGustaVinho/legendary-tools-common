@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/DependencyScan/TypeReferenceCandidate.cs
 using System;
 
 namespace LegendaryTools.CSFilesAggregator.DependencyScan

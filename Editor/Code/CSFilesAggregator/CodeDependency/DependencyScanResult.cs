@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/DependencyScan/DependencyScanResult.cs
 using System;
 using System.Collections.Generic;
 
@@ -14,11 +13,11 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
         /// Gets the project-relative dependent file paths discovered by the scan.
         /// The list is unique (no duplicates).
         /// </summary>
-        public List<string> DependentFilePaths = new List<string>();
+        public List<string> DependentFilePaths = new();
 
         /// <summary>
         /// Gets optional notes about resolution, ambiguity, or filtering.
         /// </summary>
-        public List<string> Notes = new List<string>();
+        public List<string> Notes = new();
     }
 }

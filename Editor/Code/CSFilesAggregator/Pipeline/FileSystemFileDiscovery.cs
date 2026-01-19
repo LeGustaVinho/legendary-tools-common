@@ -23,17 +23,11 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public IReadOnlyList<PathResolution> DiscoverCsFiles(string folderAbsolutePath, bool includeSubfolders)
         {
-            List<PathResolution> result = new List<PathResolution>();
+            List<PathResolution> result = new();
 
-            if (string.IsNullOrWhiteSpace(folderAbsolutePath))
-            {
-                return result;
-            }
+            if (string.IsNullOrWhiteSpace(folderAbsolutePath)) return result;
 
-            if (!Directory.Exists(folderAbsolutePath))
-            {
-                return result;
-            }
+            if (!Directory.Exists(folderAbsolutePath)) return result;
 
             SearchOption option = includeSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
 

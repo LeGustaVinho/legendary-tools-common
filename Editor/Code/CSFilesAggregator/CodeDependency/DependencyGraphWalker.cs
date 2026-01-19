@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/DependencyScan/DependencyGraphWalker.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,9 +12,9 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
     /// </summary>
     internal sealed class DependencyGraphWalker
     {
-        private readonly RoslynSourceDependencyAnalyzer _analyzer = new RoslynSourceDependencyAnalyzer();
-        private readonly TypeReferenceResolver _resolver = new TypeReferenceResolver();
-        private readonly DependencyPathFilter _pathFilter = new DependencyPathFilter();
+        private readonly RoslynSourceDependencyAnalyzer _analyzer = new();
+        private readonly TypeReferenceResolver _resolver = new();
+        private readonly DependencyPathFilter _pathFilter = new();
 
         /// <summary>
         /// Walks dependencies up to <see cref="DependencyScanSettings.MaxDepth"/> and returns dependent file paths.
@@ -26,7 +25,7 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
             DependencyScanSettings settings,
             CSharpParseOptions parseOptions)
         {
-            var result = new DependencyScanResult();
+            DependencyScanResult result = new();
 
             if (typeIndex == null)
             {
@@ -40,49 +39,40 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
                 return result;
             }
 
-            if (settings == null)
-            {
-                settings = new DependencyScanSettings();
-            }
+            if (settings == null) settings = new DependencyScanSettings();
 
-            if (settings.MaxDepth < 0)
-            {
-                settings.MaxDepth = 0;
-            }
+            if (settings.MaxDepth < 0) settings.MaxDepth = 0;
 
             string projectRoot = GetProjectRootAbsoluteSafe();
 
             // Track inputs so we can exclude them from output if desired.
-            var inputPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> inputPaths = new(StringComparer.OrdinalIgnoreCase);
 
-            var workQueue = new Queue<WorkItem>(256);
+            Queue<WorkItem> workQueue = new(256);
             EnqueueInitialWorkItems(request, projectRoot, inputPaths, workQueue);
 
-            var visitedSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var outputSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> visitedSources = new(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> outputSet = new(StringComparer.OrdinalIgnoreCase);
 
             // Candidate buffers (reused to reduce allocations).
-            var candidates = new List<TypeReferenceCandidate>(512);
-            var context = new SourceFileContext();
+            List<TypeReferenceCandidate> candidates = new(512);
+            SourceFileContext context = new();
 
             while (workQueue.Count > 0)
             {
                 WorkItem item = workQueue.Dequeue();
 
-                if (string.IsNullOrEmpty(item.SourceIdentity))
-                {
-                    continue;
-                }
+                if (string.IsNullOrEmpty(item.SourceIdentity)) continue;
 
-                if (!visitedSources.Add(item.SourceIdentity))
-                {
-                    continue;
-                }
+                if (!visitedSources.Add(item.SourceIdentity)) continue;
 
-                if (!TryGetCode(item, out string code))
-                {
-                    continue;
-                }
+                if (!TryGetCode(item, out string code)) continue;
+
+                // IMPORTANT:
+                // Depth 0 is roots. Depth 1 are direct dependencies, etc.
+                // If item.Depth is already at MaxDepth, this node must NOT contribute additional dependencies;
+                // otherwise we'd include dependencies beyond MaxDepth in the result.
+                if (item.Depth >= settings.MaxDepth) continue;
 
                 candidates.Clear();
                 context.Namespace = string.Empty;
@@ -90,7 +80,8 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
                 context.UsingAliases.Clear();
                 context.SourcePath = item.ProjectRelativeOrVirtualPath;
 
-                _analyzer.CollectTypeReferenceCandidates(code, parseOptions, item.ProjectRelativeOrVirtualPath, context, candidates);
+                _analyzer.CollectTypeReferenceCandidates(code, parseOptions, item.ProjectRelativeOrVirtualPath, context,
+                    candidates);
 
                 // Depth 0 is roots. We only expand if currentDepth < MaxDepth.
                 int nextDepth = item.Depth + 1;
@@ -99,17 +90,13 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
                 for (int i = 0; i < candidates.Count; i++)
                 {
                     TypeReferenceCandidate c = candidates[i];
-                    if (c == null || string.IsNullOrEmpty(c.NormalizedName))
-                    {
-                        continue;
-                    }
+                    if (c == null || string.IsNullOrEmpty(c.NormalizedName)) continue;
 
                     if (!_resolver.TryResolve(typeIndex, context, c, out IReadOnlyList<TypeIndexEntry> entries))
                     {
                         if (!settings.IgnoreUnresolvedTypes)
-                        {
-                            result.Notes.Add($"Unresolved type '{c.NormalizedName}' in {item.ProjectRelativeOrVirtualPath}:{c.Line}:{c.Column}");
-                        }
+                            result.Notes.Add(
+                                $"Unresolved type '{c.NormalizedName}' in {item.ProjectRelativeOrVirtualPath}:{c.Line}:{c.Column}");
 
                         continue;
                     }
@@ -117,23 +104,14 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
                     for (int e = 0; e < entries.Count; e++)
                     {
                         TypeIndexEntry entry = entries[e];
-                        if (entry == null || string.IsNullOrEmpty(entry.FilePath))
-                        {
-                            continue;
-                        }
+                        if (entry == null || string.IsNullOrEmpty(entry.FilePath)) continue;
 
                         string depPath = NormalizeProjectRelativePath(entry.FilePath);
 
                         bool isVirtualInMemory = IsVirtualInMemoryPath(request, depPath);
-                        if (isVirtualInMemory && !settings.IncludeInMemoryVirtualPathsInResult)
-                        {
-                            continue;
-                        }
+                        if (isVirtualInMemory && !settings.IncludeInMemoryVirtualPathsInResult) continue;
 
-                        if (!_pathFilter.ShouldInclude(depPath, settings))
-                        {
-                            continue;
-                        }
+                        if (!_pathFilter.ShouldInclude(depPath, settings)) continue;
 
                         bool isInput = inputPaths.Contains(depPath);
                         if (isInput && !settings.IncludeInputFilesInResult)
@@ -152,10 +130,7 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
                             {
                                 // Enqueue the in-memory source by identity to continue traversal.
                                 WorkItem vm = WorkItem.ForInMemory(depPath, depPath, nextDepth);
-                                if (!visitedSources.Contains(vm.SourceIdentity))
-                                {
-                                    workQueue.Enqueue(vm);
-                                }
+                                if (!visitedSources.Contains(vm.SourceIdentity)) workQueue.Enqueue(vm);
                             }
                             else
                             {
@@ -163,10 +138,7 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
                                 if (!string.IsNullOrEmpty(abs) && File.Exists(abs))
                                 {
                                     WorkItem wf = WorkItem.ForFile(abs, depPath, nextDepth);
-                                    if (!visitedSources.Contains(wf.SourceIdentity))
-                                    {
-                                        workQueue.Enqueue(wf);
-                                    }
+                                    if (!visitedSources.Contains(wf.SourceIdentity)) workQueue.Enqueue(wf);
                                 }
                             }
                         }
@@ -184,14 +156,10 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
             Queue<WorkItem> workQueue)
         {
             if (request.AbsoluteFilePaths != null)
-            {
                 for (int i = 0; i < request.AbsoluteFilePaths.Length; i++)
                 {
                     string abs = request.AbsoluteFilePaths[i];
-                    if (string.IsNullOrEmpty(abs))
-                    {
-                        continue;
-                    }
+                    if (string.IsNullOrEmpty(abs)) continue;
 
                     string absFull;
                     try
@@ -204,54 +172,37 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
                     }
 
                     string rel = TryGetProjectRelativeFromRequest(request, i);
-                    if (string.IsNullOrEmpty(rel))
-                    {
-                        rel = TryToProjectRelativePath(projectRoot, absFull);
-                    }
+                    if (string.IsNullOrEmpty(rel)) rel = TryToProjectRelativePath(projectRoot, absFull);
 
                     rel = NormalizeProjectRelativePath(rel);
 
-                    if (!string.IsNullOrEmpty(rel))
-                    {
-                        inputPaths.Add(rel);
-                    }
+                    if (!string.IsNullOrEmpty(rel)) inputPaths.Add(rel);
 
-                    workQueue.Enqueue(WorkItem.ForFile(absFull, rel, depth: 0));
+                    workQueue.Enqueue(WorkItem.ForFile(absFull, rel, 0));
                 }
-            }
 
             if (request.InMemorySources != null)
-            {
                 for (int i = 0; i < request.InMemorySources.Length; i++)
                 {
                     InMemorySource src = request.InMemorySources[i];
-                    if (src == null || string.IsNullOrEmpty(src.Code))
-                    {
-                        continue;
-                    }
+                    if (src == null || string.IsNullOrEmpty(src.Code)) continue;
 
                     string virtualPath = string.IsNullOrEmpty(src.VirtualProjectRelativePath)
-                        ? (string.IsNullOrEmpty(src.InMemorySourceId) ? "InMemorySource" : src.InMemorySourceId)
+                        ? string.IsNullOrEmpty(src.InMemorySourceId) ? "InMemorySource" : src.InMemorySourceId
                         : src.VirtualProjectRelativePath;
 
                     virtualPath = NormalizeProjectRelativePath(virtualPath);
 
-                    if (!string.IsNullOrEmpty(virtualPath))
-                    {
-                        inputPaths.Add(virtualPath);
-                    }
+                    if (!string.IsNullOrEmpty(virtualPath)) inputPaths.Add(virtualPath);
 
-                    workQueue.Enqueue(WorkItem.ForInMemory(src.InMemorySourceId, virtualPath, depth: 0));
+                    workQueue.Enqueue(WorkItem.ForInMemory(src.InMemorySourceId, virtualPath, 0));
                 }
-            }
         }
 
         private static string TryGetProjectRelativeFromRequest(DependencyScanRequest request, int index)
         {
-            if (request.ProjectRelativeFilePaths == null || index < 0 || index >= request.ProjectRelativeFilePaths.Length)
-            {
-                return null;
-            }
+            if (request.ProjectRelativeFilePaths == null || index < 0 ||
+                index >= request.ProjectRelativeFilePaths.Length) return null;
 
             return request.ProjectRelativeFilePaths[index];
         }
@@ -276,10 +227,7 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
                 return false;
             }
 
-            if (string.IsNullOrEmpty(item.AbsolutePath))
-            {
-                return false;
-            }
+            if (string.IsNullOrEmpty(item.AbsolutePath)) return false;
 
             try
             {
@@ -294,32 +242,20 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
 
         private static string NormalizeProjectRelativePath(string path)
         {
-            if (string.IsNullOrEmpty(path))
-            {
-                return path;
-            }
+            if (string.IsNullOrEmpty(path)) return path;
 
             return path.Replace('\\', '/').Trim();
         }
 
         private static string TryMakeAbsolutePath(string projectRoot, string projectRelativeOrAbsolute)
         {
-            if (string.IsNullOrEmpty(projectRelativeOrAbsolute))
-            {
-                return null;
-            }
+            if (string.IsNullOrEmpty(projectRelativeOrAbsolute)) return null;
 
             try
             {
-                if (Path.IsPathRooted(projectRelativeOrAbsolute))
-                {
-                    return Path.GetFullPath(projectRelativeOrAbsolute);
-                }
+                if (Path.IsPathRooted(projectRelativeOrAbsolute)) return Path.GetFullPath(projectRelativeOrAbsolute);
 
-                if (string.IsNullOrEmpty(projectRoot))
-                {
-                    return null;
-                }
+                if (string.IsNullOrEmpty(projectRoot)) return null;
 
                 return Path.GetFullPath(Path.Combine(projectRoot, projectRelativeOrAbsolute));
             }
@@ -331,10 +267,7 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
 
         private static string TryToProjectRelativePath(string projectRoot, string fileAbsolutePath)
         {
-            if (string.IsNullOrEmpty(projectRoot) || string.IsNullOrEmpty(fileAbsolutePath))
-            {
-                return fileAbsolutePath;
-            }
+            if (string.IsNullOrEmpty(projectRoot) || string.IsNullOrEmpty(fileAbsolutePath)) return fileAbsolutePath;
 
             string fullProjectRoot;
             string fullFile;
@@ -349,9 +282,7 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
             }
 
             if (fullFile.StartsWith(fullProjectRoot + "/", StringComparison.OrdinalIgnoreCase))
-            {
                 return fullFile.Substring(fullProjectRoot.Length + 1);
-            }
 
             return fileAbsolutePath;
         }
@@ -361,7 +292,7 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
             try
             {
                 // Reuse existing settings to locate project root in a Unity-safe way.
-                return LegendaryTools.CSFilesAggregator.TypeIndex.TypeIndexSettings.instance.GetProjectRootAbsolute();
+                return TypeIndexSettings.instance.GetProjectRootAbsolute();
             }
             catch
             {
@@ -372,29 +303,20 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
 
         private static bool IsVirtualInMemoryPath(DependencyScanRequest request, string path)
         {
-            if (request?.InMemorySources == null || string.IsNullOrEmpty(path))
-            {
-                return false;
-            }
+            if (request?.InMemorySources == null || string.IsNullOrEmpty(path)) return false;
 
             for (int i = 0; i < request.InMemorySources.Length; i++)
             {
                 InMemorySource src = request.InMemorySources[i];
-                if (src == null)
-                {
-                    continue;
-                }
+                if (src == null) continue;
 
                 string vp = string.IsNullOrEmpty(src.VirtualProjectRelativePath)
-                    ? (string.IsNullOrEmpty(src.InMemorySourceId) ? "InMemorySource" : src.InMemorySourceId)
+                    ? string.IsNullOrEmpty(src.InMemorySourceId) ? "InMemorySource" : src.InMemorySourceId
                     : src.VirtualProjectRelativePath;
 
                 vp = NormalizeProjectRelativePath(vp);
 
-                if (string.Equals(vp, path, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
+                if (string.Equals(vp, path, StringComparison.OrdinalIgnoreCase)) return true;
             }
 
             return false;
@@ -431,24 +353,24 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
             {
                 string identity = string.IsNullOrEmpty(projectRelativePath) ? absolutePath : projectRelativePath;
                 return new WorkItem(
-                    isInMemory: false,
-                    absolutePath: absolutePath,
-                    projectRelativeOrVirtualPath: projectRelativePath,
-                    sourceIdentity: identity,
-                    depth: depth,
-                    inMemoryCode: null);
+                    false,
+                    absolutePath,
+                    projectRelativePath,
+                    identity,
+                    depth,
+                    null);
             }
 
             public static WorkItem ForInMemory(string inMemoryIdOrVirtualPath, string virtualPath, int depth)
             {
                 string identity = string.IsNullOrEmpty(virtualPath) ? inMemoryIdOrVirtualPath : virtualPath;
                 return new WorkItem(
-                    isInMemory: true,
-                    absolutePath: null,
-                    projectRelativeOrVirtualPath: virtualPath,
-                    sourceIdentity: identity,
-                    depth: depth,
-                    inMemoryCode: null);
+                    true,
+                    null,
+                    virtualPath,
+                    identity,
+                    depth,
+                    null);
             }
         }
     }

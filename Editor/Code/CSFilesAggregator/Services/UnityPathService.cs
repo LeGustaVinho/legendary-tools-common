@@ -22,24 +22,20 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
         public UnityPathService()
         {
             _assetsAbsolutePath = NormalizeSeparators(Application.dataPath);
-            _projectRootAbsolutePath = NormalizeSeparators(Directory.GetParent(_assetsAbsolutePath)?.FullName ?? _assetsAbsolutePath);
+            _projectRootAbsolutePath =
+                NormalizeSeparators(Directory.GetParent(_assetsAbsolutePath)?.FullName ?? _assetsAbsolutePath);
         }
 
         /// <inheritdoc />
         public string NormalizeToProjectDisplayPath(string anyPath)
         {
-            if (string.IsNullOrWhiteSpace(anyPath))
-            {
-                return string.Empty;
-            }
+            if (string.IsNullOrWhiteSpace(anyPath)) return string.Empty;
 
             string normalized = NormalizeSeparators(anyPath);
 
             // If it already looks like a project-relative path.
-            if (normalized.StartsWith("Assets/", StringComparison.Ordinal) || normalized.Equals("Assets", StringComparison.Ordinal))
-            {
-                return normalized;
-            }
+            if (normalized.StartsWith("Assets/", StringComparison.Ordinal) ||
+                normalized.Equals("Assets", StringComparison.Ordinal)) return normalized;
 
             // Convert absolute Assets path to "Assets/.."
             if (normalized.StartsWith(_assetsAbsolutePath, StringComparison.OrdinalIgnoreCase))
@@ -64,18 +60,21 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
         public PathResolution Resolve(string inputPath)
         {
             if (string.IsNullOrWhiteSpace(inputPath))
-            {
                 return new PathResolution(string.Empty, string.Empty, PathKind.Invalid);
-            }
 
             string display = NormalizeToProjectDisplayPath(inputPath);
 
             string absolute = display;
 
-            if (display.StartsWith("Assets/", StringComparison.Ordinal) || display.Equals("Assets", StringComparison.Ordinal))
+            if (display.StartsWith("Assets/", StringComparison.Ordinal) ||
+                display.Equals("Assets", StringComparison.Ordinal))
             {
-                string suffix = display.Equals("Assets", StringComparison.Ordinal) ? string.Empty : display.Substring("Assets".Length).TrimStart('/');
-                absolute = string.IsNullOrEmpty(suffix) ? _assetsAbsolutePath : NormalizeSeparators(Path.Combine(_assetsAbsolutePath, suffix));
+                string suffix = display.Equals("Assets", StringComparison.Ordinal)
+                    ? string.Empty
+                    : display.Substring("Assets".Length).TrimStart('/');
+                absolute = string.IsNullOrEmpty(suffix)
+                    ? _assetsAbsolutePath
+                    : NormalizeSeparators(Path.Combine(_assetsAbsolutePath, suffix));
             }
             else if (!Path.IsPathRooted(display))
             {
@@ -87,26 +86,18 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
                 absolute = NormalizeSeparators(display);
             }
 
-            if (File.Exists(absolute))
-            {
-                return new PathResolution(absolute, display, PathKind.File);
-            }
+            if (File.Exists(absolute)) return new PathResolution(absolute, display, PathKind.File);
 
-            if (Directory.Exists(absolute))
-            {
-                return new PathResolution(absolute, display, PathKind.Folder);
-            }
+            if (Directory.Exists(absolute)) return new PathResolution(absolute, display, PathKind.Folder);
 
             // Also consider absolute path exists but display differs.
             if (File.Exists(display))
-            {
-                return new PathResolution(NormalizeSeparators(display), NormalizeToProjectDisplayPath(display), PathKind.File);
-            }
+                return new PathResolution(NormalizeSeparators(display), NormalizeToProjectDisplayPath(display),
+                    PathKind.File);
 
             if (Directory.Exists(display))
-            {
-                return new PathResolution(NormalizeSeparators(display), NormalizeToProjectDisplayPath(display), PathKind.Folder);
-            }
+                return new PathResolution(NormalizeSeparators(display), NormalizeToProjectDisplayPath(display),
+                    PathKind.Folder);
 
             return new PathResolution(absolute, display, PathKind.Invalid);
         }

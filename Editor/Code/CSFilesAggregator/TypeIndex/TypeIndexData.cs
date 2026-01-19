@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/TypeIndex/TypeIndexData.cs
 using System;
 using System.Collections.Generic;
 
@@ -23,6 +22,6 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
         /// <summary>
         /// Gets or sets the entries for all declared types found in scanned roots.
         /// </summary>
-        public List<TypeIndexEntry> Entries = new List<TypeIndexEntry>();
+        public List<TypeIndexEntry> Entries = new();
     }
 }

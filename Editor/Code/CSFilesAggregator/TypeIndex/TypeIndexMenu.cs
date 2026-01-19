@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/TypeIndex/TypeIndexMenu.cs
 using System.Diagnostics;
 using System.IO;
 using UnityEditor;
@@ -11,7 +10,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
     /// </summary>
     public static class TypeIndexMenu
     {
-        [MenuItem("Tools/Legendary Tools/Type Index/Rebuild (Assets/Packages)")]
+        [MenuItem("Tools/LegendaryTools/Code/Type Index/Rebuild (Assets)")]
         private static void Rebuild()
         {
             TypeIndex index = TypeIndexService.RebuildAndSave();
@@ -23,7 +22,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             AssetDatabase.Refresh();
         }
 
-        [MenuItem("Tools/Legendary Tools/Type Index/Open Index Folder")]
+        [MenuItem("Tools/LegendaryTools/Code/Type Index/Open Index Folder")]
         private static void OpenIndexFolder()
         {
             string file = TypeIndexService.GetIndexFileAbsolutePath();
@@ -39,7 +38,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             EditorUtility.RevealInFinder(folder);
         }
 
-        [MenuItem("Tools/Legendary Tools/Type Index/Settings")]
+        [MenuItem("Tools/LegendaryTools/Code/Type Index/Settings")]
         private static void SelectSettings()
         {
             Selection.activeObject = TypeIndexSettings.instance;

@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/TypeIndex/TypeIndexEntry.cs
 using System;
 
 namespace LegendaryTools.CSFilesAggregator.TypeIndex

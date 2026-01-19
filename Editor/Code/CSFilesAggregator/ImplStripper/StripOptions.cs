@@ -25,38 +25,48 @@ namespace CSharpRegexStripper
         }
 
         public static StripOptions Default =>
-            new StripOptions(
-                methodBodyMode: MethodBodyMode.Semicolon,
-                convertNonAutoGetSetPropertiesToAutoProperties: true,
-                maskStringsAndCommentsBeforeStripping: true,
-                skipInterfaceMembers: true,
-                skipAbstractMembers: true
+            new(
+                MethodBodyMode.Semicolon,
+                true,
+                true,
+                true,
+                true
             );
 
-        public StripOptions WithSkipInterfaceMembers(bool value) =>
-            new StripOptions(
+        public StripOptions WithSkipInterfaceMembers(bool value)
+        {
+            return new StripOptions(
                 MethodBodyMode,
                 ConvertNonAutoGetSetPropertiesToAutoProperties,
                 MaskStringsAndCommentsBeforeStripping,
                 value,
                 SkipAbstractMembers);
+        }
 
-        public StripOptions WithSkipAbstractMembers(bool value) =>
-            new StripOptions(
+        public StripOptions WithSkipAbstractMembers(bool value)
+        {
+            return new StripOptions(
                 MethodBodyMode,
                 ConvertNonAutoGetSetPropertiesToAutoProperties,
                 MaskStringsAndCommentsBeforeStripping,
                 SkipInterfaceMembers,
                 value);
+        }
 
-        public bool Equals(StripOptions other) =>
-            MethodBodyMode == other.MethodBodyMode &&
-            ConvertNonAutoGetSetPropertiesToAutoProperties == other.ConvertNonAutoGetSetPropertiesToAutoProperties &&
-            MaskStringsAndCommentsBeforeStripping == other.MaskStringsAndCommentsBeforeStripping &&
-            SkipInterfaceMembers == other.SkipInterfaceMembers &&
-            SkipAbstractMembers == other.SkipAbstractMembers;
+        public bool Equals(StripOptions other)
+        {
+            return MethodBodyMode == other.MethodBodyMode &&
+                   ConvertNonAutoGetSetPropertiesToAutoProperties ==
+                   other.ConvertNonAutoGetSetPropertiesToAutoProperties &&
+                   MaskStringsAndCommentsBeforeStripping == other.MaskStringsAndCommentsBeforeStripping &&
+                   SkipInterfaceMembers == other.SkipInterfaceMembers &&
+                   SkipAbstractMembers == other.SkipAbstractMembers;
+        }
 
-        public override bool Equals(object obj) => obj is StripOptions other && Equals(other);
+        public override bool Equals(object obj)
+        {
+            return obj is StripOptions other && Equals(other);
+        }
 
         public override int GetHashCode()
         {
@@ -71,7 +81,14 @@ namespace CSharpRegexStripper
             }
         }
 
-        public static bool operator ==(StripOptions left, StripOptions right) => left.Equals(right);
-        public static bool operator !=(StripOptions left, StripOptions right) => !left.Equals(right);
+        public static bool operator ==(StripOptions left, StripOptions right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(StripOptions left, StripOptions right)
+        {
+            return !left.Equals(right);
+        }
     }
 }

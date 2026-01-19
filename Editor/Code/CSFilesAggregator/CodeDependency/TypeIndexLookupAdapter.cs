@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/DependencyScan/TypeIndexLookupAdapter.cs
 using System.Collections.Generic;
 using LegendaryTools.CSFilesAggregator.TypeIndex;
 
@@ -24,10 +23,7 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
         {
             entries = null;
 
-            if (_typeIndex == null)
-            {
-                return false;
-            }
+            if (_typeIndex == null) return false;
 
             return _typeIndex.TryGet(fullName, out entries);
         }

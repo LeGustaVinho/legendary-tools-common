@@ -7,7 +7,7 @@ namespace CSharpRegexStripper
 {
     public static class CSharpRewriters
     {
-        private static readonly Regex InterfaceBlock = new Regex(
+        private static readonly Regex InterfaceBlock = new(
             @"(?msx)
             \binterface\b
             [^{;]*?
@@ -23,7 +23,7 @@ namespace CSharpRegexStripper
             RegexOptions.Compiled
         );
 
-        private static readonly Regex BlockBodiedMethod = new Regex(
+        private static readonly Regex BlockBodiedMethod = new(
             @"(?msx)
             ^(?<lead>
                 [ \t]*
@@ -63,7 +63,7 @@ namespace CSharpRegexStripper
             RegexOptions.Compiled
         );
 
-        private static readonly Regex ExpressionBodiedMethod = new Regex(
+        private static readonly Regex ExpressionBodiedMethod = new(
             @"(?msx)
             ^(?<lead>
                 [ \t]*
@@ -96,7 +96,7 @@ namespace CSharpRegexStripper
             RegexOptions.Compiled
         );
 
-        private static readonly Regex PropertyBlock = new Regex(
+        private static readonly Regex PropertyBlock = new(
             @"(?msx)
             ^(?<lead>
                 [ \t]*
@@ -133,22 +133,22 @@ namespace CSharpRegexStripper
             RegexOptions.Compiled
         );
 
-        private static readonly Regex GetAccessorHead = new Regex(
+        private static readonly Regex GetAccessorHead = new(
             @"(?msx)\b(?<acc>(?:public|private|protected|internal)\s+)?get\b\s*(?:;|\{|\=\>)",
             RegexOptions.Compiled
         );
 
-        private static readonly Regex SetAccessorHead = new Regex(
+        private static readonly Regex SetAccessorHead = new(
             @"(?msx)\b(?<acc>(?:public|private|protected|internal)\s+)?set\b\s*(?:;|\{|\=\>)",
             RegexOptions.Compiled
         );
 
-        private static readonly Regex AutoGetAccessor = new Regex(
+        private static readonly Regex AutoGetAccessor = new(
             @"(?msx)\b(?:(?:public|private|protected|internal)\s+)?get\b\s*;",
             RegexOptions.Compiled
         );
 
-        private static readonly Regex AutoSetAccessor = new Regex(
+        private static readonly Regex AutoSetAccessor = new(
             @"(?msx)\b(?:(?:public|private|protected|internal)\s+)?set\b\s*;",
             RegexOptions.Compiled
         );
@@ -160,7 +160,7 @@ namespace CSharpRegexStripper
 
             List<TextRange> interfaceRanges = options.SkipInterfaceMembers ? FindInterfaceRanges(masked) : null;
 
-            var edits = new List<TextEdit>();
+            List<TextEdit> edits = new();
 
             foreach (Match m in BlockBodiedMethod.Matches(masked))
             {
@@ -178,7 +178,7 @@ namespace CSharpRegexStripper
                 if (options.MethodBodyMode == MethodBodyMode.Semicolon)
                 {
                     int start = FindSemicolonInsertionPoint(original, bodyStart);
-                    int length = (bodyStart + bodyLen) - start;
+                    int length = bodyStart + bodyLen - start;
                     edits.Add(new TextEdit(start, length, ";"));
                 }
                 else
@@ -201,7 +201,7 @@ namespace CSharpRegexStripper
                 if (start < 0)
                     start = m.Index;
 
-                int length = (m.Index + m.Length) - start;
+                int length = m.Index + m.Length - start;
 
                 if (interfaceRanges != null && IntersectsAny(interfaceRanges, start, length))
                     continue;
@@ -213,14 +213,15 @@ namespace CSharpRegexStripper
             return ApplyEditsDescending(original, edits);
         }
 
-        public static string ConvertNonAutoGetSetPropertiesToAutoProperties(string original, string masked, StripOptions options)
+        public static string ConvertNonAutoGetSetPropertiesToAutoProperties(string original, string masked,
+            StripOptions options)
         {
             if (original == null || masked == null)
                 return original;
 
             List<TextRange> interfaceRanges = options.SkipInterfaceMembers ? FindInterfaceRanges(masked) : null;
 
-            var edits = new List<TextEdit>();
+            List<TextEdit> edits = new();
 
             foreach (Match m in PropertyBlock.Matches(masked))
             {
@@ -249,26 +250,18 @@ namespace CSharpRegexStripper
                 if (isAuto)
                     continue;
 
-                string getAcc = ExtractAccessorAccessibility(content, isGet: true);
-                string setAcc = ExtractAccessorAccessibility(content, isGet: false);
+                string getAcc = ExtractAccessorAccessibility(content, true);
+                string setAcc = ExtractAccessorAccessibility(content, false);
 
                 string accessorBlock;
                 if (string.IsNullOrEmpty(getAcc) && string.IsNullOrEmpty(setAcc))
-                {
                     accessorBlock = "{ get; set; }";
-                }
                 else if (!string.IsNullOrEmpty(getAcc) && string.IsNullOrEmpty(setAcc))
-                {
                     accessorBlock = "{ " + getAcc + "get; set; }";
-                }
                 else if (string.IsNullOrEmpty(getAcc) && !string.IsNullOrEmpty(setAcc))
-                {
                     accessorBlock = "{ get; " + setAcc + "set; }";
-                }
                 else
-                {
                     accessorBlock = "{ " + getAcc + "get; " + setAcc + "set; }";
-                }
 
                 string leadFromOriginal = original.Substring(m.Groups["lead"].Index, m.Groups["lead"].Length);
                 string replacement = leadFromOriginal + accessorBlock;
@@ -284,16 +277,21 @@ namespace CSharpRegexStripper
             int i = bodyStart - 1;
 
             while (i >= 0 && (source[i] == ' ' || source[i] == '\t' || source[i] == '\r' || source[i] == '\n'))
+            {
                 i--;
+            }
 
             return i + 1;
         }
 
         private static List<TextRange> FindInterfaceRanges(string masked)
         {
-            var ranges = new List<TextRange>();
+            List<TextRange> ranges = new();
             foreach (Match m in InterfaceBlock.Matches(masked))
+            {
                 ranges.Add(new TextRange(m.Index, m.Length));
+            }
+
             return ranges;
         }
 
@@ -330,7 +328,7 @@ namespace CSharpRegexStripper
                 return string.Empty;
 
             acc = acc.Trim();
-            return acc.Length == 0 ? string.Empty : (acc + " ");
+            return acc.Length == 0 ? string.Empty : acc + " ";
         }
 
         private static int FindArrowStart(string s, int approxStart, int approxEnd)
@@ -349,9 +347,9 @@ namespace CSharpRegexStripper
 
             edits.Sort((a, b) => b.Start.CompareTo(a.Start));
 
-            var sb = new StringBuilder(source);
+            StringBuilder sb = new(source);
 
-            foreach (var e in edits)
+            foreach (TextEdit e in edits)
             {
                 if (e.Start < 0 || e.Start > sb.Length)
                     continue;

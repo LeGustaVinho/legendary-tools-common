@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/TypeIndex/TypeDeclarationKind.cs
 namespace LegendaryTools.CSFilesAggregator.TypeIndex
 {
     /// <summary>
@@ -29,6 +28,6 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
         /// <summary>
         /// A <c>record</c> (class or struct) declaration.
         /// </summary>
-        Record,
+        Record
     }
 }

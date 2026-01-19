@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using CSharpRegexStripper;
+using LegendaryTools.CSFilesAggregator.DependencyScan;
+using LegendaryTools.CSFilesAggregator.TypeIndex;
 using LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline;
 using LegendaryTools.Editor.Code.CSFilesAggregator.Services;
 
@@ -18,6 +20,12 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         private readonly IAggregationPipeline _aggregationPipeline;
         private readonly ITextTransformsProvider _transformsProvider;
         private readonly ICSFilesAggregatorPersistence _persistence;
+        private readonly IAggregationPlanBuilder _planBuilder;
+
+        // Checkbox semantics:
+        // - When checked (true): do NOT strip implementation for that file.
+        // - When unchecked (false): strip implementation for that file (when stripper is enabled globally).
+        private readonly HashSet<string> _doNotStripDisplayPaths = new(StringComparer.Ordinal);
 
         /// <summary>
         /// Raised whenever <see cref="State"/> changes.
@@ -39,7 +47,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             IEditorDialogService dialogService,
             IAggregationPipeline aggregationPipeline,
             ITextTransformsProvider transformsProvider,
-            ICSFilesAggregatorPersistence persistence)
+            ICSFilesAggregatorPersistence persistence,
+            IAggregationPlanBuilder planBuilder)
         {
             _filePickerService = filePickerService ?? throw new ArgumentNullException(nameof(filePickerService));
             _pathService = pathService ?? throw new ArgumentNullException(nameof(pathService));
@@ -48,6 +57,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             _aggregationPipeline = aggregationPipeline ?? throw new ArgumentNullException(nameof(aggregationPipeline));
             _transformsProvider = transformsProvider ?? throw new ArgumentNullException(nameof(transformsProvider));
             _persistence = persistence ?? throw new ArgumentNullException(nameof(persistence));
+            _planBuilder = planBuilder ?? throw new ArgumentNullException(nameof(planBuilder));
 
             State = LoadInitialState();
         }
@@ -58,10 +68,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         public void RequestAddFolder()
         {
             string absolutePath = _filePickerService.OpenFolderPanel("Select folder", _pathService.AssetsAbsolutePath);
-            if (string.IsNullOrWhiteSpace(absolutePath))
-            {
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(absolutePath)) return;
 
             AddPath(absolutePath);
         }
@@ -71,11 +78,9 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void RequestAddFile()
         {
-            string absolutePath = _filePickerService.OpenFilePanel("Select .cs file", _pathService.AssetsAbsolutePath, "cs");
-            if (string.IsNullOrWhiteSpace(absolutePath))
-            {
-                return;
-            }
+            string absolutePath =
+                _filePickerService.OpenFilePanel("Select .cs file", _pathService.AssetsAbsolutePath, "cs");
+            if (string.IsNullOrWhiteSpace(absolutePath)) return;
 
             AddPath(absolutePath);
         }
@@ -85,10 +90,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void AddPathsFromDragAndDrop(IEnumerable<string> paths)
         {
-            if (paths == null)
-            {
-                return;
-            }
+            if (paths == null) return;
 
             bool changed = false;
 
@@ -121,12 +123,9 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void RemovePathAt(int index)
         {
-            if (index < 0 || index >= State.Paths.Count)
-            {
-                return;
-            }
+            if (index < 0 || index >= State.Paths.Count) return;
 
-            List<string> next = new List<string>(State.Paths);
+            List<string> next = new(State.Paths);
             next.RemoveAt(index);
 
             State = State.WithPaths(next);
@@ -140,10 +139,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetIncludeSubfolders(bool value)
         {
-            if (State.IncludeSubfolders == value)
-            {
-                return;
-            }
+            if (State.IncludeSubfolders == value) return;
 
             State = State.WithIncludeSubfolders(value);
 
@@ -156,10 +152,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetRemoveUsings(bool value)
         {
-            if (State.RemoveUsings == value)
-            {
-                return;
-            }
+            if (State.RemoveUsings == value) return;
 
             State = State.WithRemoveUsings(value);
 
@@ -172,10 +165,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetAppendDelimiters(bool value)
         {
-            if (State.AppendDelimiters == value)
-            {
-                return;
-            }
+            if (State.AppendDelimiters == value) return;
 
             State = State.WithAppendDelimiters(value);
 
@@ -188,10 +178,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetUseImplementationStripper(bool value)
         {
-            if (State.UseImplementationStripper == value)
-            {
-                return;
-            }
+            if (State.UseImplementationStripper == value) return;
 
             State = State.WithUseImplementationStripper(value);
 
@@ -204,10 +191,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetStripMethodBodyMode(MethodBodyMode value)
         {
-            if (State.StripMethodBodyMode == value)
-            {
-                return;
-            }
+            if (State.StripMethodBodyMode == value) return;
 
             State = State.WithStripMethodBodyMode(value);
 
@@ -220,10 +204,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetStripConvertNonAutoProperties(bool value)
         {
-            if (State.StripConvertNonAutoProperties == value)
-            {
-                return;
-            }
+            if (State.StripConvertNonAutoProperties == value) return;
 
             State = State.WithStripConvertNonAutoProperties(value);
 
@@ -236,10 +217,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetStripMaskStringsAndComments(bool value)
         {
-            if (State.StripMaskStringsAndComments == value)
-            {
-                return;
-            }
+            if (State.StripMaskStringsAndComments == value) return;
 
             State = State.WithStripMaskStringsAndComments(value);
 
@@ -252,10 +230,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetStripSkipInterfaceMembers(bool value)
         {
-            if (State.StripSkipInterfaceMembers == value)
-            {
-                return;
-            }
+            if (State.StripSkipInterfaceMembers == value) return;
 
             State = State.WithStripSkipInterfaceMembers(value);
 
@@ -268,10 +243,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetStripSkipAbstractMembers(bool value)
         {
-            if (State.StripSkipAbstractMembers == value)
-            {
-                return;
-            }
+            if (State.StripSkipAbstractMembers == value) return;
 
             State = State.WithStripSkipAbstractMembers(value);
 
@@ -284,10 +256,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetIncludeDependencies(bool value)
         {
-            if (State.IncludeDependencies == value)
-            {
-                return;
-            }
+            if (State.IncludeDependencies == value) return;
 
             State = State.WithIncludeDependencies(value);
 
@@ -301,10 +270,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         public void SetDependencyMaxDepth(int value)
         {
             value = Clamp(value, 0, 50);
-            if (State.DependencyMaxDepth == value)
-            {
-                return;
-            }
+            if (State.DependencyMaxDepth == value) return;
 
             State = State.WithDependencyMaxDepth(value);
 
@@ -317,10 +283,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetDependencyIgnorePackagesFolder(bool value)
         {
-            if (State.DependencyIgnorePackagesFolder == value)
-            {
-                return;
-            }
+            if (State.DependencyIgnorePackagesFolder == value) return;
 
             State = State.WithDependencyIgnorePackagesFolder(value);
 
@@ -333,10 +296,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetDependencyIgnorePackageCache(bool value)
         {
-            if (State.DependencyIgnorePackageCache == value)
-            {
-                return;
-            }
+            if (State.DependencyIgnorePackageCache == value) return;
 
             State = State.WithDependencyIgnorePackageCache(value);
 
@@ -349,10 +309,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetDependencyIgnoreUnresolvedTypes(bool value)
         {
-            if (State.DependencyIgnoreUnresolvedTypes == value)
-            {
-                return;
-            }
+            if (State.DependencyIgnoreUnresolvedTypes == value) return;
 
             State = State.WithDependencyIgnoreUnresolvedTypes(value);
 
@@ -365,10 +322,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetDependencyIncludeInputFilesInResult(bool value)
         {
-            if (State.DependencyIncludeInputFilesInResult == value)
-            {
-                return;
-            }
+            if (State.DependencyIncludeInputFilesInResult == value) return;
 
             State = State.WithDependencyIncludeInputFilesInResult(value);
 
@@ -381,10 +335,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// </summary>
         public void SetDependencyIncludeInMemoryVirtualPathsInResult(bool value)
         {
-            if (State.DependencyIncludeInMemoryVirtualPathsInResult == value)
-            {
-                return;
-            }
+            if (State.DependencyIncludeInMemoryVirtualPathsInResult == value) return;
 
             State = State.WithDependencyIncludeInMemoryVirtualPathsInResult(value);
 
@@ -399,10 +350,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         {
             text ??= string.Empty;
 
-            if (string.Equals(State.AggregatedText, text, StringComparison.Ordinal))
-            {
-                return;
-            }
+            if (string.Equals(State.AggregatedText, text, StringComparison.Ordinal)) return;
 
             State = State.WithAggregatedText(text);
             RaiseStateChanged();
@@ -418,6 +366,99 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         }
 
         /// <summary>
+        /// Sets whether a file should skip implementation stripping (checkbox true => do not strip).
+        /// </summary>
+        public void SetDoNotStripFile(string displayPath, bool doNotStrip)
+        {
+            if (string.IsNullOrWhiteSpace(displayPath)) return;
+
+            if (doNotStrip)
+                _doNotStripDisplayPaths.Add(displayPath);
+            else
+                _doNotStripDisplayPaths.Remove(displayPath);
+        }
+
+        /// <summary>
+        /// Returns a snapshot of the current "do not strip" file set (display paths).
+        /// </summary>
+        public IReadOnlyCollection<string> GetDoNotStripFilesSnapshot()
+        {
+            return new List<string>(_doNotStripDisplayPaths);
+        }
+
+        /// <summary>
+        /// Scans dependency file paths for a given file (project-relative paths when possible).
+        /// </summary>
+        /// <remarks>
+        /// Semantics:
+        /// - MaxDepth = 0 => no dependencies returned.
+        /// - MaxDepth = 1 => direct dependencies.
+        /// - MaxDepth = 2 => direct + indirect, etc.
+        /// </remarks>
+        public IReadOnlyList<string> ScanDependenciesForFile(string fileDisplayPath)
+        {
+            if (string.IsNullOrWhiteSpace(fileDisplayPath)) return Array.Empty<string>();
+
+            // IMPORTANT: Enforce the tool's semantics (0 = none), regardless of scanner semantics.
+            if (State == null || State.DependencyMaxDepth <= 0) return Array.Empty<string>();
+
+            PathResolution resolved = _pathService.Resolve(fileDisplayPath);
+            if (resolved.Kind != PathKind.File || string.IsNullOrWhiteSpace(resolved.AbsolutePath))
+                return Array.Empty<string>();
+
+            try
+            {
+                // Always rebuild to ensure the index is up to date.
+                TypeIndex index = TypeIndexService.RebuildAndSave();
+
+                DependencyScanSettings settings = State.BuildDependencyScanSettings();
+
+                DependencyScanRequest request = new()
+                {
+                    AbsoluteFilePaths = new[] { resolved.AbsolutePath },
+                    ProjectRelativeFilePaths = new[] { resolved.DisplayPath ?? string.Empty },
+                    InMemorySources = null
+                };
+
+                // The dependency scan library decides the exact direction; we interpret results as
+                // "files this file depends on" for the Get Deps feature.
+                string[] deps = CodeDependencyScanner.ScanDependentFilePaths(index, request, settings);
+
+                if (deps == null || deps.Length == 0) return Array.Empty<string>();
+
+                return deps;
+            }
+            catch
+            {
+                return Array.Empty<string>();
+            }
+        }
+
+        /// <summary>
+        /// Builds a preview plan for which files are currently selected (effective files for inputs only).
+        /// </summary>
+        /// <remarks>
+        /// This intentionally does NOT expand inputs with dependency results, even if "Include dependencies" is enabled.
+        /// The "Files" tab is meant to reflect the user's current selection (folders/files), not the runtime expansion.
+        /// </remarks>
+        public AggregationPlan BuildFilesTabPlan()
+        {
+            IReadOnlyList<ITextTransform> transforms = Array.Empty<ITextTransform>();
+            DependencyScanSettings dependencySettings = State.BuildDependencyScanSettings();
+
+            CSFilesAggregationRequest request = new(
+                State.Paths,
+                State.IncludeSubfolders,
+                State.AppendDelimiters,
+                false,
+                dependencySettings,
+                transforms,
+                GetDoNotStripFilesSnapshot());
+
+            return _planBuilder.Build(request);
+        }
+
+        /// <summary>
         /// Runs aggregation and updates output text.
         /// </summary>
         public void Aggregate()
@@ -429,16 +470,16 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             }
 
             IReadOnlyList<ITextTransform> transforms = _transformsProvider.BuildTransforms(State);
+            DependencyScanSettings dependencySettings = State.BuildDependencyScanSettings();
 
-            var dependencySettings = State.BuildDependencyScanSettings();
-
-            CSFilesAggregationRequest request = new CSFilesAggregationRequest(
-                inputPaths: State.Paths,
-                includeSubfolders: State.IncludeSubfolders,
-                appendDelimiters: State.AppendDelimiters,
-                includeDependencies: State.IncludeDependencies,
-                dependencyScanSettings: dependencySettings,
-                transforms: transforms);
+            CSFilesAggregationRequest request = new(
+                State.Paths,
+                State.IncludeSubfolders,
+                State.AppendDelimiters,
+                State.IncludeDependencies,
+                dependencySettings,
+                transforms,
+                GetDoNotStripFilesSnapshot());
 
             CSFilesAggregationResult result = _aggregationPipeline.Execute(request);
 
@@ -480,25 +521,20 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 .WithDependencyIgnorePackageCache(persisted.DependencyIgnorePackageCache)
                 .WithDependencyIgnoreUnresolvedTypes(persisted.DependencyIgnoreUnresolvedTypes)
                 .WithDependencyIncludeInputFilesInResult(persisted.DependencyIncludeInputFilesInResult)
-                .WithDependencyIncludeInMemoryVirtualPathsInResult(persisted.DependencyIncludeInMemoryVirtualPathsInResult);
+                .WithDependencyIncludeInMemoryVirtualPathsInResult(persisted
+                    .DependencyIncludeInMemoryVirtualPathsInResult);
 
             if (persisted.Paths != null && persisted.Paths.Count > 0)
             {
                 // Normalize and de-duplicate on load.
-                List<string> normalized = new List<string>(persisted.Paths.Count);
+                List<string> normalized = new(persisted.Paths.Count);
                 for (int i = 0; i < persisted.Paths.Count; i++)
                 {
                     string p = persisted.Paths[i];
-                    if (string.IsNullOrWhiteSpace(p))
-                    {
-                        continue;
-                    }
+                    if (string.IsNullOrWhiteSpace(p)) continue;
 
                     string display = _pathService.NormalizeToProjectDisplayPath(p);
-                    if (!ContainsPath(normalized, display))
-                    {
-                        normalized.Add(display);
-                    }
+                    if (!ContainsPath(normalized, display)) normalized.Add(display);
                 }
 
                 state = state.WithPaths(normalized);
@@ -509,26 +545,20 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
 
         private bool TryAddPathNoNotify(string path)
         {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return false;
-            }
+            if (string.IsNullOrWhiteSpace(path)) return false;
 
             string displayPath = _pathService.NormalizeToProjectDisplayPath(path);
 
-            if (ContainsPath(State.Paths, displayPath))
-            {
-                return false;
-            }
+            if (ContainsPath(State.Paths, displayPath)) return false;
 
-            List<string> next = new List<string>(State.Paths) { displayPath };
+            List<string> next = new(State.Paths) { displayPath };
             State = State.WithPaths(next);
             return true;
         }
 
         private void PersistSelectionAndSettings()
         {
-            CSFilesAggregatorPersistedData data = new CSFilesAggregatorPersistedData
+            CSFilesAggregatorPersistedData data = new()
             {
                 IncludeSubfolders = State.IncludeSubfolders,
                 RemoveUsings = State.RemoveUsings,
@@ -559,22 +589,13 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
 
         private static bool ContainsPath(IReadOnlyList<string> paths, string value)
         {
-            if (paths == null || paths.Count == 0)
-            {
-                return false;
-            }
+            if (paths == null || paths.Count == 0) return false;
 
-            if (value == null)
-            {
-                return false;
-            }
+            if (value == null) return false;
 
             for (int i = 0; i < paths.Count; i++)
             {
-                if (string.Equals(paths[i], value, StringComparison.Ordinal))
-                {
-                    return true;
-                }
+                if (string.Equals(paths[i], value, StringComparison.Ordinal)) return true;
             }
 
             return false;
@@ -582,15 +603,9 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
 
         private static int Clamp(int value, int min, int max)
         {
-            if (value < min)
-            {
-                return min;
-            }
+            if (value < min) return min;
 
-            if (value > max)
-            {
-                return max;
-            }
+            if (value > max) return max;
 
             return value;
         }

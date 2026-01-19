@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/TypeIndex/TypeIndex.cs
 using System.Collections.Generic;
 
 namespace LegendaryTools.CSFilesAggregator.TypeIndex
@@ -19,18 +18,12 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             Data = data;
             _byFullName = new Dictionary<string, List<TypeIndexEntry>>(1024);
 
-            if (data?.Entries == null)
-            {
-                return;
-            }
+            if (data?.Entries == null) return;
 
             for (int i = 0; i < data.Entries.Count; i++)
             {
                 TypeIndexEntry entry = data.Entries[i];
-                if (entry == null || string.IsNullOrEmpty(entry.FullName))
-                {
-                    continue;
-                }
+                if (entry == null || string.IsNullOrEmpty(entry.FullName)) continue;
 
                 if (!_byFullName.TryGetValue(entry.FullName, out List<TypeIndexEntry> list))
                 {
@@ -58,10 +51,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
         {
             entries = null;
 
-            if (string.IsNullOrEmpty(fullName))
-            {
-                return false;
-            }
+            if (string.IsNullOrEmpty(fullName)) return false;
 
             if (_byFullName.TryGetValue(fullName, out List<TypeIndexEntry> list) && list != null && list.Count > 0)
             {

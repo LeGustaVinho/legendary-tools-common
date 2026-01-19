@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/TypeIndex/TypeIndexSettings.cs
 using System.IO;
 using UnityEditor;
 

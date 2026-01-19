@@ -36,16 +36,13 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public CSFilesAggregationResult Execute(CSFilesAggregationRequest request)
         {
-            if (request == null)
-            {
-                throw new ArgumentNullException(nameof(request));
-            }
+            if (request == null) throw new ArgumentNullException(nameof(request));
 
-            List<Diagnostic> diagnostics = new List<Diagnostic>();
-            StringBuilder sb = new StringBuilder();
+            List<Diagnostic> diagnostics = new();
+            StringBuilder sb = new();
 
             // Track processed absolute file paths to avoid duplicating content (inputs + dependencies).
-            HashSet<string> processedAbsoluteFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> processedAbsoluteFiles = new(StringComparer.OrdinalIgnoreCase);
 
             // Collect initial files processed from user selection. Used as dependency scan roots.
             List<PathResolution> initialFilesForDependencyScan = request.IncludeDependencies
@@ -68,7 +65,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
                             request.AppendDelimiters,
                             diagnostics,
                             processedAbsoluteFiles,
-                            initialFilesForDependencyScan);
+                            initialFilesForDependencyScan,
+                            request.DoNotStripDisplayPaths);
                         break;
 
                     case PathKind.Folder:
@@ -80,7 +78,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
                             request.AppendDelimiters,
                             diagnostics,
                             processedAbsoluteFiles,
-                            initialFilesForDependencyScan);
+                            initialFilesForDependencyScan,
+                            request.DoNotStripDisplayPaths);
                         break;
 
                     default:
@@ -94,8 +93,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
             }
 
             // Expand with dependencies after processing inputs.
-            if (request.IncludeDependencies && initialFilesForDependencyScan != null && initialFilesForDependencyScan.Count > 0)
-            {
+            if (request.IncludeDependencies && initialFilesForDependencyScan != null &&
+                initialFilesForDependencyScan.Count > 0)
                 AppendDependencies(
                     sb,
                     initialFilesForDependencyScan,
@@ -103,8 +102,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
                     request.Transforms,
                     request.AppendDelimiters,
                     diagnostics,
-                    processedAbsoluteFiles);
-            }
+                    processedAbsoluteFiles,
+                    request.DoNotStripDisplayPaths);
 
             return new CSFilesAggregationResult(sb.ToString(), diagnostics);
         }
@@ -116,8 +115,13 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
             IReadOnlyList<ITextTransform> transforms,
             bool appendDelimiters,
             List<Diagnostic> diagnostics,
-            HashSet<string> processedAbsoluteFiles)
+            HashSet<string> processedAbsoluteFiles,
+            IReadOnlyCollection<string> doNotStripDisplayPaths)
         {
+            // IMPORTANT: Enforce semantics: 0 = none, 1 = direct, 2 = direct + indirect, etc.
+            // Some scanners treat depth 0 as "direct deps". We do not.
+            if (settings == null || settings.MaxDepth <= 0) return;
+
             try
             {
                 // Requirement: always rebuild to ensure the index is up to date.
@@ -133,28 +137,23 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
                     .Select(f => f.DisplayPath ?? string.Empty)
                     .ToArray();
 
-                DependencyScanRequest request = new DependencyScanRequest
+                DependencyScanRequest request = new()
                 {
                     AbsoluteFilePaths = absolutePaths,
                     ProjectRelativeFilePaths = projectRelativePaths,
-                    InMemorySources = null,
+                    InMemorySources = null
                 };
 
-                string[] dependentProjectRelativePaths = CodeDependencyScanner.ScanDependentFilePaths(index, request, settings);
+                string[] dependentProjectRelativePaths =
+                    CodeDependencyScanner.ScanDependentFilePaths(index, request, settings);
 
-                if (dependentProjectRelativePaths == null || dependentProjectRelativePaths.Length == 0)
-                {
-                    return;
-                }
+                if (dependentProjectRelativePaths == null || dependentProjectRelativePaths.Length == 0) return;
 
                 // Process dependencies as files (no folder grouping).
                 for (int i = 0; i < dependentProjectRelativePaths.Length; i++)
                 {
                     string depPath = dependentProjectRelativePaths[i];
-                    if (string.IsNullOrWhiteSpace(depPath))
-                    {
-                        continue;
-                    }
+                    if (string.IsNullOrWhiteSpace(depPath)) continue;
 
                     PathResolution resolved = _pathService.Resolve(depPath);
                     if (resolved.Kind != PathKind.File)
@@ -176,7 +175,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
                         appendDelimiters,
                         diagnostics,
                         processedAbsoluteFiles,
-                        initialFilesForDependencyScan: null);
+                        null,
+                        doNotStripDisplayPaths);
                 }
             }
             catch (Exception ex)
@@ -184,7 +184,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
                 diagnostics.Add(new Diagnostic(
                     DiagnosticSeverity.Error,
                     $"Dependency scan failed: {ex.Message}",
-                    relatedPath: null));
+                    null));
 
                 _formatter.AppendFileReadError(sb, "DependencyScan", ex.Message);
                 _formatter.AppendSpacing(sb);
@@ -199,7 +199,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
             bool appendDelimiters,
             List<Diagnostic> diagnostics,
             HashSet<string> processedAbsoluteFiles,
-            List<PathResolution> initialFilesForDependencyScan)
+            List<PathResolution> initialFilesForDependencyScan,
+            IReadOnlyCollection<string> doNotStripDisplayPaths)
         {
             IReadOnlyList<PathResolution> files = _discovery.DiscoverCsFiles(folder.AbsolutePath, includeSubfolders);
 
@@ -224,7 +225,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
                     appendDelimiters,
                     diagnostics,
                     processedAbsoluteFiles,
-                    initialFilesForDependencyScan);
+                    initialFilesForDependencyScan,
+                    doNotStripDisplayPaths);
             }
 
             if (appendDelimiters)
@@ -241,12 +243,10 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
             bool appendDelimiters,
             List<Diagnostic> diagnostics,
             HashSet<string> processedAbsoluteFiles,
-            List<PathResolution> initialFilesForDependencyScan)
+            List<PathResolution> initialFilesForDependencyScan,
+            IReadOnlyCollection<string> doNotStripDisplayPaths)
         {
-            if (file == null)
-            {
-                return;
-            }
+            if (file == null) return;
 
             if (!file.AbsolutePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
             {
@@ -261,32 +261,29 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
             }
 
             // Avoid duplicates across selection and dependency expansion.
-            if (processedAbsoluteFiles != null && !processedAbsoluteFiles.Add(file.AbsolutePath))
-            {
-                return;
-            }
+            if (processedAbsoluteFiles != null && !processedAbsoluteFiles.Add(file.AbsolutePath)) return;
 
             // Collect roots for dependency scanning (only the initial selection processing).
-            if (initialFilesForDependencyScan != null)
-            {
-                initialFilesForDependencyScan.Add(file);
-            }
+            if (initialFilesForDependencyScan != null) initialFilesForDependencyScan.Add(file);
 
             try
             {
                 string content = _reader.ReadAllText(file.AbsolutePath);
 
-                TextDocument doc = new TextDocument(file.DisplayPath, content);
+                TextDocument doc = new(file.DisplayPath, content);
 
-                if (transforms != null)
+                if (transforms != null && transforms.Count > 0)
                 {
+                    bool shouldSkipImplementationStripper = doNotStripDisplayPaths != null
+                                                            && !string.IsNullOrWhiteSpace(file.DisplayPath)
+                                                            && doNotStripDisplayPaths.Contains(file.DisplayPath);
+
                     for (int i = 0; i < transforms.Count; i++)
                     {
                         ITextTransform transform = transforms[i];
-                        if (transform == null)
-                        {
-                            continue;
-                        }
+                        if (transform == null) continue;
+
+                        if (shouldSkipImplementationStripper && transform is ImplementationStripperTransform) continue;
 
                         doc = transform.Transform(doc, diagnostics);
                     }

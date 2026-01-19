@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/DependencyScan/CompositeTypeIndexLookup.cs
 using System.Collections.Generic;
 using LegendaryTools.CSFilesAggregator.TypeIndex;
 
@@ -26,15 +25,9 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
         {
             entries = null;
 
-            if (_primary != null && _primary.TryGet(fullName, out entries))
-            {
-                return true;
-            }
+            if (_primary != null && _primary.TryGet(fullName, out entries)) return true;
 
-            if (_secondary != null && _secondary.TryGet(fullName, out entries))
-            {
-                return true;
-            }
+            if (_secondary != null && _secondary.TryGet(fullName, out entries)) return true;
 
             return false;
         }

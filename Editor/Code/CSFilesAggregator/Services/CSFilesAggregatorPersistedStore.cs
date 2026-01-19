@@ -11,56 +11,41 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
     [FilePath("ProjectSettings/LegendaryTools.CSFilesAggregator.asset", FilePathAttribute.Location.ProjectFolder)]
     public sealed class CSFilesAggregatorPersistedStore : ScriptableSingleton<CSFilesAggregatorPersistedStore>
     {
-        [SerializeField]
-        private List<string> _paths = new List<string>();
+        [SerializeField] private List<string> _paths = new();
 
-        [SerializeField]
-        private bool _includeSubfolders;
+        [SerializeField] private bool _includeSubfolders;
 
-        [SerializeField]
-        private bool _removeUsings;
+        [SerializeField] private bool _removeUsings;
 
-        [SerializeField]
-        private bool _appendDelimiters = true;
+        [SerializeField] private bool _appendDelimiters = true;
 
-        [SerializeField]
-        private bool _useImplementationStripper;
+        [SerializeField] private bool _useImplementationStripper;
 
-        [SerializeField]
-        private MethodBodyMode _stripMethodBodyMode = StripOptions.Default.MethodBodyMode;
+        [SerializeField] private MethodBodyMode _stripMethodBodyMode = StripOptions.Default.MethodBodyMode;
 
-        [SerializeField]
-        private bool _stripConvertNonAutoProperties = StripOptions.Default.ConvertNonAutoGetSetPropertiesToAutoProperties;
+        [SerializeField] private bool _stripConvertNonAutoProperties =
+            StripOptions.Default.ConvertNonAutoGetSetPropertiesToAutoProperties;
 
-        [SerializeField]
-        private bool _stripMaskStringsAndComments = StripOptions.Default.MaskStringsAndCommentsBeforeStripping;
+        [SerializeField] private bool _stripMaskStringsAndComments =
+            StripOptions.Default.MaskStringsAndCommentsBeforeStripping;
 
-        [SerializeField]
-        private bool _stripSkipInterfaceMembers = StripOptions.Default.SkipInterfaceMembers;
+        [SerializeField] private bool _stripSkipInterfaceMembers = StripOptions.Default.SkipInterfaceMembers;
 
-        [SerializeField]
-        private bool _stripSkipAbstractMembers = StripOptions.Default.SkipAbstractMembers;
+        [SerializeField] private bool _stripSkipAbstractMembers = StripOptions.Default.SkipAbstractMembers;
 
-        [SerializeField]
-        private bool _includeDependencies;
+        [SerializeField] private bool _includeDependencies;
 
-        [SerializeField]
-        private int _dependencyMaxDepth = 3;
+        [SerializeField] private int _dependencyMaxDepth = 3;
 
-        [SerializeField]
-        private bool _dependencyIgnorePackagesFolder = true;
+        [SerializeField] private bool _dependencyIgnorePackagesFolder = true;
 
-        [SerializeField]
-        private bool _dependencyIgnorePackageCache = true;
+        [SerializeField] private bool _dependencyIgnorePackageCache = true;
 
-        [SerializeField]
-        private bool _dependencyIgnoreUnresolvedTypes = true;
+        [SerializeField] private bool _dependencyIgnoreUnresolvedTypes = true;
 
-        [SerializeField]
-        private bool _dependencyIncludeInputFilesInResult;
+        [SerializeField] private bool _dependencyIncludeInputFilesInResult;
 
-        [SerializeField]
-        private bool _dependencyIncludeInMemoryVirtualPathsInResult = true;
+        [SerializeField] private bool _dependencyIncludeInMemoryVirtualPathsInResult = true;
 
         /// <summary>
         /// Reads the current store data.
@@ -87,7 +72,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
                 DependencyIgnorePackageCache = _dependencyIgnorePackageCache,
                 DependencyIgnoreUnresolvedTypes = _dependencyIgnoreUnresolvedTypes,
                 DependencyIncludeInputFilesInResult = _dependencyIncludeInputFilesInResult,
-                DependencyIncludeInMemoryVirtualPathsInResult = _dependencyIncludeInMemoryVirtualPathsInResult,
+                DependencyIncludeInMemoryVirtualPathsInResult = _dependencyIncludeInMemoryVirtualPathsInResult
             };
         }
 

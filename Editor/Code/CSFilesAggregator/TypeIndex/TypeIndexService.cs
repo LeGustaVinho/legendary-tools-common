@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/TypeIndex/TypeIndexService.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -36,31 +35,21 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             string indexPath = GetIndexFileAbsolutePath();
 
             if (!File.Exists(indexPath))
-            {
                 return new TypeIndex(new TypeIndexData
                 {
-                    GeneratedAtUtcIso = DateTime.UtcNow.ToString("o"),
+                    GeneratedAtUtcIso = DateTime.UtcNow.ToString("o")
                 });
-            }
 
             try
             {
                 string json = File.ReadAllText(indexPath);
-                var data = JsonUtility.FromJson<TypeIndexData>(json);
-                if (data == null)
-                {
-                    data = new TypeIndexData { GeneratedAtUtcIso = DateTime.UtcNow.ToString("o") };
-                }
+                TypeIndexData data = JsonUtility.FromJson<TypeIndexData>(json);
+                if (data == null) data = new TypeIndexData { GeneratedAtUtcIso = DateTime.UtcNow.ToString("o") };
 
                 if (string.IsNullOrEmpty(data.GeneratedAtUtcIso))
-                {
                     data.GeneratedAtUtcIso = DateTime.UtcNow.ToString("o");
-                }
 
-                if (data.Entries == null)
-                {
-                    data.Entries = new List<TypeIndexEntry>();
-                }
+                if (data.Entries == null) data.Entries = new List<TypeIndexEntry>();
 
                 return new TypeIndex(data);
             }
@@ -68,7 +57,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             {
                 return new TypeIndex(new TypeIndexData
                 {
-                    GeneratedAtUtcIso = DateTime.UtcNow.ToString("o"),
+                    GeneratedAtUtcIso = DateTime.UtcNow.ToString("o")
                 });
             }
         }
@@ -82,23 +71,14 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             TypeIndexSettings settings = TypeIndexSettings.instance;
             string projectRoot = settings.GetProjectRootAbsolute();
 
-            var roots = new List<string>(3);
-            if (settings.ScanAssets)
-            {
-                roots.Add(Path.Combine(projectRoot, "Assets"));
-            }
+            List<string> roots = new(3);
+            if (settings.ScanAssets) roots.Add(Path.Combine(projectRoot, "Assets"));
 
-            if (settings.ScanPackages)
-            {
-                roots.Add(Path.Combine(projectRoot, "Packages"));
-            }
+            if (settings.ScanPackages) roots.Add(Path.Combine(projectRoot, "Packages"));
 
-            if (settings.ScanPackageCache)
-            {
-                roots.Add(Path.Combine(projectRoot, "Library", "PackageCache"));
-            }
+            if (settings.ScanPackageCache) roots.Add(Path.Combine(projectRoot, "Library", "PackageCache"));
 
-            var entries = new List<TypeIndexEntry>(4096);
+            List<TypeIndexEntry> entries = new(4096);
 
             // Use a conservative parse option. Unity projects vary; "Latest" generally works across Roslyn versions included in Unity.
             CSharpParseOptions parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
@@ -114,12 +94,10 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
                     {
                         processed++;
                         if (processed % 20 == 0)
-                        {
                             EditorUtility.DisplayProgressBar(
                                 "Building Type Index",
                                 $"Scanning {processed}/{Mathf.Max(1, totalFiles)}",
                                 totalFiles <= 0 ? 0f : processed / (float)totalFiles);
-                        }
 
                         string relativePath = ToProjectRelativePath(projectRoot, file);
                         RoslynTypeScanner.ScanFile(file, relativePath, parseOptions, entries);
@@ -131,11 +109,11 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
                 EditorUtility.ClearProgressBar();
             }
 
-            var data = new TypeIndexData
+            TypeIndexData data = new()
             {
                 Version = 1,
                 GeneratedAtUtcIso = DateTime.UtcNow.ToString("o"),
-                Entries = entries,
+                Entries = entries
             };
 
             Save(data);
@@ -149,31 +127,22 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
         /// <param name="data">The data payload to save.</param>
         public static void Save(TypeIndexData data)
         {
-            if (data == null)
-            {
-                throw new ArgumentNullException(nameof(data));
-            }
+            if (data == null) throw new ArgumentNullException(nameof(data));
 
             string indexPath = GetIndexFileAbsolutePath();
             string folder = Path.GetDirectoryName(indexPath);
 
-            if (!Directory.Exists(folder))
-            {
-                Directory.CreateDirectory(folder);
-            }
+            if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
 
-            string json = JsonUtility.ToJson(data, prettyPrint: true);
+            string json = JsonUtility.ToJson(data, true);
             File.WriteAllText(indexPath, json);
         }
 
         private static IEnumerable<string> EnumerateCsFiles(string rootAbsolutePath, bool ignoreHiddenFolders)
         {
-            if (string.IsNullOrEmpty(rootAbsolutePath) || !Directory.Exists(rootAbsolutePath))
-            {
-                yield break;
-            }
+            if (string.IsNullOrEmpty(rootAbsolutePath) || !Directory.Exists(rootAbsolutePath)) yield break;
 
-            var stack = new Stack<string>();
+            Stack<string> stack = new();
             stack.Push(rootAbsolutePath);
 
             while (stack.Count > 0)
@@ -184,10 +153,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
                 if (ignoreHiddenFolders)
                 {
                     string name = Path.GetFileName(dir);
-                    if (!string.IsNullOrEmpty(name) && name.StartsWith(".", StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
+                    if (!string.IsNullOrEmpty(name) && name.StartsWith(".", StringComparison.Ordinal)) continue;
                 }
 
                 string[] subDirs;
@@ -243,9 +209,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             string fullFile = Path.GetFullPath(fileAbsolutePath).Replace('\\', '/');
 
             if (fullFile.StartsWith(fullProjectRoot + "/", StringComparison.OrdinalIgnoreCase))
-            {
                 return fullFile.Substring(fullProjectRoot.Length + 1);
-            }
 
             return fullFile;
         }

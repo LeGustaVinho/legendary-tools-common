@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/DependencyScan/SourceFileContext.cs
 using System;
 using System.Collections.Generic;
 
@@ -18,13 +17,13 @@ namespace LegendaryTools.CSFilesAggregator.DependencyScan
         /// <summary>
         /// Gets using namespaces declared in the file (excluding alias usings and static usings).
         /// </summary>
-        public List<string> Usings = new List<string>();
+        public List<string> Usings = new();
 
         /// <summary>
         /// Gets alias mappings declared in the file (e.g. "Foo" =&gt; "My.Namespace.Bar").
         /// Values are stored as text as written in the code (best-effort normalized later).
         /// </summary>
-        public Dictionary<string, string> UsingAliases = new Dictionary<string, string>(StringComparer.Ordinal);
+        public Dictionary<string, string> UsingAliases = new(StringComparer.Ordinal);
 
         /// <summary>
         /// Gets or sets the project-relative path (or virtual path) for this source.

@@ -12,17 +12,11 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// </summary>
         public static bool HasSeverity(this IReadOnlyList<Diagnostic> diagnostics, DiagnosticSeverity severity)
         {
-            if (diagnostics == null)
-            {
-                return false;
-            }
+            if (diagnostics == null) return false;
 
             for (int i = 0; i < diagnostics.Count; i++)
             {
-                if (diagnostics[i] != null && diagnostics[i].Severity == severity)
-                {
-                    return true;
-                }
+                if (diagnostics[i] != null && diagnostics[i].Severity == severity) return true;
             }
 
             return false;

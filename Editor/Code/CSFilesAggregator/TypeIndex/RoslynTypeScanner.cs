@@ -1,4 +1,3 @@
-// Assets/legendary-tools-common/Editor/Code/CSFilesAggregator/TypeIndex/RoslynTypeScanner.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -26,10 +25,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             CSharpParseOptions parseOptions,
             List<TypeIndexEntry> entries)
         {
-            if (entries == null)
-            {
-                throw new ArgumentNullException(nameof(entries));
-            }
+            if (entries == null) throw new ArgumentNullException(nameof(entries));
 
             string code;
             try
@@ -65,16 +61,14 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
 
             foreach (SyntaxNode node in root.DescendantNodes(descendIntoTrivia: false))
             {
-                if (!TryCreateEntry(tree, node, projectRelativeFilePath, out TypeIndexEntry entry))
-                {
-                    continue;
-                }
+                if (!TryCreateEntry(tree, node, projectRelativeFilePath, out TypeIndexEntry entry)) continue;
 
                 entries.Add(entry);
             }
         }
 
-        private static bool TryCreateEntry(SyntaxTree tree, SyntaxNode node, string projectRelativeFilePath, out TypeIndexEntry entry)
+        private static bool TryCreateEntry(SyntaxTree tree, SyntaxNode node, string projectRelativeFilePath,
+            out TypeIndexEntry entry)
         {
             entry = null;
 
@@ -113,10 +107,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             }
 
             string fullName = TypeNameBuilder.GetFullName(node);
-            if (string.IsNullOrEmpty(fullName))
-            {
-                return false;
-            }
+            if (string.IsNullOrEmpty(fullName)) return false;
 
             FileLinePositionSpan span = tree.GetLineSpan(identifierToken.Span);
             int line = span.StartLinePosition.Line + 1;
@@ -128,7 +119,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
                 Kind = kind,
                 FilePath = projectRelativeFilePath,
                 Line = line,
-                Column = column,
+                Column = column
             };
 
             return true;

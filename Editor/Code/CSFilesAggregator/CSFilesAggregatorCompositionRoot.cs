@@ -25,21 +25,26 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             IAggregationFormatter formatter = new DefaultAggregationFormatter();
 
             IAggregationPipeline pipeline = new DefaultAggregationPipeline(
-                pathService: pathService,
-                discovery: discovery,
-                reader: reader,
-                formatter: formatter);
+                pathService,
+                discovery,
+                reader,
+                formatter);
 
             ITextTransformsProvider transformsProvider = new DefaultTextTransformsProvider();
 
+            IAggregationPlanBuilder planBuilder = new DefaultAggregationPlanBuilder(
+                pathService,
+                discovery);
+
             return new CSFilesAggregatorController(
-                filePickerService: filePickerService,
-                pathService: pathService,
-                clipboardService: clipboardService,
-                dialogService: dialogService,
-                aggregationPipeline: pipeline,
-                transformsProvider: transformsProvider,
-                persistence: persistence);
+                filePickerService,
+                pathService,
+                clipboardService,
+                dialogService,
+                pipeline,
+                transformsProvider,
+                persistence,
+                planBuilder);
         }
     }
 }

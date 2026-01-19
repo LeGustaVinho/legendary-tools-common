@@ -12,17 +12,15 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
         /// <inheritdoc />
         public TextDocument Transform(TextDocument document, List<Diagnostic> diagnostics)
         {
-            if (document == null)
-            {
-                return document;
-            }
+            if (document == null) return document;
 
             string text = document.Text ?? string.Empty;
 
             try
             {
                 string[] lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
-                IEnumerable<string> filtered = lines.Where(line => !line.TrimStart().StartsWith("using ", StringComparison.Ordinal));
+                IEnumerable<string> filtered =
+                    lines.Where(line => !line.TrimStart().StartsWith("using ", StringComparison.Ordinal));
                 string updated = string.Join("\n", filtered);
 
                 return document.WithText(updated);
