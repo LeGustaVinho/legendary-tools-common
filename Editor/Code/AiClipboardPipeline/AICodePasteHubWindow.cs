@@ -30,10 +30,6 @@ namespace AiClipboardPipeline.Editor
         {
             _controller = new AICodePasteHubController();
             _controller.StateChanged += Repaint;
-
-            // IMPORTANT:
-            // Do not touch EditorStyles / GUI.skin here.
-            // During domain reload or early editor init, EditorStyles.textArea can be null and throw.
         }
 
         private void OnDisable()
@@ -116,8 +112,6 @@ namespace AiClipboardPipeline.Editor
                     DrawHistoryPanel();
                     EditorGUILayout.Space(8);
                     DrawBulkPanel();
-                    EditorGUILayout.Space(8);
-                    DrawActionsPanel(); // Kept, but buttons removed as requested.
                 }
 
                 GUILayout.Space(10);
@@ -369,18 +363,6 @@ namespace AiClipboardPipeline.Editor
                 EditorGUILayout.TextArea(_controller.PreviewText ?? string.Empty, _monoWrapStyle,
                     GUILayout.ExpandHeight(true));
                 EditorGUILayout.EndScrollView();
-            }
-        }
-
-        private void DrawActionsPanel()
-        {
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-            {
-                GUILayout.Label("Actions", EditorStyles.boldLabel);
-                EditorGUILayout.HelpBox(
-                    "This section intentionally has no buttons.\n" +
-                    "Use History row buttons or the Bulk section above.",
-                    MessageType.Info);
             }
         }
 

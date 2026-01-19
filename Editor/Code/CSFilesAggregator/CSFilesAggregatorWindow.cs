@@ -1,25 +1,35 @@
-using System.Collections.Generic;
-using System.IO;
+using System.Text;
+using CSharpRegexStripper;
+using LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline;
 using UnityEditor;
+using UnityEditor.IMGUI.Controls;
 using UnityEngine;
 
-namespace LegendaryTools.Editor
+namespace LegendaryTools.Editor.Code.CSFilesAggregator
 {
+    /// <summary>
+    /// View-only EditorWindow for aggregating C# files.
+    /// </summary>
     public sealed class CSFilesAggregatorWindow : EditorWindow
     {
-        private readonly List<string> paths = new();
+        private enum Tab
+        {
+            Selection = 0,
+            Settings = 1,
+            Files = 2,
+            Output = 3
+        }
 
-        private bool includeSubfolders;
-        private bool removeUsings;
+        private CSFilesAggregatorController _controller;
+        private Vector2 _scrollPosition;
+        private Tab _activeTab;
 
-        private bool resolveDependencies;
-        private int dependencyDepth = 1;
+        private TreeViewState _filesTreeState;
+        private SearchField _filesSearchField;
+        private CSFilesAggregatorFilesTreeView _filesTreeView;
 
-        private int reportMaxItems = 40;
-
-        private string aggregatedText = string.Empty;
-
-        private CSFilesAggregatorController controller;
+        private AggregationPlan _cachedPlan;
+        private bool _filesPlanDirty = true;
 
         [MenuItem("Tools/LegendaryTools/Code/C# File Aggregator")]
         public static void ShowWindow()
@@ -29,72 +39,336 @@ namespace LegendaryTools.Editor
 
         private void OnEnable()
         {
-            controller ??= new CSFilesAggregatorController();
+            _controller = CSFilesAggregatorCompositionRoot.CreateController();
+            _controller.StateChanged += OnControllerStateChanged;
+
+            _filesTreeState ??= new TreeViewState();
+            _filesSearchField ??= new SearchField();
+
+            _filesTreeView ??= new CSFilesAggregatorFilesTreeView(
+                _filesTreeState,
+                displayPath => _controller.ScanDependenciesForFile(displayPath),
+                (displayPath, doNotStrip) => _controller.SetDoNotStripFile(displayPath, doNotStrip));
+
+            _filesPlanDirty = true;
+        }
+
+        private void OnDisable()
+        {
+            if (_controller != null) _controller.StateChanged -= OnControllerStateChanged;
+        }
+
+        private void OnControllerStateChanged()
+        {
+            _filesPlanDirty = true;
+            Repaint();
         }
 
         private void OnGUI()
         {
-            GUILayout.Label("Settings", EditorStyles.boldLabel);
+            if (_controller == null)
+            {
+                EditorGUILayout.HelpBox("Controller not initialized.", MessageType.Error);
+                return;
+            }
+
+            DrawToolbar();
+
+            EditorGUILayout.Space(6);
+
+            switch (_activeTab)
+            {
+                case Tab.Selection:
+                    DrawSelectionTab();
+                    break;
+
+                case Tab.Settings:
+                    DrawSettingsTab();
+                    break;
+
+                case Tab.Files:
+                    DrawFilesTab();
+                    break;
+
+                case Tab.Output:
+                    DrawOutputTab();
+                    break;
+            }
+        }
+
+        private void DrawToolbar()
+        {
+            string[] tabs = { "Selection", "Settings", "Files", "Output" };
+            _activeTab = (Tab)GUILayout.Toolbar((int)_activeTab, tabs);
+        }
+
+        private void DrawSelectionTab()
+        {
+            CSFilesAggregatorState state = _controller.State;
+
+            EditorGUILayout.LabelField("Selection", EditorStyles.boldLabel);
 
             DrawAddButtons();
             DrawDropArea();
-            DrawPathList();
 
-            GUILayout.Space(10);
+            EditorGUILayout.Space(8);
 
-            includeSubfolders = EditorGUILayout.Toggle("Include subfolders", includeSubfolders);
-            removeUsings = EditorGUILayout.Toggle("Remove 'using' declarations", removeUsings);
+            DrawSelectedPathsList(state);
+        }
 
-            GUILayout.Space(6);
+        private void DrawSettingsTab()
+        {
+            CSFilesAggregatorState state = _controller.State;
 
-            resolveDependencies = EditorGUILayout.Toggle("Resolve dependencies (Assets-only)", resolveDependencies);
-            using (new EditorGUI.DisabledScope(!resolveDependencies))
+            EditorGUILayout.LabelField("Settings", EditorStyles.boldLabel);
+
+            bool includeSubfolders = EditorGUILayout.Toggle("Include subfolders", state.IncludeSubfolders);
+            if (includeSubfolders != state.IncludeSubfolders) _controller.SetIncludeSubfolders(includeSubfolders);
+
+            bool removeUsings = EditorGUILayout.Toggle("Remove 'using' declarations", state.RemoveUsings);
+            if (removeUsings != state.RemoveUsings) _controller.SetRemoveUsings(removeUsings);
+
+            bool appendDelimiters =
+                EditorGUILayout.Toggle("Append end markers (End of file/folder)", state.AppendDelimiters);
+            if (appendDelimiters != state.AppendDelimiters) _controller.SetAppendDelimiters(appendDelimiters);
+
+            EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("Implementation Stripper", EditorStyles.boldLabel);
+
+            bool useStripper =
+                EditorGUILayout.Toggle("Strip implementation (method bodies)", state.UseImplementationStripper);
+            if (useStripper != state.UseImplementationStripper) _controller.SetUseImplementationStripper(useStripper);
+
+            using (new EditorGUI.DisabledScope(!state.UseImplementationStripper))
             {
-                dependencyDepth = EditorGUILayout.IntField("Dependency depth", Mathf.Max(0, dependencyDepth));
-                reportMaxItems = EditorGUILayout.IntField("Report max items", Mathf.Clamp(reportMaxItems, 5, 500));
+                MethodBodyMode bodyMode =
+                    (MethodBodyMode)EditorGUILayout.EnumPopup("Method body mode", state.StripMethodBodyMode);
+                if (bodyMode != state.StripMethodBodyMode) _controller.SetStripMethodBodyMode(bodyMode);
+
+                bool convertProps =
+                    EditorGUILayout.Toggle("Convert non-auto properties", state.StripConvertNonAutoProperties);
+                if (convertProps != state.StripConvertNonAutoProperties)
+                    _controller.SetStripConvertNonAutoProperties(convertProps);
+
+                bool mask = EditorGUILayout.Toggle("Mask strings & comments", state.StripMaskStringsAndComments);
+                if (mask != state.StripMaskStringsAndComments) _controller.SetStripMaskStringsAndComments(mask);
+
+                bool skipInterface = EditorGUILayout.Toggle("Skip interface members", state.StripSkipInterfaceMembers);
+                if (skipInterface != state.StripSkipInterfaceMembers)
+                    _controller.SetStripSkipInterfaceMembers(skipInterface);
+
+                bool skipAbstract = EditorGUILayout.Toggle("Skip abstract members", state.StripSkipAbstractMembers);
+                if (skipAbstract != state.StripSkipAbstractMembers)
+                    _controller.SetStripSkipAbstractMembers(skipAbstract);
+            }
+
+            EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("Dependency Scan", EditorStyles.boldLabel);
+
+            bool includeDeps =
+                EditorGUILayout.Toggle("Include dependencies of selected files", state.IncludeDependencies);
+            if (includeDeps != state.IncludeDependencies) _controller.SetIncludeDependencies(includeDeps);
+
+            using (new EditorGUI.DisabledScope(!state.IncludeDependencies))
+            {
+                int maxDepth = EditorGUILayout.IntSlider("Max depth", state.DependencyMaxDepth, 0, 10);
+                if (maxDepth != state.DependencyMaxDepth) _controller.SetDependencyMaxDepth(maxDepth);
+
+                bool ignorePackages = EditorGUILayout.Toggle("Ignore Packages/", state.DependencyIgnorePackagesFolder);
+                if (ignorePackages != state.DependencyIgnorePackagesFolder)
+                    _controller.SetDependencyIgnorePackagesFolder(ignorePackages);
+
+                bool ignoreCache =
+                    EditorGUILayout.Toggle("Ignore Library/PackageCache/", state.DependencyIgnorePackageCache);
+                if (ignoreCache != state.DependencyIgnorePackageCache)
+                    _controller.SetDependencyIgnorePackageCache(ignoreCache);
+
+                bool ignoreUnresolved =
+                    EditorGUILayout.Toggle("Ignore unresolved types", state.DependencyIgnoreUnresolvedTypes);
+                if (ignoreUnresolved != state.DependencyIgnoreUnresolvedTypes)
+                    _controller.SetDependencyIgnoreUnresolvedTypes(ignoreUnresolved);
+
+                bool includeInputsInResult = EditorGUILayout.Toggle("Include input files in result",
+                    state.DependencyIncludeInputFilesInResult);
+                if (includeInputsInResult != state.DependencyIncludeInputFilesInResult)
+                    _controller.SetDependencyIncludeInputFilesInResult(includeInputsInResult);
+
+                bool includeVirtual = EditorGUILayout.Toggle("Include in-memory virtual paths",
+                    state.DependencyIncludeInMemoryVirtualPathsInResult);
+                if (includeVirtual != state.DependencyIncludeInMemoryVirtualPathsInResult)
+                    _controller.SetDependencyIncludeInMemoryVirtualPathsInResult(includeVirtual);
 
                 EditorGUILayout.HelpBox(
-                    "When Resolve dependencies is enabled, dependency contents are always included in the aggregated output.",
+                    "When enabled, the tool rebuilds the Type Index before scanning dependencies to ensure results are up to date.",
                     MessageType.Info);
             }
 
-            GUILayout.Space(10);
+            EditorGUILayout.Space(6);
+            EditorGUILayout.HelpBox("Settings and selection persist between assembly reloads.", MessageType.Info);
+        }
 
-            if (GUILayout.Button("Aggregate .cs Files")) AggregateNow();
+        private void DrawFilesTab()
+        {
+            EnsurePlanUpToDate();
 
-            GUILayout.Space(10);
-            GUILayout.Label("Aggregated Content", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Files", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "This tab shows the effective .cs files from your current selection only (folders/files).\n" +
+                "Checked = do NOT strip implementation for that file; unchecked = strip (when enabled).",
+                MessageType.Info);
 
-            aggregatedText = EditorGUILayout.TextArea(aggregatedText, GUILayout.ExpandHeight(true));
+            bool hasFiles = _cachedPlan != null && _cachedPlan.AllFiles != null && _cachedPlan.AllFiles.Count > 0;
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(_controller.State.Paths.Count == 0))
+                {
+                    if (GUILayout.Button("Refresh", GUILayout.MaxWidth(100)))
+                    {
+                        _filesPlanDirty = true;
+                        EnsurePlanUpToDate();
+                    }
+                }
+
+                using (new EditorGUI.DisabledScope(!hasFiles))
+                {
+                    if (GUILayout.Button("Select All", GUILayout.MaxWidth(100)))
+                    {
+                        _filesTreeView?.SetAllDoNotStrip(true);
+                        Repaint();
+                    }
+
+                    if (GUILayout.Button("Deselect All", GUILayout.MaxWidth(110)))
+                    {
+                        _filesTreeView?.SetAllDoNotStrip(false);
+                        Repaint();
+                    }
+                }
+
+                GUILayout.FlexibleSpace();
+
+                if (_filesSearchField != null && _filesTreeView != null)
+                    _filesTreeView.searchString = _filesSearchField.OnGUI(_filesTreeView.searchString);
+            }
+
+            EditorGUILayout.Space(6);
+
+            DrawPlanSummaryAndDiagnostics(_cachedPlan);
+
+            EditorGUILayout.Space(6);
+
+            Rect treeRect = GUILayoutUtility.GetRect(0, 100000, 0, 100000, GUILayout.ExpandWidth(true),
+                GUILayout.ExpandHeight(true));
+            _filesTreeView?.OnGUI(treeRect);
+        }
+
+        private void EnsurePlanUpToDate()
+        {
+            if (_filesTreeView == null)
+            {
+                _filesTreeState ??= new TreeViewState();
+                _filesTreeView = new CSFilesAggregatorFilesTreeView(
+                    _filesTreeState,
+                    displayPath => _controller.ScanDependenciesForFile(displayPath),
+                    (displayPath, doNotStrip) => _controller.SetDoNotStripFile(displayPath, doNotStrip));
+            }
+
+            if (!_filesPlanDirty) return;
+
+            _filesPlanDirty = false;
+
+            if (_controller.State.Paths.Count == 0)
+            {
+                _cachedPlan = new AggregationPlan(
+                    null,
+                    null,
+                    null,
+                    null);
+
+                _filesTreeView.SetFiles(_cachedPlan.AllFiles, _controller.GetDoNotStripFilesSnapshot());
+                return;
+            }
+
+            // IMPORTANT: Files tab should NOT auto-expand dependencies.
+            _cachedPlan = _controller.BuildFilesTabPlan();
+
+            _filesTreeView.SetFiles(_cachedPlan.AllFiles, _controller.GetDoNotStripFilesSnapshot());
+            _filesTreeView.ExpandAll();
+        }
+
+        private static void DrawPlanSummaryAndDiagnostics(AggregationPlan plan)
+        {
+            if (plan == null) return;
+
+            if (plan.Diagnostics == null || plan.Diagnostics.Count == 0) return;
+
+            StringBuilder sb = new(512);
+            for (int i = 0; i < plan.Diagnostics.Count; i++)
+            {
+                Diagnostic d = plan.Diagnostics[i];
+                if (d == null) continue;
+
+                string prefix = d.Severity switch
+                {
+                    DiagnosticSeverity.Error => "Error",
+                    DiagnosticSeverity.Warning => "Warning",
+                    _ => "Info"
+                };
+
+                if (!string.IsNullOrWhiteSpace(d.RelatedPath))
+                    sb.AppendLine($"{prefix}: {d.Message} ({d.RelatedPath})");
+                else
+                    sb.AppendLine($"{prefix}: {d.Message}");
+            }
+
+            MessageType messageType = MessageType.Info;
+            if (plan.Diagnostics.HasSeverity(DiagnosticSeverity.Error))
+                messageType = MessageType.Error;
+            else if (plan.Diagnostics.HasSeverity(DiagnosticSeverity.Warning)) messageType = MessageType.Warning;
+
+            EditorGUILayout.HelpBox(sb.ToString(), messageType);
+        }
+
+        private void DrawOutputTab()
+        {
+            CSFilesAggregatorState state = _controller.State;
+
+            EditorGUILayout.LabelField("Output", EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginHorizontal();
+
+            using (new EditorGUI.DisabledScope(state.Paths.Count == 0))
+            {
+                if (GUILayout.Button("Aggregate .cs Files")) _controller.Aggregate();
+            }
+
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(state.AggregatedText)))
+            {
+                if (GUILayout.Button("Copy", GUILayout.MaxWidth(100))) _controller.CopyAggregatedTextToClipboard();
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(8);
+
+            _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition, GUILayout.ExpandHeight(true));
+            string editedText =
+                EditorGUILayout.TextArea(state.AggregatedText ?? string.Empty, GUILayout.ExpandHeight(true));
+            EditorGUILayout.EndScrollView();
+
+            if (!string.Equals(editedText, state.AggregatedText, System.StringComparison.Ordinal))
+                _controller.SetAggregatedText(editedText);
         }
 
         private void DrawAddButtons()
         {
-            GUILayout.BeginHorizontal();
+            EditorGUILayout.BeginHorizontal();
 
-            if (GUILayout.Button("Add Folder"))
-            {
-                string selected = EditorUtility.OpenFolderPanel("Select folder", Application.dataPath, string.Empty);
-                if (!string.IsNullOrEmpty(selected))
-                {
-                    string rel = CSFilesAggregatorUtils.TryToProjectRelativePath(selected);
-                    if (!paths.Contains(rel))
-                        paths.Add(rel);
-                }
-            }
+            if (GUILayout.Button("Add Folder")) _controller.RequestAddFolder();
 
-            if (GUILayout.Button("Add .cs File"))
-            {
-                string selected = EditorUtility.OpenFilePanel("Select .cs file", Application.dataPath, "cs");
-                if (!string.IsNullOrEmpty(selected))
-                {
-                    string rel = CSFilesAggregatorUtils.TryToProjectRelativePath(selected);
-                    if (!paths.Contains(rel))
-                        paths.Add(rel);
-                }
-            }
+            if (GUILayout.Button("Add .cs File")) _controller.RequestAddFile();
 
-            GUILayout.EndHorizontal();
+            EditorGUILayout.EndHorizontal();
         }
 
         private void DrawDropArea()
@@ -103,7 +377,6 @@ namespace LegendaryTools.Editor
             GUI.Box(dropArea, "Drag and Drop Folders or .cs Files Here");
 
             Event evt = Event.current;
-
             if (evt.type == EventType.DragUpdated && dropArea.Contains(evt.mousePosition))
             {
                 DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
@@ -114,64 +387,30 @@ namespace LegendaryTools.Editor
             if (evt.type == EventType.DragPerform && dropArea.Contains(evt.mousePosition))
             {
                 DragAndDrop.AcceptDrag();
-                foreach (string p in DragAndDrop.paths)
-                {
-                    string rel = CSFilesAggregatorUtils.TryToProjectRelativePath(p);
-
-                    bool isDir = Directory.Exists(p);
-                    bool isCs = File.Exists(p) && p.EndsWith(".cs");
-
-                    if (!isDir && !isCs)
-                        continue;
-
-                    if (!paths.Contains(rel))
-                        paths.Add(rel);
-                }
-
+                _controller.AddPathsFromDragAndDrop(DragAndDrop.paths);
                 evt.Use();
             }
         }
 
-        private void DrawPathList()
+        private void DrawSelectedPathsList(CSFilesAggregatorState state)
         {
-            GUILayout.Label("Selected Folders and Files:");
+            EditorGUILayout.LabelField("Selected Folders and Files:");
 
-            for (int i = 0; i < paths.Count; i++)
+            if (state.Paths.Count == 0)
             {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(paths[i]);
-
-                if (GUILayout.Button("Remove", GUILayout.MaxWidth(70)))
-                {
-                    paths.RemoveAt(i);
-                    i--;
-                }
-
-                GUILayout.EndHorizontal();
-            }
-        }
-
-        private void AggregateNow()
-        {
-            if (paths.Count == 0)
-            {
-                EditorUtility.DisplayDialog("Error", "Please add at least one folder or .cs file.", "OK");
+                EditorGUILayout.HelpBox("No paths selected. Add a folder or a .cs file.", MessageType.Info);
                 return;
             }
 
-            CSFilesAggregatorController.Options options = new(
-                includeSubfolders,
-                removeUsings,
-                resolveDependencies,
-                Mathf.Max(0, dependencyDepth),
-                Mathf.Clamp(reportMaxItems, 5, 500));
+            for (int i = 0; i < state.Paths.Count; i++)
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField(state.Paths[i]);
 
-            CSFilesAggregatorController.AggregationResult result = controller.Aggregate(paths, options);
+                if (GUILayout.Button("Remove", GUILayout.MaxWidth(70))) _controller.RemovePathAt(i);
 
-            aggregatedText = result.AggregatedText;
-            EditorGUIUtility.systemCopyBuffer = aggregatedText;
-
-            CSFilesAggregatorUtils.ShowSingleReportPrompt(result.ReportText);
+                EditorGUILayout.EndHorizontal();
+            }
         }
     }
 }
