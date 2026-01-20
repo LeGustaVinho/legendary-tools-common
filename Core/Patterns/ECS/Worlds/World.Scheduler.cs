@@ -15,10 +15,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         /// <returns>Scheduler instance.</returns>
         public Scheduler CreateScheduler()
         {
-            if (Scheduler == null)
-            {
-                Scheduler = new Scheduler(this);
-            }
+            if (Scheduler == null) Scheduler = new Scheduler(this);
 
             return Scheduler;
         }

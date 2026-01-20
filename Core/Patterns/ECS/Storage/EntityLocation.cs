@@ -28,11 +28,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         /// <summary>
         /// Gets an invalid location value.
         /// </summary>
-        public static EntityLocation Invalid => new EntityLocation
+        public static EntityLocation Invalid => new()
         {
             ArchetypeId = new ArchetypeId(0),
             ChunkId = -1,
-            Row = -1,
+            Row = -1
         };
     }
 }

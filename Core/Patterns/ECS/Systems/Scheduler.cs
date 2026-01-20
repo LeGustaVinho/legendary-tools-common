@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Worlds;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
@@ -32,7 +31,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
                 SystemPhase.BeginSimulation,
                 SystemPhase.Simulation,
                 SystemPhase.EndSimulation,
-                SystemPhase.Presentation,
+                SystemPhase.Presentation
             };
 
             // Create groups upfront so order is always stable.
@@ -70,10 +69,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
         /// </summary>
         public void Create()
         {
-            if (_created)
-            {
-                return;
-            }
+            if (_created) return;
 
             for (int i = 0; i < _fixedOrder.Length; i++)
             {
@@ -88,10 +84,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
         /// </summary>
         public void Destroy()
         {
-            if (!_created)
-            {
-                return;
-            }
+            if (!_created) return;
 
             for (int i = _fixedOrder.Length - 1; i >= 0; i--)
             {
@@ -107,10 +100,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
         /// <param name="tick">Current tick.</param>
         public void Tick(int tick)
         {
-            if (!_created)
-            {
-                Create();
-            }
+            if (!_created) Create();
 
             // Simulation scope: structural changes must go through ECB.
             _world.BeginTick(tick);

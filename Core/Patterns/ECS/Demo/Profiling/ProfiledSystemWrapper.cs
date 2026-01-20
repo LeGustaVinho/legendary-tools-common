@@ -1,5 +1,4 @@
 using System.Diagnostics;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Systems;
 using LegendaryTools.Common.Core.Patterns.ECS.Worlds;
 

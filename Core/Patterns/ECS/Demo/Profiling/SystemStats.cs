@@ -42,15 +42,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Profiling
         {
             LastTicks = elapsedTicks;
 
-            if (elapsedTicks < MinTicks)
-            {
-                MinTicks = elapsedTicks;
-            }
+            if (elapsedTicks < MinTicks) MinTicks = elapsedTicks;
 
-            if (elapsedTicks > MaxTicks)
-            {
-                MaxTicks = elapsedTicks;
-            }
+            if (elapsedTicks > MaxTicks) MaxTicks = elapsedTicks;
 
             _calls++;
             _sumTicks += elapsedTicks;
@@ -59,7 +53,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Profiling
         private static double TicksToMs(long ticks)
         {
             // Stopwatch ticks -> seconds -> ms.
-            return (ticks * 1000.0) / Stopwatch.Frequency;
+            return ticks * 1000.0 / Stopwatch.Frequency;
         }
     }
 }

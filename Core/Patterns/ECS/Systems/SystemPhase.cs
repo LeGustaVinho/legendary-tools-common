@@ -23,6 +23,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
         /// <summary>
         /// Presentation phase. Must not mutate simulation state.
         /// </summary>
-        Presentation = 3,
+        Presentation = 3
     }
 }

@@ -39,15 +39,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         {
             int index = entity.Index;
 
-            if ((uint)index >= (uint)_state.Alive.Length)
-            {
-                return false;
-            }
+            if ((uint)index >= (uint)_state.Alive.Length) return false;
 
-            if (!_state.Alive[index])
-            {
-                return false;
-            }
+            if (!_state.Alive[index]) return false;
 
             return _state.Versions[index] == entity.Version;
         }

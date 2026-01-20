@@ -1,46 +1,35 @@
 using LegendaryTools.Common.Core.Patterns.ECS.Entities;
+using LegendaryTools.Common.Core.Patterns.ECS.Memory;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 {
-    /// <summary>
-    /// Stores entities and components for a single archetype in SoA layout.
-    /// </summary>
     public sealed class Chunk
     {
-        /// <summary>
-        /// Gets the deterministic chunk id within its archetype (incremental).
-        /// </summary>
         public readonly int ChunkId;
 
-        /// <summary>
-        /// Gets the entities array for this chunk.
-        /// </summary>
         public readonly Entity[] Entities;
 
         internal readonly IChunkColumn[] Columns;
 
-        /// <summary>
-        /// Gets the number of active entities in this chunk.
-        /// </summary>
+        private readonly int _capacity;
+
         public int Count { get; private set; }
 
-        /// <summary>
-        /// Gets the maximum number of entities this chunk can hold.
-        /// </summary>
-        public int Capacity => Entities.Length;
+        public int Capacity => _capacity;
 
         internal Chunk(int chunkId, int capacity, IChunkColumn[] columns)
         {
             ChunkId = chunkId;
-            Entities = new Entity[capacity];
+
+            if (capacity < 1) capacity = 1;
+
+            _capacity = capacity;
+            Entities = EcsArrayPool<Entity>.Rent(capacity);
             Columns = columns;
             Count = 0;
         }
 
-        /// <summary>
-        /// Gets a value indicating whether this chunk has space for one more entity.
-        /// </summary>
-        public bool HasSpace => Count < Entities.Length;
+        public bool HasSpace => Count < _capacity;
 
         internal int AddEntity(Entity entity)
         {
@@ -69,14 +58,25 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
                 swappedEntity = Entities[row];
             }
 
-            // Clear the tail slot (optional hygiene).
             Entities[last] = Entity.Invalid;
+
             for (int i = 0; i < Columns.Length; i++)
             {
                 Columns[i].SetDefault(last);
             }
 
             Count = last;
+        }
+
+        internal void ReturnToPool()
+        {
+            for (int i = 0; i < Columns.Length; i++)
+            {
+                Columns[i].ReturnToPool();
+            }
+
+            EcsArrayPool<Entity>.Return(Entities, false);
+            EcsArrayPool<IChunkColumn>.Return(Columns, true);
         }
     }
 }

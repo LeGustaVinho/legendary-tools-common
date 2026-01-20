@@ -1,5 +1,4 @@
 using System;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Components;
 using LegendaryTools.Common.Core.Patterns.ECS.Entities;
 using LegendaryTools.Common.Core.Patterns.ECS.Storage;
@@ -26,9 +25,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         public void AssertNotIterating()
         {
             if (_state.IterationDepth > 0)
-            {
                 throw new InvalidOperationException("Structural changes are not allowed during iteration. Use an ECB.");
-            }
         }
 
         public void Add<T>(Entity entity, in T value) where T : struct
@@ -36,9 +33,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             AssertNotIterating();
 
             if (!_entities.IsAlive(entity))
-            {
                 throw new InvalidOperationException($"Entity {entity} is not alive (or is stale).");
-            }
 
             ComponentTypeId typeId = _storage.GetComponentTypeId<T>();
 
@@ -66,9 +61,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             // 3) Set the new component value.
             if (!dstArchetype.TryGetColumnIndex(typeId, out int newColIndex))
-            {
-                throw new InvalidOperationException("Destination archetype does not contain the expected new component.");
-            }
+                throw new InvalidOperationException(
+                    "Destination archetype does not contain the expected new component.");
 
             ChunkColumn<T> newCol = (ChunkColumn<T>)dstChunk.Columns[newColIndex];
             newCol.Data[dstRow] = value;
@@ -78,7 +72,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             {
                 ArchetypeId = dstArchetype.ArchetypeId,
                 ChunkId = dstChunk.ChunkId,
-                Row = dstRow,
+                Row = dstRow
             });
 
             // 5) Remove from source (swap-back) and fix swapped entity location.
@@ -89,24 +83,15 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         {
             AssertNotIterating();
 
-            if (!_entities.IsAlive(entity))
-            {
-                return;
-            }
+            if (!_entities.IsAlive(entity)) return;
 
             ComponentTypeId typeId = _storage.GetComponentTypeId<T>();
 
             EntityLocation srcLoc = _storage.GetLocation(entity);
-            if (!srcLoc.IsValid)
-            {
-                return;
-            }
+            if (!srcLoc.IsValid) return;
 
             Archetype srcArchetype = _storage.GetArchetypeById(srcLoc.ArchetypeId);
-            if (!srcArchetype.Contains(typeId))
-            {
-                return;
-            }
+            if (!srcArchetype.Contains(typeId)) return;
 
             ArchetypeSignature dstSig = srcArchetype.Signature.WithRemoved(typeId);
             Archetype dstArchetype = _storage.GetOrCreateArchetype(dstSig);
@@ -123,7 +108,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             {
                 ArchetypeId = dstArchetype.ArchetypeId,
                 ChunkId = dstChunk.ChunkId,
-                Row = dstRow,
+                Row = dstRow
             });
 
             // 4) Remove from source and fix swap.

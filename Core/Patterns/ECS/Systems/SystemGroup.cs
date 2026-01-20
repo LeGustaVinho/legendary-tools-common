@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Worlds;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
@@ -35,20 +34,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
         /// <param name="system">System instance.</param>
         public void Add(ISystem system)
         {
-            if (system == null)
-            {
-                throw new ArgumentNullException(nameof(system));
-            }
+            if (system == null) throw new ArgumentNullException(nameof(system));
 
             _systems.Add(system);
         }
 
         internal void CreateAll(World world)
         {
-            if (_created)
-            {
-                return;
-            }
+            if (_created) return;
 
             for (int i = 0; i < _systems.Count; i++)
             {

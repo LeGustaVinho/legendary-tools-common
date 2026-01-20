@@ -20,6 +20,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         }
 
         /// <inheritdoc/>
-        public override string ToString() => $"ArchetypeId(0x{Value:X16})";
+        public override string ToString()
+        {
+            return $"ArchetypeId(0x{Value:X16})";
+        }
     }
 }

@@ -35,7 +35,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Systems
 
         public void OnUpdate(World world, int tick)
         {
-            var processor = new LifetimeChunkProcessor(world.GetComponentTypeId<Lifetime>(), world, _counters);
+            LifetimeChunkProcessor processor = new(world.GetComponentTypeId<Lifetime>(), world, _counters);
             world.ForEachChunk(_query, ref processor);
         }
 
@@ -58,10 +58,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Systems
 
             public void Execute(Archetype archetype, Chunk chunk)
             {
-                if (!archetype.TryGetColumnIndex(_lifeId, out int lifeIndex))
-                {
-                    return;
-                }
+                if (!archetype.TryGetColumnIndex(_lifeId, out int lifeIndex)) return;
 
                 ChunkColumn<Lifetime> lifeCol = (ChunkColumn<Lifetime>)chunk.Columns[lifeIndex];
                 Lifetime[] life = lifeCol.Data;
@@ -83,10 +80,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Systems
                     }
                 }
 
-                if (_counters != null && destroyed > 0)
-                {
-                    _counters.AddDestroy(destroyed);
-                }
+                if (_counters != null && destroyed > 0) _counters.AddDestroy(destroyed);
             }
         }
     }

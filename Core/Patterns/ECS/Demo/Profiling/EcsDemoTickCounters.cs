@@ -39,18 +39,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Profiling
 
         public void AddSpawn(int count)
         {
-            if (count > 0)
-            {
-                _spawnedThisTick += count;
-            }
+            if (count > 0) _spawnedThisTick += count;
         }
 
         public void AddDestroy(int count)
         {
-            if (count > 0)
-            {
-                _destroyedThisTick += count;
-            }
+            if (count > 0) _destroyedThisTick += count;
         }
     }
 }

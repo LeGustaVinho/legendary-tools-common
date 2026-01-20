@@ -1,15 +1,12 @@
 using System;
 using System.Collections.Generic;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Commands;
 using LegendaryTools.Common.Core.Patterns.ECS.Components;
 using LegendaryTools.Common.Core.Patterns.ECS.Entities;
+using LegendaryTools.Common.Core.Patterns.ECS.Memory;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 {
-    /// <summary>
-    /// MVP ECB: single-thread, no sorting, but API is shaped for future deterministic ordering.
-    /// </summary>
     internal sealed class EntityCommandBuffer : ICommandBuffer
     {
         private enum CommandType : byte
@@ -17,14 +14,13 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             CreateEntity = 1,
             DestroyEntity = 2,
             AddComponent = 3,
-            RemoveComponent = 4,
+            RemoveComponent = 4
         }
 
         private struct Command
         {
             public CommandType Type;
 
-            // Determinism keys (MVP: unused but reserved for later).
             public int Tick;
             public int SystemOrder;
             public int SortKey;
@@ -32,17 +28,13 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             public Entity Entity;
 
-            // For Add/Remove.
             public int ComponentTypeId;
 
-            // For Add: index into a per-type value store.
             public int ValueIndex;
         }
 
         private interface IValueStore
         {
-            int Count { get; }
-
             void Clear();
 
             void ApplyAdd(World world, Entity entity, int valueIndex);
@@ -50,14 +42,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         private sealed class ValueStore<T> : IValueStore where T : struct
         {
-            private readonly List<T> _values;
+            private readonly PooledList<T> _values;
 
             public ValueStore(int initialCapacity = 64)
             {
-                _values = new List<T>(initialCapacity);
+                _values = new PooledList<T>(initialCapacity);
             }
-
-            public int Count => _values.Count;
 
             public int Add(in T value)
             {
@@ -78,24 +68,22 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         private readonly World _world;
 
-        private readonly List<Command> _commands;
+        private readonly PooledList<Command> _commands;
         private readonly Dictionary<int, IValueStore> _valueStoresByTypeId;
 
         private int _sequence;
 
-        // Temp entity mapping:
-        // Temp entities have negative indices: -(tempIndex + 1)
-        private readonly List<Entity> _tempToReal;
+        private readonly PooledList<Entity> _tempToReal;
 
         public EntityCommandBuffer(World world, int initialCapacity = 256)
         {
             _world = world;
 
-            _commands = new List<Command>(initialCapacity);
+            _commands = new PooledList<Command>(initialCapacity);
             _valueStoresByTypeId = new Dictionary<int, IValueStore>(128);
 
             _sequence = 0;
-            _tempToReal = new List<Entity>(64);
+            _tempToReal = new PooledList<Entity>(64);
         }
 
         public void Reset(int tick)
@@ -103,7 +91,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             _commands.Clear();
             _sequence = 0;
 
-            // Keep stores allocated; just clear values for reuse.
             foreach (IValueStore store in _valueStoresByTypeId.Values)
             {
                 store.Clear();
@@ -118,9 +105,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public Entity CreateEntity()
         {
-            // Create temp handle.
             int tempIndex = _tempToReal.Count;
-            Entity temp = new Entity(-(tempIndex + 1), 0);
+            Entity temp = new(-(tempIndex + 1), 0);
 
             _tempToReal.Add(Entity.Invalid);
 
@@ -133,7 +119,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 Sequence = _sequence++,
                 Entity = temp,
                 ComponentTypeId = 0,
-                ValueIndex = -1,
+                ValueIndex = -1
             });
 
             return temp;
@@ -150,7 +136,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 Sequence = _sequence++,
                 Entity = entity,
                 ComponentTypeId = 0,
-                ValueIndex = -1,
+                ValueIndex = -1
             });
         }
 
@@ -181,7 +167,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 Sequence = _sequence++,
                 Entity = entity,
                 ComponentTypeId = typeId.Value,
-                ValueIndex = valueIndex,
+                ValueIndex = valueIndex
             });
         }
 
@@ -198,15 +184,15 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 Sequence = _sequence++,
                 Entity = entity,
                 ComponentTypeId = typeId.Value,
-                ValueIndex = -1,
+                ValueIndex = -1
             });
         }
 
         public void Playback()
         {
-            // MVP: commands are executed in recording order.
-            // Future: stable sort by (Tick, SystemOrder, SortKey, Sequence).
-            for (int i = 0; i < _commands.Count; i++)
+            int cmdCount = _commands.Count;
+
+            for (int i = 0; i < cmdCount; i++)
             {
                 Command cmd = _commands[i];
 
@@ -231,9 +217,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                     {
                         Entity resolved = Resolve(cmd.Entity);
                         if (!_valueStoresByTypeId.TryGetValue(cmd.ComponentTypeId, out IValueStore store))
-                        {
                             throw new InvalidOperationException("ECB value store missing for AddComponent.");
-                        }
 
                         store.ApplyAdd(_world, resolved, cmd.ValueIndex);
                         break;
@@ -254,29 +238,20 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         private static int ToTempIndex(Entity e)
         {
-            // Temp indices are negative: -(tempIndex + 1)
             int neg = e.Index;
             return -neg - 1;
         }
 
         private Entity Resolve(Entity e)
         {
-            if (e.Index >= 0)
-            {
-                return e;
-            }
+            if (e.Index >= 0) return e;
 
             int tempIdx = ToTempIndex(e);
             if ((uint)tempIdx >= (uint)_tempToReal.Count)
-            {
                 throw new InvalidOperationException("Invalid temp entity handle.");
-            }
 
             Entity real = _tempToReal[tempIdx];
-            if (real.Index < 0)
-            {
-                throw new InvalidOperationException("Temp entity was not created before being used.");
-            }
+            if (real.Index < 0) throw new InvalidOperationException("Temp entity was not created before being used.");
 
             return real;
         }

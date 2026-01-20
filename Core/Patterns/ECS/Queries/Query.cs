@@ -1,110 +1,105 @@
 using System;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Components;
+using LegendaryTools.Common.Core.Patterns.ECS.Memory;
 using LegendaryTools.Common.Core.Patterns.ECS.Storage;
 using LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 {
-    /// <summary>
-    /// A query matches archetypes by component signature.
-    /// MVP: All + None only.
-    /// </summary>
     public sealed class Query
     {
         internal readonly int[] All;
         internal readonly int[] None;
 
+        internal readonly struct ArchetypeCache
+        {
+            public readonly Archetype[] Buffer;
+            public readonly int Count;
+
+            public ArchetypeCache(Archetype[] buffer, int count)
+            {
+                Buffer = buffer;
+                Count = count;
+            }
+        }
+
         private Archetype[] _cachedArchetypes;
+        private int _cachedArchetypesCount;
         private int _cachedArchetypeVersion;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="Query"/> class.
-        /// Arrays are copied, sorted, and de-duplicated.
-        /// </summary>
-        /// <param name="all">All-of component ids.</param>
-        /// <param name="none">None-of component ids.</param>
         public Query(ReadOnlySpan<ComponentTypeId> all, ReadOnlySpan<ComponentTypeId> none)
         {
             All = Normalize(all);
             None = Normalize(none);
 
             _cachedArchetypes = Array.Empty<Archetype>();
+            _cachedArchetypesCount = 0;
             _cachedArchetypeVersion = int.MinValue;
         }
 
-        internal Archetype[] GetOrBuildCache(StorageService storage)
+        internal ArchetypeCache GetOrBuildCache(StorageService storage)
         {
             int version = storage.ArchetypeVersion;
 
             if (_cachedArchetypeVersion == version)
-            {
-                return _cachedArchetypes;
-            }
+                return new ArchetypeCache(_cachedArchetypes, _cachedArchetypesCount);
 
-            // Two-pass rebuild to avoid temporary lists.
             int count = 0;
             foreach (Archetype a in storage.EnumerateArchetypesStable())
             {
-                if (Matches(a))
-                {
-                    count++;
-                }
+                if (Matches(a)) count++;
             }
 
             if (count == 0)
             {
+                ReturnCached();
                 _cachedArchetypes = Array.Empty<Archetype>();
+                _cachedArchetypesCount = 0;
                 _cachedArchetypeVersion = version;
-                return _cachedArchetypes;
+                return new ArchetypeCache(_cachedArchetypes, 0);
             }
 
-            Archetype[] cache = new Archetype[count];
+            Archetype[] newBuf = EcsArrayPool<Archetype>.Rent(count);
             int write = 0;
 
             foreach (Archetype a in storage.EnumerateArchetypesStable())
             {
-                if (Matches(a))
-                {
-                    cache[write++] = a;
-                }
+                if (Matches(a)) newBuf[write++] = a;
             }
 
-            _cachedArchetypes = cache;
+            ReturnCached();
+
+            _cachedArchetypes = newBuf;
+            _cachedArchetypesCount = write;
             _cachedArchetypeVersion = version;
 
-            return _cachedArchetypes;
+            return new ArchetypeCache(_cachedArchetypes, _cachedArchetypesCount);
         }
 
         internal bool Matches(Archetype archetype)
         {
-            // All: must contain all.
             for (int i = 0; i < All.Length; i++)
             {
-                if (Array.BinarySearch(archetype.Signature.TypeIds, All[i]) < 0)
-                {
-                    return false;
-                }
+                if (Array.BinarySearch(archetype.Signature.TypeIds, All[i]) < 0) return false;
             }
 
-            // None: must contain none.
             for (int i = 0; i < None.Length; i++)
             {
-                if (Array.BinarySearch(archetype.Signature.TypeIds, None[i]) >= 0)
-                {
-                    return false;
-                }
+                if (Array.BinarySearch(archetype.Signature.TypeIds, None[i]) >= 0) return false;
             }
 
             return true;
         }
 
+        private void ReturnCached()
+        {
+            if (_cachedArchetypes != null && _cachedArchetypes.Length > 0)
+                EcsArrayPool<Archetype>.Return(_cachedArchetypes, true);
+        }
+
         private static int[] Normalize(ReadOnlySpan<ComponentTypeId> ids)
         {
-            if (ids.Length == 0)
-            {
-                return Array.Empty<int>();
-            }
+            if (ids.Length == 0) return Array.Empty<int>();
 
             int[] arr = new int[ids.Length];
             for (int i = 0; i < ids.Length; i++)
@@ -114,20 +109,13 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 
             Array.Sort(arr);
 
-            // De-duplicate.
             int unique = 1;
             for (int i = 1; i < arr.Length; i++)
             {
-                if (arr[i] != arr[unique - 1])
-                {
-                    arr[unique++] = arr[i];
-                }
+                if (arr[i] != arr[unique - 1]) arr[unique++] = arr[i];
             }
 
-            if (unique == arr.Length)
-            {
-                return arr;
-            }
+            if (unique == arr.Length) return arr;
 
             int[] trimmed = new int[unique];
             Array.Copy(arr, trimmed, unique);

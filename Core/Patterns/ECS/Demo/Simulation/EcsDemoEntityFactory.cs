@@ -1,5 +1,4 @@
 using UnityEngine;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Components;
 using LegendaryTools.Common.Core.Patterns.ECS.Entities;
 using LegendaryTools.Common.Core.Patterns.ECS.Worlds;
@@ -19,28 +18,28 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation
             {
                 Entity e = world.CreateEntity();
 
-                Position p = new Position
+                Position p = new()
                 {
-                    X = (i % 100) * 0.1f,
+                    X = i % 100 * 0.1f,
                     Y = 0.0f,
-                    Z = (i / 100) * 0.1f,
+                    Z = i / 100 * 0.1f
                 };
 
-                Velocity v = new Velocity
+                Velocity v = new()
                 {
-                    X = 0.01f + ((i & 7) * 0.001f),
+                    X = 0.01f + (i & 7) * 0.001f,
                     Y = 0.0f,
-                    Z = 0.01f + ((i & 3) * 0.001f),
+                    Z = 0.01f + (i & 3) * 0.001f
                 };
 
-                Lifetime life = new Lifetime
+                Lifetime life = new()
                 {
-                    TicksRemaining = Random.Range(config.LifetimeMinTicks, config.LifetimeMaxTicks + 1),
+                    TicksRemaining = Random.Range(config.LifetimeMinTicks, config.LifetimeMaxTicks + 1)
                 };
 
-                Health hp = new Health
+                Health hp = new()
                 {
-                    Value = 100,
+                    Value = 100
                 };
 
                 world.Add(e, p);

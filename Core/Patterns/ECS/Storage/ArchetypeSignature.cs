@@ -1,5 +1,4 @@
 using System;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Components;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
@@ -83,10 +82,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         /// <returns>New signature.</returns>
         public ArchetypeSignature WithAdded(ComponentTypeId typeId)
         {
-            if (Contains(typeId))
-            {
-                return this;
-            }
+            if (Contains(typeId)) return this;
 
             int[] tmp = new int[TypeIds.Length + 1];
             Array.Copy(TypeIds, tmp, TypeIds.Length);
@@ -103,26 +99,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         public ArchetypeSignature WithRemoved(ComponentTypeId typeId)
         {
             int idx = Array.BinarySearch(TypeIds, typeId.Value);
-            if (idx < 0)
-            {
-                return this;
-            }
+            if (idx < 0) return this;
 
-            if (TypeIds.Length == 1)
-            {
-                return new ArchetypeSignature(ReadOnlySpan<int>.Empty);
-            }
+            if (TypeIds.Length == 1) return new ArchetypeSignature(ReadOnlySpan<int>.Empty);
 
             int[] tmp = new int[TypeIds.Length - 1];
-            if (idx > 0)
-            {
-                Array.Copy(TypeIds, 0, tmp, 0, idx);
-            }
+            if (idx > 0) Array.Copy(TypeIds, 0, tmp, 0, idx);
 
-            if (idx < TypeIds.Length - 1)
-            {
-                Array.Copy(TypeIds, idx + 1, tmp, idx, (TypeIds.Length - idx - 1));
-            }
+            if (idx < TypeIds.Length - 1) Array.Copy(TypeIds, idx + 1, tmp, idx, TypeIds.Length - idx - 1);
 
             // Already ordered.
             return new ArchetypeSignature(tmp);
@@ -141,10 +125,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             for (int i = 0; i < min; i++)
             {
                 int cmp = a.TypeIds[i].CompareTo(b.TypeIds[i]);
-                if (cmp != 0)
-                {
-                    return cmp;
-                }
+                if (cmp != 0) return cmp;
             }
 
             return a.TypeIds.Length.CompareTo(b.TypeIds.Length);
@@ -153,29 +134,23 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         /// <inheritdoc/>
         public bool Equals(ArchetypeSignature other)
         {
-            if (ReferenceEquals(this, other))
-            {
-                return true;
-            }
+            if (ReferenceEquals(this, other)) return true;
 
-            if (other is null || TypeIds.Length != other.TypeIds.Length)
-            {
-                return false;
-            }
+            if (other is null || TypeIds.Length != other.TypeIds.Length) return false;
 
             for (int i = 0; i < TypeIds.Length; i++)
             {
-                if (TypeIds[i] != other.TypeIds[i])
-                {
-                    return false;
-                }
+                if (TypeIds[i] != other.TypeIds[i]) return false;
             }
 
             return true;
         }
 
         /// <inheritdoc/>
-        public override bool Equals(object obj) => obj is ArchetypeSignature other && Equals(other);
+        public override bool Equals(object obj)
+        {
+            return obj is ArchetypeSignature other && Equals(other);
+        }
 
         /// <inheritdoc/>
         public override int GetHashCode()
@@ -183,13 +158,13 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             unchecked
             {
                 int h = 17;
-                h = (h * 31) + TypeIds.Length;
+                h = h * 31 + TypeIds.Length;
 
                 // Cheap: sample first/last elements.
                 if (TypeIds.Length > 0)
                 {
-                    h = (h * 31) + TypeIds[0];
-                    h = (h * 31) + TypeIds[TypeIds.Length - 1];
+                    h = h * 31 + TypeIds[0];
+                    h = h * 31 + TypeIds[TypeIds.Length - 1];
                 }
 
                 return h;

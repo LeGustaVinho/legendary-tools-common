@@ -30,26 +30,44 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Entities
         /// <summary>
         /// Gets an invalid entity value.
         /// </summary>
-        public static Entity Invalid => new Entity(-1, 0);
+        public static Entity Invalid => new(-1, 0);
 
         /// <inheritdoc/>
-        public override string ToString() => $"Entity(Index={Index}, Version={Version})";
+        public override string ToString()
+        {
+            return $"Entity(Index={Index}, Version={Version})";
+        }
 
         /// <inheritdoc/>
-        public override int GetHashCode() => (Index * 397) ^ Version;
+        public override int GetHashCode()
+        {
+            return (Index * 397) ^ Version;
+        }
 
         /// <inheritdoc/>
-        public override bool Equals(object obj) => obj is Entity other && Equals(other);
+        public override bool Equals(object obj)
+        {
+            return obj is Entity other && Equals(other);
+        }
 
         /// <summary>
         /// Checks value equality.
         /// </summary>
         /// <param name="other">Other entity.</param>
         /// <returns>True if both index and version match.</returns>
-        public bool Equals(Entity other) => Index == other.Index && Version == other.Version;
+        public bool Equals(Entity other)
+        {
+            return Index == other.Index && Version == other.Version;
+        }
 
-        public static bool operator ==(Entity a, Entity b) => a.Equals(b);
+        public static bool operator ==(Entity a, Entity b)
+        {
+            return a.Equals(b);
+        }
 
-        public static bool operator !=(Entity a, Entity b) => !a.Equals(b);
+        public static bool operator !=(Entity a, Entity b)
+        {
+            return !a.Equals(b);
+        }
     }
 }

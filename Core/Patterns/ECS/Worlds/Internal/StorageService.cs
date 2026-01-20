@@ -1,15 +1,12 @@
 using System;
 using System.Collections.Generic;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Components;
 using LegendaryTools.Common.Core.Patterns.ECS.Entities;
+using LegendaryTools.Common.Core.Patterns.ECS.Memory;
 using LegendaryTools.Common.Core.Patterns.ECS.Storage;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 {
-    /// <summary>
-    /// Owns archetypes/chunks SoA storage, type id registry, and entity location mapping.
-    /// </summary>
     internal sealed class StorageService
     {
         private readonly WorldState _state;
@@ -29,36 +26,30 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public void InitializeEmptyArchetype()
         {
-            ArchetypeSignature emptySig = new ArchetypeSignature(ReadOnlySpan<int>.Empty);
+            ArchetypeSignature emptySig = new(ReadOnlySpan<int>.Empty);
             _state.EmptyArchetype = GetOrCreateArchetype(emptySig);
         }
 
         public void RegisterComponent<T>() where T : struct
         {
             ComponentTypeId id = _componentRegistry.GetOrCreate<T>();
-            if (_typedColumnFactories.ContainsKey(id.Value))
-            {
-                return;
-            }
+            if (_typedColumnFactories.ContainsKey(id.Value)) return;
 
             _typedColumnFactories.Add(id.Value, cap => new ChunkColumn<T>(cap));
         }
 
-        public ComponentTypeId GetComponentTypeId<T>() where T : struct => _componentRegistry.GetOrCreate<T>();
+        public ComponentTypeId GetComponentTypeId<T>() where T : struct
+        {
+            return _componentRegistry.GetOrCreate<T>();
+        }
 
         public bool Has<T>(Entity entity) where T : struct
         {
             int index = entity.Index;
-            if ((uint)index >= (uint)_state.Locations.Length)
-            {
-                return false;
-            }
+            if ((uint)index >= (uint)_state.Locations.Length) return false;
 
             EntityLocation loc = _state.Locations[index];
-            if (!loc.IsValid)
-            {
-                return false;
-            }
+            if (!loc.IsValid) return false;
 
             ComponentTypeId typeId = _componentRegistry.GetOrCreate<T>();
             Archetype archetype = GetArchetypeById(loc.ArchetypeId);
@@ -74,9 +65,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             Archetype archetype = GetArchetypeById(loc.ArchetypeId);
             if (!archetype.TryGetColumnIndex(typeId, out int columnIndex))
-            {
                 throw new InvalidOperationException($"Entity {entity} does not have component {typeof(T).Name}.");
-            }
 
             Chunk chunk = archetype.GetChunkById(loc.ChunkId);
             ChunkColumn<T> col = (ChunkColumn<T>)chunk.Columns[columnIndex];
@@ -92,9 +81,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             Archetype archetype = GetArchetypeById(loc.ArchetypeId);
             if (!archetype.TryGetColumnIndex(typeId, out int columnIndex))
-            {
                 throw new InvalidOperationException($"Entity {entity} does not have component {typeof(T).Name}.");
-            }
 
             Chunk chunk = archetype.GetChunkById(loc.ChunkId);
             ChunkColumn<T> col = (ChunkColumn<T>)chunk.Columns[columnIndex];
@@ -104,10 +91,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         public EntityLocation GetLocation(Entity entity)
         {
             int index = entity.Index;
-            if ((uint)index >= (uint)_state.Locations.Length)
-            {
-                return EntityLocation.Invalid;
-            }
+            if ((uint)index >= (uint)_state.Locations.Length) return EntityLocation.Invalid;
 
             return _state.Locations[index];
         }
@@ -117,24 +101,24 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             _state.Locations[entityIndex] = loc;
         }
 
-        public Archetype GetEmptyArchetype() => _state.EmptyArchetype;
+        public Archetype GetEmptyArchetype()
+        {
+            return _state.EmptyArchetype;
+        }
 
         public Archetype GetOrCreateArchetype(ArchetypeSignature signature)
         {
             ulong hash = signature.ComputeStableHash64();
-            ArchetypeId id = new ArchetypeId(hash);
+            ArchetypeId id = new(hash);
 
             if (_state.ArchetypesByHash.TryGetValue(hash, out List<Archetype> existing))
             {
                 for (int i = 0; i < existing.Count; i++)
                 {
-                    if (existing[i].Signature.Equals(signature))
-                    {
-                        return existing[i];
-                    }
+                    if (existing[i].Signature.Equals(signature)) return existing[i];
                 }
 
-                Archetype created = new Archetype(signature, id);
+                Archetype created = new(signature, id);
                 existing.Add(created);
                 existing.Sort((a, b) => ArchetypeSignature.CompareLexicographic(a.Signature, b.Signature));
 
@@ -146,7 +130,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 return created;
             }
 
-            Archetype fresh = new Archetype(signature, id);
+            Archetype fresh = new(signature, id);
             _state.ArchetypesByHash.Add(hash, new List<Archetype>(1) { fresh });
 
             unchecked
@@ -159,12 +143,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public Archetype GetArchetypeById(ArchetypeId id)
         {
-            if (_state.ArchetypesByHash.TryGetValue(id.Value, out List<Archetype> list))
-            {
-                // MVP note: ArchetypeId is signature hash (64-bit). Collision risk is extremely low.
-                // For now, return the first entry in the collision bucket.
-                return list[0];
-            }
+            if (_state.ArchetypesByHash.TryGetValue(id.Value, out List<Archetype> list)) return list[0];
 
             throw new InvalidOperationException($"Archetype {id} was not found.");
         }
@@ -195,7 +174,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             {
                 ArchetypeId = empty.ArchetypeId,
                 ChunkId = chunk.ChunkId,
-                Row = row,
+                Row = row
             };
         }
 
@@ -204,10 +183,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             int index = entity.Index;
 
             EntityLocation loc = _state.Locations[index];
-            if (!loc.IsValid)
-            {
-                return;
-            }
+            if (!loc.IsValid) return;
 
             Archetype archetype = GetArchetypeById(loc.ArchetypeId);
             Chunk chunk = archetype.GetChunkById(loc.ChunkId);
@@ -215,14 +191,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             chunk.RemoveAtSwapBack(loc.Row, out Entity swappedEntity, out bool didSwap);
 
             if (didSwap)
-            {
                 _state.Locations[swappedEntity.Index] = new EntityLocation
                 {
                     ArchetypeId = loc.ArchetypeId,
                     ChunkId = loc.ChunkId,
-                    Row = loc.Row,
+                    Row = loc.Row
                 };
-            }
 
             _state.Locations[index] = EntityLocation.Invalid;
         }
@@ -249,7 +223,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             for (int i = 0; i < srcTypes.Length; i++)
             {
-                ComponentTypeId typeId = new ComponentTypeId(srcTypes[i]);
+                ComponentTypeId typeId = new(srcTypes[i]);
 
                 if (dstArchetype.TryGetColumnIndex(typeId, out int dstColumnIndex))
                 {
@@ -269,21 +243,19 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             srcChunk.RemoveAtSwapBack(removedRow, out Entity swappedEntity, out bool didSwap);
             if (didSwap)
-            {
                 _state.Locations[swappedEntity.Index] = new EntityLocation
                 {
                     ArchetypeId = srcArchetype.ArchetypeId,
                     ChunkId = srcLoc.ChunkId,
-                    Row = removedRow,
+                    Row = removedRow
                 };
-            }
         }
 
         public IChunkColumn[] CreateColumnsForSignature(int capacity, ArchetypeSignature signature)
         {
             int[] typeIds = signature.TypeIds;
-            IChunkColumn[] cols = new IChunkColumn[typeIds.Length];
 
+            IChunkColumn[] cols = EcsArrayPool<IChunkColumn>.Rent(typeIds.Length);
             for (int i = 0; i < typeIds.Length; i++)
             {
                 cols[i] = CreateTypedColumn(typeIds[i], capacity);
@@ -295,11 +267,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         private IChunkColumn CreateTypedColumn(int typeId, int capacity)
         {
             if (!_typedColumnFactories.TryGetValue(typeId, out Func<int, IChunkColumn> factory))
-            {
                 throw new InvalidOperationException(
                     $"No column factory registered for ComponentTypeId {typeId}. " +
                     $"Call World.RegisterComponent<T>() for each component type used in chunks.");
-            }
 
             return factory(capacity);
         }
@@ -309,14 +279,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             int index = entity.Index;
 
             if ((uint)index >= (uint)_state.Locations.Length)
-            {
                 throw new InvalidOperationException($"Entity {entity} index is out of range.");
-            }
 
             if (!_state.Locations[index].IsValid)
-            {
                 throw new InvalidOperationException($"Entity {entity} does not have a valid storage location.");
-            }
         }
     }
 }

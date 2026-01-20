@@ -1,5 +1,4 @@
 using UnityEngine;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Demo.Profiling;
 using LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Components;
 using LegendaryTools.Common.Core.Patterns.ECS.Entities;
@@ -36,37 +35,34 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Systems
 
         public void OnUpdate(World world, int tick)
         {
-            if (_spawnPerTick <= 0)
-            {
-                return;
-            }
+            if (_spawnPerTick <= 0) return;
 
             for (int i = 0; i < _spawnPerTick; i++)
             {
                 Entity e = world.ECB.CreateEntity();
 
-                Position p = new Position
+                Position p = new()
                 {
-                    X = (i % 20) * 0.2f,
+                    X = i % 20 * 0.2f,
                     Y = 0.0f,
-                    Z = (i / 20) * 0.2f,
+                    Z = i / 20 * 0.2f
                 };
 
-                Velocity v = new Velocity
+                Velocity v = new()
                 {
                     X = 0.02f,
                     Y = 0.0f,
-                    Z = 0.01f,
+                    Z = 0.01f
                 };
 
-                Lifetime life = new Lifetime
+                Lifetime life = new()
                 {
-                    TicksRemaining = Random.Range(_lifeMin, _lifeMax + 1),
+                    TicksRemaining = Random.Range(_lifeMin, _lifeMax + 1)
                 };
 
-                Health hp = new Health
+                Health hp = new()
                 {
-                    Value = 100,
+                    Value = 100
                 };
 
                 world.ECB.Add(e, p);
@@ -75,10 +71,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Systems
                 world.ECB.Add(e, hp);
             }
 
-            if (_counters != null)
-            {
-                _counters.AddSpawn(_spawnPerTick);
-            }
+            if (_counters != null) _counters.AddSpawn(_spawnPerTick);
         }
 
         public void OnDestroy(World world)

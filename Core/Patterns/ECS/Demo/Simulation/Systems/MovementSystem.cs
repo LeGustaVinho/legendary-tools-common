@@ -29,7 +29,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Systems
 
         public void OnUpdate(World world, int tick)
         {
-            var processor = new MovementChunkProcessor(
+            MovementChunkProcessor processor = new(
                 world.GetComponentTypeId<Position>(),
                 world.GetComponentTypeId<Velocity>());
 
@@ -55,9 +55,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Systems
             {
                 if (!archetype.TryGetColumnIndex(_posId, out int posIndex) ||
                     !archetype.TryGetColumnIndex(_velId, out int velIndex))
-                {
                     return;
-                }
 
                 ChunkColumn<Position> posCol = (ChunkColumn<Position>)chunk.Columns[posIndex];
                 ChunkColumn<Velocity> velCol = (ChunkColumn<Velocity>)chunk.Columns[velIndex];

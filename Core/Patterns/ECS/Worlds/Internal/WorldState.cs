@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Storage;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
@@ -42,10 +41,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public WorldState(int initialCapacity)
         {
-            if (initialCapacity < 1)
-            {
-                initialCapacity = 1;
-            }
+            if (initialCapacity < 1) initialCapacity = 1;
 
             Versions = new int[initialCapacity];
             Alive = new bool[initialCapacity];
@@ -71,15 +67,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public void EnsureEntityCapacity(int required)
         {
-            if (required <= Alive.Length)
-            {
-                return;
-            }
+            if (required <= Alive.Length) return;
 
             int newSize = Alive.Length;
             while (newSize < required)
             {
-                newSize = newSize < 1024 ? newSize * 2 : newSize + (newSize / 2);
+                newSize = newSize < 1024 ? newSize * 2 : newSize + newSize / 2;
             }
 
             Array.Resize(ref Versions, newSize);
@@ -99,10 +92,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             if (FreeCount >= FreeList.Length)
             {
                 int newSize = FreeList.Length * 2;
-                if (newSize < 16)
-                {
-                    newSize = 16;
-                }
+                if (newSize < 16) newSize = 16;
 
                 Array.Resize(ref FreeList, newSize);
             }

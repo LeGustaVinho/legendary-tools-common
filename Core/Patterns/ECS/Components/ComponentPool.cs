@@ -18,10 +18,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
         /// <param name="initialCapacity">Initial entity capacity.</param>
         public ComponentPool(int initialCapacity)
         {
-            if (initialCapacity < 1)
-            {
-                initialCapacity = 1;
-            }
+            if (initialCapacity < 1) initialCapacity = 1;
 
             _data = new T[initialCapacity];
             _present = new bool[initialCapacity];
@@ -34,10 +31,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
         /// <returns>True if present.</returns>
         public bool Has(int entityIndex)
         {
-            if ((uint)entityIndex >= (uint)_present.Length)
-            {
-                return false;
-            }
+            if ((uint)entityIndex >= (uint)_present.Length) return false;
 
             return _present[entityIndex];
         }
@@ -60,10 +54,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
         /// <param name="entityIndex">Entity index.</param>
         public void Remove(int entityIndex)
         {
-            if ((uint)entityIndex >= (uint)_present.Length)
-            {
-                return;
-            }
+            if ((uint)entityIndex >= (uint)_present.Length) return;
 
             _present[entityIndex] = false;
             _data[entityIndex] = default;
@@ -92,15 +83,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
         /// <inheritdoc/>
         public void EnsureCapacity(int requiredCapacity)
         {
-            if (requiredCapacity <= _data.Length)
-            {
-                return;
-            }
+            if (requiredCapacity <= _data.Length) return;
 
             int newSize = _data.Length;
             while (newSize < requiredCapacity)
             {
-                newSize = newSize < 1024 ? newSize * 2 : newSize + (newSize / 2);
+                newSize = newSize < 1024 ? newSize * 2 : newSize + newSize / 2;
             }
 
             Array.Resize(ref _data, newSize);

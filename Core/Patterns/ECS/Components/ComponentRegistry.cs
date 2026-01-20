@@ -29,10 +29,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
         {
             Type type = typeof(T);
 
-            if (_typeToId.TryGetValue(type, out int existing))
-            {
-                return new ComponentTypeId(existing);
-            }
+            if (_typeToId.TryGetValue(type, out int existing)) return new ComponentTypeId(existing);
 
             int id = _nextId++;
             _typeToId.Add(type, id);

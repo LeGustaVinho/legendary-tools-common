@@ -31,9 +31,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Profiling
             _sb.Append("ECS Demo Profiler\n");
             _sb.Append("Tick: ").Append(tick).Append(" | TickRate: ").Append(tickRate).Append('\n');
             _sb.Append("Alive: ").Append(aliveCount)
-               .Append(" | Spawned(last): ").Append(spawnedLastTick)
-               .Append(" | Destroyed(last): ").Append(destroyedLastTick)
-               .Append('\n');
+                .Append(" | Spawned(last): ").Append(spawnedLastTick)
+                .Append(" | Destroyed(last): ").Append(destroyedLastTick)
+                .Append('\n');
 
             _sb.Append("------------------------------------------------------------\n");
             _sb.Append("System                          | Last | Avg  | Min  | Max\n");
@@ -45,10 +45,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Profiling
 
                 // Fixed width name column for easy visual comparison.
                 string name = s.Name ?? "Unnamed";
-                if (name.Length > 30)
-                {
-                    name = name.Substring(0, 30);
-                }
+                if (name.Length > 30) name = name.Substring(0, 30);
 
                 _sb.Append(name.PadRight(30));
                 _sb.Append(" | ");

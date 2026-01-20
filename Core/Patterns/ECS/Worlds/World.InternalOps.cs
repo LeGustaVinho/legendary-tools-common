@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Components;
 using LegendaryTools.Common.Core.Patterns.ECS.Entities;
 using LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal;
@@ -14,10 +13,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
 
         private void EnsureEcbInitialized()
         {
-            if (StateEcb == null)
-            {
-                StateEcb = new EntityCommandBuffer(this);
-            }
+            if (StateEcb == null) StateEcb = new EntityCommandBuffer(this);
         }
 
         /// <summary>
@@ -36,10 +32,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         internal void InternalDestroyEntity(Entity e)
         {
             // If entity is already dead/stale, ignore for MVP resilience.
-            if (!Entities.IsAlive(e))
-            {
-                return;
-            }
+            if (!Entities.IsAlive(e)) return;
 
             Storage.RemoveFromStorage(e);
             Entities.FinalizeDestroy(e);
@@ -68,25 +61,19 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         internal void InternalRemoveByTypeId(Entity e, int componentTypeId)
         {
             if (!_removeByTypeId.TryGetValue(componentTypeId, out Action<Entity> remover))
-            {
                 throw new InvalidOperationException(
                     $"No remove delegate registered for ComponentTypeId {componentTypeId}. " +
                     "Call World.RegisterComponent<T>() for each component type used in structural changes.");
-            }
 
             remover(e);
         }
 
-        private readonly Dictionary<int, Action<Entity>> _removeByTypeId =
-            new Dictionary<int, Action<Entity>>(128);
+        private readonly Dictionary<int, Action<Entity>> _removeByTypeId = new(128);
 
         private void RegisterRemoveDelegate<T>() where T : struct
         {
             ComponentTypeId id = GetComponentTypeId<T>();
-            if (_removeByTypeId.ContainsKey(id.Value))
-            {
-                return;
-            }
+            if (_removeByTypeId.ContainsKey(id.Value)) return;
 
             _removeByTypeId.Add(id.Value, ent => InternalRemove<T>(ent));
         }

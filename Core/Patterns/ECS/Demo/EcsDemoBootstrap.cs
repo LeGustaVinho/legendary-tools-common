@@ -1,7 +1,5 @@
 using System;
-
 using UnityEngine;
-
 using LegendaryTools.Common.Core.Patterns.ECS.Demo.Profiling;
 using LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation;
 using LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Systems;
@@ -16,8 +14,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo
     /// </summary>
     public sealed class EcsDemoBootstrap : MonoBehaviour
     {
-        [SerializeField]
-        private EcsDemoConfig _config;
+        [SerializeField] private EcsDemoConfig _config;
 
         private World _world;
         private Scheduler _scheduler;
@@ -34,12 +31,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo
         private void Awake()
         {
             if (_config == null)
-            {
                 // Safe fallback if no asset is assigned.
                 _config = ScriptableObject.CreateInstance<EcsDemoConfig>();
-            }
 
-            _world = new World(initialCapacity: Mathf.Max(1024, _config.InitialEntityCount + 256));
+            _world = new World(Mathf.Max(1024, _config.InitialEntityCount + 256));
             _scheduler = _world.CreateScheduler();
 
             _profiler = new EcsDemoProfiler();
@@ -52,11 +47,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo
 
             // Optional spawner.
             if (_config.SpawnPerTick > 0)
-            {
                 AddProfiled(
                     SystemPhase.Simulation,
-                    new SpawnSystem(_counters, _config.SpawnPerTick, _config.LifetimeMinTicks, _config.LifetimeMaxTicks));
-            }
+                    new SpawnSystem(_counters, _config.SpawnPerTick, _config.LifetimeMinTicks,
+                        _config.LifetimeMaxTicks));
 
             // Initialize systems.
             _scheduler.Create();
@@ -68,10 +62,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo
             if (_config.EnableHud)
             {
                 _hud = gameObject.GetComponent<EcsDemoHud>();
-                if (_hud == null)
-                {
-                    _hud = gameObject.AddComponent<EcsDemoHud>();
-                }
+                if (_hud == null) _hud = gameObject.AddComponent<EcsDemoHud>();
 
                 _hud.Initialize(_world, _profiler, _counters, _config, Mathf.Max(1, _config.TickRate));
             }
@@ -128,20 +119,17 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo
                 ran++;
                 _accumulator -= tickDelta;
 
-                if (_hud != null)
-                {
-                    _hud.SetTick(_tick);
-                }
+                if (_hud != null) _hud.SetTick(_tick);
             }
         }
 
         private void AddProfiled(SystemPhase phase, ISystem system)
         {
             string name = system.GetType().Name;
-            var stats = new SystemStats(name);
+            SystemStats stats = new(name);
             _profiler.Add(stats);
 
-            var wrapped = new ProfiledSystemWrapper(system, stats);
+            ProfiledSystemWrapper wrapped = new(system, stats);
             _scheduler.AddSystem(phase, wrapped);
         }
     }

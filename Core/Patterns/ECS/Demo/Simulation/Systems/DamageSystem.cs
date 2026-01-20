@@ -28,12 +28,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Systems
         public void OnUpdate(World world, int tick)
         {
             // Apply damage every 4 ticks to vary cost.
-            if ((tick & 3) != 0)
-            {
-                return;
-            }
+            if ((tick & 3) != 0) return;
 
-            var processor = new DamageChunkProcessor(world.GetComponentTypeId<Health>());
+            DamageChunkProcessor processor = new(world.GetComponentTypeId<Health>());
             world.ForEachChunk(_query, ref processor);
         }
 
@@ -52,10 +49,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Demo.Simulation.Systems
 
             public void Execute(Archetype archetype, Chunk chunk)
             {
-                if (!archetype.TryGetColumnIndex(_hpId, out int hpIndex))
-                {
-                    return;
-                }
+                if (!archetype.TryGetColumnIndex(_hpId, out int hpIndex)) return;
 
                 ChunkColumn<Health> hpCol = (ChunkColumn<Health>)chunk.Columns[hpIndex];
                 Health[] hp = hpCol.Data;

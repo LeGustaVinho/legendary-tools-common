@@ -11,10 +11,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         public void BeginTick(int tick)
         {
             if (State.IsUpdating)
-            {
                 // Nested BeginTick is almost always a bug.
                 throw new System.InvalidOperationException("World is already updating.");
-            }
 
             EnsureEcbInitialized();
 
@@ -29,10 +27,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         /// </summary>
         public void EndTick()
         {
-            if (!State.IsUpdating)
-            {
-                throw new System.InvalidOperationException("World is not updating.");
-            }
+            if (!State.IsUpdating) throw new System.InvalidOperationException("World is not updating.");
 
             // Unlock first so playback can apply immediate changes safely.
             State.IsUpdating = false;

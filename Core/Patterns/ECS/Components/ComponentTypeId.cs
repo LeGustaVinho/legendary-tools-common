@@ -20,6 +20,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
         }
 
         /// <inheritdoc/>
-        public override string ToString() => $"ComponentTypeId({Value})";
+        public override string ToString()
+        {
+            return $"ComponentTypeId({Value})";
+        }
     }
 }
