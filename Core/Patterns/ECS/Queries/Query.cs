@@ -6,10 +6,19 @@ using LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 {
+    /// <summary>
+    /// Query (MVP): All (required) + None (optional). No Any for now.
+    /// Designed for hot paths: matching uses bitsets and caches matching archetypes.
+    /// </summary>
     public sealed class Query
     {
+        // Kept only for debugging/introspection; matching uses masks.
         internal readonly int[] All;
         internal readonly int[] None;
+
+        // Hot path masks.
+        internal readonly ulong[] AllMask;
+        internal readonly ulong[] NoneMask;
 
         internal readonly struct ArchetypeCache
         {
@@ -29,8 +38,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 
         public Query(ReadOnlySpan<ComponentTypeId> all, ReadOnlySpan<ComponentTypeId> none)
         {
+            if (all.Length == 0)
+                throw new ArgumentException("Query.All is required (must not be empty).", nameof(all));
+
             All = Normalize(all);
             None = Normalize(none);
+
+            AllMask = BuildMask(All);
+            NoneMask = BuildMask(None);
 
             _cachedArchetypes = Array.Empty<Archetype>();
             _cachedArchetypesCount = 0;
@@ -41,6 +56,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
         {
             int version = storage.ArchetypeVersion;
 
+            // No allocations per tick: cache rebuild happens only on structural changes (version change).
             if (_cachedArchetypeVersion == version)
                 return new ArchetypeCache(_cachedArchetypes, _cachedArchetypesCount);
 
@@ -78,14 +94,24 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 
         internal bool Matches(Archetype archetype)
         {
-            for (int i = 0; i < All.Length; i++)
+            // Fast matching by bitset:
+            // - AllMask bits must be present in signature mask.
+            // - NoneMask bits must be absent.
+            ulong[] sig = archetype.Signature.MaskWords;
+
+            // All
+            for (int i = 0; i < AllMask.Length; i++)
             {
-                if (Array.BinarySearch(archetype.Signature.TypeIds, All[i]) < 0) return false;
+                ulong sigWord = (uint)i < (uint)sig.Length ? sig[i] : 0UL;
+                ulong need = AllMask[i];
+                if ((sigWord & need) != need) return false;
             }
 
-            for (int i = 0; i < None.Length; i++)
+            // None
+            for (int i = 0; i < NoneMask.Length; i++)
             {
-                if (Array.BinarySearch(archetype.Signature.TypeIds, None[i]) >= 0) return false;
+                ulong sigWord = (uint)i < (uint)sig.Length ? sig[i] : 0UL;
+                if ((sigWord & NoneMask[i]) != 0UL) return false;
             }
 
             return true;
@@ -120,6 +146,29 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
             int[] trimmed = new int[unique];
             Array.Copy(arr, trimmed, unique);
             return trimmed;
+        }
+
+        private static ulong[] BuildMask(int[] sortedUniqueTypeIds)
+        {
+            if (sortedUniqueTypeIds.Length == 0) return Array.Empty<ulong>();
+
+            int maxId = sortedUniqueTypeIds[sortedUniqueTypeIds.Length - 1];
+            if (maxId < 0) return Array.Empty<ulong>();
+
+            int words = (maxId >> 6) + 1;
+            ulong[] mask = new ulong[words];
+
+            for (int i = 0; i < sortedUniqueTypeIds.Length; i++)
+            {
+                int id = sortedUniqueTypeIds[i];
+                if (id < 0) continue;
+
+                int w = id >> 6;
+                int b = id & 63;
+                mask[w] |= 1UL << b;
+            }
+
+            return mask;
         }
     }
 }

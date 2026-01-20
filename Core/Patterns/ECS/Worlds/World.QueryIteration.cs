@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using LegendaryTools.Common.Core.Patterns.ECS.Queries;
 using LegendaryTools.Common.Core.Patterns.ECS.Storage;
 
@@ -25,9 +24,15 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
                 for (int a = 0; a < matchingCount; a++)
                 {
                     Archetype archetype = matching[a];
-                    IReadOnlyList<Chunk> chunks = archetype.Chunks;
 
-                    for (int c = 0; c < chunks.Count; c++)
+                    // Zero-alloc chunk iteration over the archetype internal buffer.
+                    Chunk[] chunks = archetype.ChunksBuffer;
+                    int chunkCount = archetype.ChunkCount;
+
+                    // Deterministic by design:
+                    // - Archetypes are cached in deterministic order (StorageService enumeration),
+                    // - Chunks are stored in ChunkId order (sequential creation).
+                    for (int c = 0; c < chunkCount; c++)
                     {
                         Chunk chunk = chunks[c];
                         if (chunk.Count == 0) continue;
@@ -56,9 +61,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
                 for (int a = 0; a < matchingCount; a++)
                 {
                     Archetype archetype = matching[a];
-                    IReadOnlyList<Chunk> chunks = archetype.Chunks;
 
-                    for (int c = 0; c < chunks.Count; c++)
+                    Chunk[] chunks = archetype.ChunksBuffer;
+                    int chunkCount = archetype.ChunkCount;
+
+                    for (int c = 0; c < chunkCount; c++)
                     {
                         Chunk chunk = chunks[c];
                         int count = chunk.Count;

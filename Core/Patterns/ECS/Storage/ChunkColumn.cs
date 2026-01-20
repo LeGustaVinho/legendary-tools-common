@@ -3,7 +3,7 @@ using LegendaryTools.Common.Core.Patterns.ECS.Memory;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 {
-    internal sealed class ChunkColumn<T> : IChunkColumn where T : struct
+    public sealed class ChunkColumn<T> : IChunkColumn where T : struct
     {
         public readonly T[] Data;
 

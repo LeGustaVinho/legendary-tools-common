@@ -1,6 +1,6 @@
 namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 {
-    internal interface IChunkColumn
+    public interface IChunkColumn
     {
         void CopyElementTo(int srcRow, IChunkColumn dst, int dstRow);
 

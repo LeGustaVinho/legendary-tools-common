@@ -9,7 +9,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 
         public readonly Entity[] Entities;
 
-        internal readonly IChunkColumn[] Columns;
+        public readonly IChunkColumn[] Columns;
 
         private readonly int _capacity;
 

@@ -109,18 +109,24 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         public Archetype GetOrCreateArchetype(ArchetypeSignature signature)
         {
             ulong hash = signature.ComputeStableHash64();
-            ArchetypeId id = new(hash);
 
             if (_state.ArchetypesByHash.TryGetValue(hash, out List<Archetype> existing))
             {
+                // Fast path: exact signature already present.
                 for (int i = 0; i < existing.Count; i++)
                 {
                     if (existing[i].Signature.Equals(signature)) return existing[i];
                 }
 
+                // Create a unique archetype id inside this hash bucket.
+                ArchetypeId id = CreateUniqueArchetypeIdWithinBucket(signature, hash, existing);
+
                 Archetype created = new(signature, id);
                 existing.Add(created);
-                existing.Sort((a, b) => ArchetypeSignature.CompareLexicographic(a.Signature, b.Signature));
+
+                // Deterministic iteration requirement:
+                // Archetypes must be enumerated in ArchetypeId ascending order.
+                existing.Sort(CompareArchetypeByIdThenSignature);
 
                 unchecked
                 {
@@ -130,7 +136,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 return created;
             }
 
-            Archetype fresh = new(signature, id);
+            // New bucket.
+            uint disambiguator = signature.ComputeStableHash32();
+            ArchetypeId freshId = new(hash, disambiguator);
+
+            Archetype fresh = new(signature, freshId);
             _state.ArchetypesByHash.Add(hash, new List<Archetype>(1) { fresh });
 
             unchecked
@@ -143,19 +153,85 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public Archetype GetArchetypeById(ArchetypeId id)
         {
-            if (_state.ArchetypesByHash.TryGetValue(id.Value, out List<Archetype> list)) return list[0];
+            if (_state.ArchetypesByHash.TryGetValue(id.Value, out List<Archetype> list))
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i].ArchetypeId == id) return list[i];
+                }
 
             throw new InvalidOperationException($"Archetype {id} was not found.");
         }
 
-        public IEnumerable<Archetype> EnumerateArchetypesStable()
+        /// <summary>
+        /// Zero-allocation archetype enumeration in deterministic order:
+        /// 1) primary hash ascending (SortedDictionary key),
+        /// 2) ArchetypeId ascending within the bucket (list already sorted).
+        /// </summary>
+        public ArchetypeEnumerable EnumerateArchetypesStable()
         {
-            foreach (KeyValuePair<ulong, List<Archetype>> kv in _state.ArchetypesByHash)
+            return new ArchetypeEnumerable(_state.ArchetypesByHash);
+        }
+
+        public readonly struct ArchetypeEnumerable
+        {
+            private readonly SortedDictionary<ulong, List<Archetype>> _dict;
+
+            public ArchetypeEnumerable(SortedDictionary<ulong, List<Archetype>> dict)
             {
-                List<Archetype> list = kv.Value;
-                for (int i = 0; i < list.Count; i++)
+                _dict = dict;
+            }
+
+            public Enumerator GetEnumerator()
+            {
+                return new Enumerator(_dict);
+            }
+
+            public struct Enumerator
+            {
+                private SortedDictionary<ulong, List<Archetype>>.Enumerator _dictEnumerator;
+                private List<Archetype> _currentList;
+                private int _listIndex;
+
+                public Archetype Current { get; private set; }
+
+                public Enumerator(SortedDictionary<ulong, List<Archetype>> dict)
                 {
-                    yield return list[i];
+                    _dictEnumerator = dict.GetEnumerator();
+                    _currentList = null;
+                    _listIndex = -1;
+                    Current = null;
+                }
+
+                public bool MoveNext()
+                {
+                    // Continue within the current list.
+                    if (_currentList != null)
+                    {
+                        _listIndex++;
+                        if (_listIndex < _currentList.Count)
+                        {
+                            Current = _currentList[_listIndex];
+                            return true;
+                        }
+
+                        _currentList = null;
+                        _listIndex = -1;
+                    }
+
+                    // Advance dictionary until a non-empty list is found.
+                    while (_dictEnumerator.MoveNext())
+                    {
+                        List<Archetype> list = _dictEnumerator.Current.Value;
+                        if (list == null || list.Count == 0) continue;
+
+                        _currentList = list;
+                        _listIndex = 0;
+                        Current = _currentList[0];
+                        return true;
+                    }
+
+                    Current = null;
+                    return false;
                 }
             }
         }
@@ -283,6 +359,60 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             if (!_state.Locations[index].IsValid)
                 throw new InvalidOperationException($"Entity {entity} does not have a valid storage location.");
+        }
+
+        private static ArchetypeId CreateUniqueArchetypeIdWithinBucket(
+            ArchetypeSignature signature,
+            ulong bucketHash,
+            List<Archetype> bucket)
+        {
+            uint dis = signature.ComputeStableHash32();
+
+            if (!BucketContainsId(bucket, bucketHash, dis))
+                return new ArchetypeId(bucketHash, dis);
+
+            for (int attempt = 1; attempt <= 32; attempt++)
+            {
+                uint seed = unchecked(2166136261u ^ (uint)(attempt * 0x9E3779B9u));
+                dis = signature.ComputeStableHash32(seed);
+
+                if (!BucketContainsId(bucket, bucketHash, dis))
+                    return new ArchetypeId(bucketHash, dis);
+            }
+
+            dis = signature.ComputeStableHash32();
+            uint probe = dis;
+            for (uint step = 1; step != 0; step++)
+            {
+                probe = unchecked(dis + step);
+                if (!BucketContainsId(bucket, bucketHash, probe))
+                    return new ArchetypeId(bucketHash, probe);
+            }
+
+            throw new InvalidOperationException("Failed to create a unique ArchetypeId within the hash bucket.");
+        }
+
+        private static bool BucketContainsId(List<Archetype> bucket, ulong bucketHash, uint disambiguator)
+        {
+            ArchetypeId candidate = new(bucketHash, disambiguator);
+
+            for (int i = 0; i < bucket.Count; i++)
+            {
+                if (bucket[i].ArchetypeId == candidate) return true;
+            }
+
+            return false;
+        }
+
+        private static int CompareArchetypeByIdThenSignature(Archetype a, Archetype b)
+        {
+            int cmp = a.ArchetypeId.Value.CompareTo(b.ArchetypeId.Value);
+            if (cmp != 0) return cmp;
+
+            cmp = a.ArchetypeId.Disambiguator.CompareTo(b.ArchetypeId.Disambiguator);
+            if (cmp != 0) return cmp;
+
+            return ArchetypeSignature.CompareLexicographic(a.Signature, b.Signature);
         }
     }
 }
