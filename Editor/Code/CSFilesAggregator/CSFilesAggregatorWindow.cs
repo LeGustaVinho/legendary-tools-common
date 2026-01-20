@@ -128,6 +128,9 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             bool removeUsings = EditorGUILayout.Toggle("Remove 'using' declarations", state.RemoveUsings);
             if (removeUsings != state.RemoveUsings) _controller.SetRemoveUsings(removeUsings);
 
+            bool removeComments = EditorGUILayout.Toggle("Remove comments (Roslyn)", state.RemoveComments);
+            if (removeComments != state.RemoveComments) _controller.SetRemoveComments(removeComments);
+
             bool appendDelimiters =
                 EditorGUILayout.Toggle("Append end markers (End of file/folder)", state.AppendDelimiters);
             if (appendDelimiters != state.AppendDelimiters) _controller.SetAppendDelimiters(appendDelimiters);

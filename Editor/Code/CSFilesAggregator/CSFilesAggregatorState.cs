@@ -25,6 +25,11 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         public bool RemoveUsings { get; }
 
         /// <summary>
+        /// Whether C# comments should be removed from file content.
+        /// </summary>
+        public bool RemoveComments { get; }
+
+        /// <summary>
         /// Whether end markers (e.g., "End of file/folder") should be appended.
         /// </summary>
         public bool AppendDelimiters { get; }
@@ -103,6 +108,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             IReadOnlyList<string> paths,
             bool includeSubfolders,
             bool removeUsings,
+            bool removeComments,
             bool appendDelimiters,
             bool useImplementationStripper,
             MethodBodyMode stripMethodBodyMode,
@@ -122,6 +128,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             Paths = paths ?? new List<string>();
             IncludeSubfolders = includeSubfolders;
             RemoveUsings = removeUsings;
+            RemoveComments = removeComments;
             AppendDelimiters = appendDelimiters;
 
             UseImplementationStripper = useImplementationStripper;
@@ -151,6 +158,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
 
             return new CSFilesAggregatorState(
                 new List<string>(),
+                false,
                 false,
                 false,
                 true,
@@ -208,6 +216,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -231,6 +240,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 value,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -253,6 +263,31 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             return new CSFilesAggregatorState(
                 Paths,
                 IncludeSubfolders,
+                value,
+                RemoveComments,
+                AppendDelimiters,
+                UseImplementationStripper,
+                StripMethodBodyMode,
+                StripConvertNonAutoProperties,
+                StripMaskStringsAndComments,
+                StripSkipInterfaceMembers,
+                StripSkipAbstractMembers,
+                IncludeDependencies,
+                DependencyMaxDepth,
+                DependencyIgnorePackagesFolder,
+                DependencyIgnorePackageCache,
+                DependencyIgnoreUnresolvedTypes,
+                DependencyIncludeInputFilesInResult,
+                DependencyIncludeInMemoryVirtualPathsInResult,
+                AggregatedText);
+        }
+
+        public CSFilesAggregatorState WithRemoveComments(bool value)
+        {
+            return new CSFilesAggregatorState(
+                Paths,
+                IncludeSubfolders,
+                RemoveUsings,
                 value,
                 AppendDelimiters,
                 UseImplementationStripper,
@@ -277,6 +312,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 value,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -300,6 +336,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 value,
                 StripMethodBodyMode,
@@ -323,6 +360,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 value,
@@ -346,6 +384,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -369,6 +408,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -392,6 +432,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -415,6 +456,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -438,6 +480,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -461,6 +504,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -484,6 +528,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -507,6 +552,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -530,6 +576,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -553,6 +600,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -576,6 +624,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
@@ -599,6 +648,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 Paths,
                 IncludeSubfolders,
                 RemoveUsings,
+                RemoveComments,
                 AppendDelimiters,
                 UseImplementationStripper,
                 StripMethodBodyMode,
