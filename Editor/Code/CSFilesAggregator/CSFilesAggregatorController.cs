@@ -161,6 +161,19 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         }
 
         /// <summary>
+        /// Updates remove-comments flag.
+        /// </summary>
+        public void SetRemoveComments(bool value)
+        {
+            if (State.RemoveComments == value) return;
+
+            State = State.WithRemoveComments(value);
+
+            PersistSelectionAndSettings();
+            RaiseStateChanged();
+        }
+
+        /// <summary>
         /// Updates whether end markers ("End of file/folder") should be appended.
         /// </summary>
         public void SetAppendDelimiters(bool value)
@@ -508,6 +521,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             CSFilesAggregatorState state = CSFilesAggregatorState.CreateDefault()
                 .WithIncludeSubfolders(persisted.IncludeSubfolders)
                 .WithRemoveUsings(persisted.RemoveUsings)
+                .WithRemoveComments(persisted.RemoveComments)
                 .WithAppendDelimiters(persisted.AppendDelimiters)
                 .WithUseImplementationStripper(persisted.UseImplementationStripper)
                 .WithStripMethodBodyMode(persisted.StripMethodBodyMode)
@@ -562,6 +576,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             {
                 IncludeSubfolders = State.IncludeSubfolders,
                 RemoveUsings = State.RemoveUsings,
+                RemoveComments = State.RemoveComments,
                 AppendDelimiters = State.AppendDelimiters,
                 UseImplementationStripper = State.UseImplementationStripper,
                 StripMethodBodyMode = State.StripMethodBodyMode,

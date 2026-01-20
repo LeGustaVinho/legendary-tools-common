@@ -17,6 +17,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
 
         [SerializeField] private bool _removeUsings;
 
+        [SerializeField] private bool _removeComments;
+
         [SerializeField] private bool _appendDelimiters = true;
 
         [SerializeField] private bool _useImplementationStripper;
@@ -57,6 +59,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
                 Paths = _paths != null ? new List<string>(_paths) : new List<string>(),
                 IncludeSubfolders = _includeSubfolders,
                 RemoveUsings = _removeUsings,
+                RemoveComments = _removeComments,
                 AppendDelimiters = _appendDelimiters,
 
                 UseImplementationStripper = _useImplementationStripper,
@@ -86,6 +89,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
                 _paths = new List<string>();
                 _includeSubfolders = false;
                 _removeUsings = false;
+                _removeComments = false;
                 _appendDelimiters = true;
 
                 _useImplementationStripper = false;
@@ -108,6 +112,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
             _paths = data.Paths != null ? new List<string>(data.Paths) : new List<string>();
             _includeSubfolders = data.IncludeSubfolders;
             _removeUsings = data.RemoveUsings;
+            _removeComments = data.RemoveComments;
             _appendDelimiters = data.AppendDelimiters;
 
             _useImplementationStripper = data.UseImplementationStripper;

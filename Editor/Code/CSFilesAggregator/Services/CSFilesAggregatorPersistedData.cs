@@ -24,6 +24,11 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Services
         public bool RemoveUsings { get; set; }
 
         /// <summary>
+        /// Whether to remove comments.
+        /// </summary>
+        public bool RemoveComments { get; set; }
+
+        /// <summary>
         /// Whether end markers (e.g., "End of file/folder") should be appended.
         /// </summary>
         public bool AppendDelimiters { get; set; } = true;

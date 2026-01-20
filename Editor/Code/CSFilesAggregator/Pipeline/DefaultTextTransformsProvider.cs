@@ -15,6 +15,8 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator.Pipeline
 
             if (state != null && state.RemoveUsings) transforms.Add(new RemoveUsingsTransform());
 
+            if (state != null && state.RemoveComments) transforms.Add(new RemoveCommentsTransform());
+
             if (state != null && state.UseImplementationStripper)
             {
                 StripOptions options = state.BuildStripOptions();
