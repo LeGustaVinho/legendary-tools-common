@@ -25,11 +25,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
             int chunkCapacity = WorldState.DefaultChunkCapacity,
             StorageRemovalPolicy removalPolicy = StorageRemovalPolicy.SwapBack,
             ChunkAllocationPolicy allocationPolicy = ChunkAllocationPolicy.ScanFirstFit,
-            int simulationHz = 60)
+            int simulationHz = 60,
+            bool deterministic = false)
         {
             StoragePolicies policies = new(chunkCapacity, removalPolicy, allocationPolicy);
 
-            State = new WorldState(initialCapacity, policies, simulationHz);
+            State = new WorldState(initialCapacity, policies, simulationHz, deterministic);
 
             Storage = new StorageService(State);
             Entities = new EntityManager(State);

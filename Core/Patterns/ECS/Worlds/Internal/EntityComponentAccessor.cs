@@ -30,7 +30,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             EntityLocation loc = _state.Locations[index];
             if (!loc.IsValid) return false;
 
-            ComponentTypeId typeId = _components.GetComponentTypeId<T>();
+            ComponentTypeId typeId = GetTypeId<T>();
             Archetype archetype = _archetypes.GetArchetypeById(loc.ArchetypeId);
 
             return archetype.TryGetColumnIndexFast(typeId, out _);
@@ -52,7 +52,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         {
             ValidateHasLocation(entity);
 
-            ComponentTypeId typeId = _components.GetComponentTypeId<T>();
+            ComponentTypeId typeId = GetTypeId<T>();
             EntityLocation loc = _state.Locations[entity.Index];
 
             Archetype archetype = _archetypes.GetArchetypeById(loc.ArchetypeId);
@@ -83,7 +83,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         {
             ValidateHasLocation(entity);
 
-            ComponentTypeId typeId = _components.GetComponentTypeId<T>();
+            ComponentTypeId typeId = GetTypeId<T>();
             EntityLocation loc = _state.Locations[entity.Index];
 
             Archetype archetype = _archetypes.GetArchetypeById(loc.ArchetypeId);
@@ -108,6 +108,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             Chunk chunk = archetype.GetChunkById(loc.ChunkId);
             ChunkColumn<T> col = (ChunkColumn<T>)chunk.Columns[columnIndex];
             return ref col.Data[loc.Row];
+        }
+
+        private ComponentTypeId GetTypeId<T>() where T : struct
+        {
+            return _components.GetComponentTypeId<T>(strictRegisteredOnly: _state.Deterministic);
         }
 
         private void ValidateHasLocation(Entity entity)

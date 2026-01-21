@@ -15,31 +15,29 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Commands
         Entity CreateEntity();
 
         /// <summary>
-        /// Destroys an entity (deferred).
+        /// Creates a temporary entity with a deterministic sort key.
+        /// The sort key participates in ECB playback ordering.
         /// </summary>
-        /// <param name="entity">Entity to destroy.</param>
+        Entity CreateEntity(int sortKey);
+
         void DestroyEntity(Entity entity);
 
         /// <summary>
-        /// Adds a component with default value (deferred).
+        /// Destroys an entity with a deterministic sort key.
+        /// The sort key participates in ECB playback ordering.
         /// </summary>
-        /// <typeparam name="T">Component type.</typeparam>
-        /// <param name="entity">Target entity.</param>
+        void DestroyEntity(Entity entity, int sortKey);
+
         void Add<T>(Entity entity) where T : struct;
 
-        /// <summary>
-        /// Adds a component value (deferred).
-        /// </summary>
-        /// <typeparam name="T">Component type.</typeparam>
-        /// <param name="entity">Target entity.</param>
-        /// <param name="value">Component value.</param>
+        void Add<T>(Entity entity, int sortKey) where T : struct;
+
         void Add<T>(Entity entity, in T value) where T : struct;
 
-        /// <summary>
-        /// Removes a component (deferred).
-        /// </summary>
-        /// <typeparam name="T">Component type.</typeparam>
-        /// <param name="entity">Target entity.</param>
+        void Add<T>(Entity entity, in T value, int sortKey) where T : struct;
+
         void Remove<T>(Entity entity) where T : struct;
+
+        void Remove<T>(Entity entity, int sortKey) where T : struct;
     }
 }

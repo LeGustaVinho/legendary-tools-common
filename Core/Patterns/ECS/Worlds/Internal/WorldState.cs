@@ -43,7 +43,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         /// </summary>
         public int StructuralVersion;
 
-        // Deterministic time state.
+        // Determinism runtime toggle.
+        public readonly bool Deterministic;
+
         public readonly int SimulationHz;
         public readonly float TickDelta;
         public int CurrentTick;
@@ -74,16 +76,17 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         /// Backward-compatible constructor using default storage policies.
         /// </summary>
         public WorldState(int initialCapacity)
-            : this(initialCapacity, StoragePolicies.Default, 60)
+            : this(initialCapacity, StoragePolicies.Default, 60, deterministic: false)
         {
         }
 
-        public WorldState(int initialCapacity, StoragePolicies storagePolicies, int simulationHz)
+        public WorldState(int initialCapacity, StoragePolicies storagePolicies, int simulationHz, bool deterministic)
         {
             if (initialCapacity < 1) initialCapacity = 1;
             if (simulationHz < 1) simulationHz = 1;
 
             StoragePolicies = storagePolicies;
+            Deterministic = deterministic;
 
             Versions = new int[initialCapacity];
             Alive = new bool[initialCapacity];

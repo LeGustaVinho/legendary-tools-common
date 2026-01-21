@@ -14,23 +14,44 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         private readonly ComponentRegistry _registry;
         private readonly Dictionary<int, Func<int, IChunkColumn>> _typedColumnFactories;
 
-        public ComponentTypeStore()
+        private readonly bool _deterministic;
+
+        public ComponentTypeStore(bool deterministic)
         {
-            _registry = new ComponentRegistry();
+            _deterministic = deterministic;
+
+            _registry = new ComponentRegistry(strictDeterminism: deterministic);
             _typedColumnFactories = new Dictionary<int, Func<int, IChunkColumn>>(128);
         }
 
+        public ComponentManifest Manifest => _registry.Manifest;
+
         public void RegisterComponent<T>() where T : struct
         {
-            ComponentTypeId id = _registry.GetOrCreate<T>();
+            ComponentTypeId id = _registry.RegisterOrGet<T>();
             if (_typedColumnFactories.ContainsKey(id.Value)) return;
 
             _typedColumnFactories.Add(id.Value, cap => new ChunkColumn<T>(cap));
         }
 
-        public ComponentTypeId GetComponentTypeId<T>() where T : struct
+        public ComponentTypeId GetComponentTypeId<T>(bool strictRegisteredOnly) where T : struct
         {
-            return _registry.GetOrCreate<T>();
+            // When deterministic, always require prior registration. This avoids
+            // order-dependent "first touch" registration.
+            if (_deterministic)
+                strictRegisteredOnly = true;
+
+            if (strictRegisteredOnly)
+            {
+                if (_registry.TryGetExisting<T>(out ComponentTypeId existing))
+                    return existing;
+
+                throw new InvalidOperationException(
+                    $"Component {typeof(T).FullName} is not registered. " +
+                    "Call World.RegisterComponent<T>() during bootstrap (before simulation).");
+            }
+
+            return _registry.RegisterOrGet<T>();
         }
 
         public IChunkColumn[] CreateColumnsForSignature(int capacity, ArchetypeSignature signature)
@@ -51,7 +72,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             if (!_typedColumnFactories.TryGetValue(typeId, out Func<int, IChunkColumn> factory))
                 throw new InvalidOperationException(
                     $"No column factory registered for ComponentTypeId {typeId}. " +
-                    $"Call World.RegisterComponent<T>() for each component type used in chunks.");
+                    "Call World.RegisterComponent<T>() for each component type used in chunks.");
 
             return factory(capacity);
         }

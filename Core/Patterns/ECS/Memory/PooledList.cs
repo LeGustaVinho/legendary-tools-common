@@ -23,6 +23,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
 
         public int Count { get; private set; }
 
+        /// <summary>
+        /// Current internal buffer capacity. Used for no-growth checks.
+        /// </summary>
+        public int Capacity => _buffer.Length;
+
         public T this[int index]
         {
             get => _buffer[index];
@@ -60,6 +65,20 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
 
             _buffer[Count] = item;
             Count = next;
+        }
+
+        /// <summary>
+        /// Adds an item without growing the internal buffer.
+        /// Returns false if capacity would be exceeded.
+        /// </summary>
+        public bool TryAddNoGrow(in T item)
+        {
+            int next = Count + 1;
+            if (next > _buffer.Length) return false;
+
+            _buffer[Count] = item;
+            Count = next;
+            return true;
         }
 
         public void EnsureCapacity(int capacity)
