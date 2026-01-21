@@ -7,18 +7,47 @@ using LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal;
 namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 {
     /// <summary>
-    /// Query (MVP): All (required) + None (optional). No Any for now.
+    /// Query: All (required) + None (optional) + Any (optional).
     /// Designed for hot paths: matching uses bitsets and caches matching archetypes.
+    /// Cache invalidation uses World structural version (changes on archetype/chunk structural updates).
     /// </summary>
     public sealed class Query
     {
         // Kept only for debugging/introspection; matching uses masks.
         internal readonly int[] All;
         internal readonly int[] None;
+        internal readonly int[] Any;
 
         // Hot path masks.
         internal readonly ulong[] AllMask;
         internal readonly ulong[] NoneMask;
+        internal readonly ulong[] AnyMask;
+
+        /// <summary>
+        /// Prepared filter container for future extensions (e.g., enabled bits).
+        /// </summary>
+        internal readonly struct PreparedFilters
+        {
+            public readonly ulong[] All;
+            public readonly ulong[] None;
+            public readonly ulong[] Any;
+
+            // Reserved for future filters (kept here to avoid API breaking later).
+            public readonly ulong[] Enabled;
+            public readonly ulong[] Disabled;
+
+            public PreparedFilters(ulong[] all, ulong[] none, ulong[] any)
+            {
+                All = all;
+                None = none;
+                Any = any;
+
+                Enabled = Array.Empty<ulong>();
+                Disabled = Array.Empty<ulong>();
+            }
+        }
+
+        internal readonly PreparedFilters Filters;
 
         internal readonly struct ArchetypeCache
         {
@@ -34,30 +63,46 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 
         private Archetype[] _cachedArchetypes;
         private int _cachedArchetypesCount;
-        private int _cachedArchetypeVersion;
+        private int _cachedStructuralVersion;
 
+        /// <summary>
+        /// Creates a query with All + None (Any is empty).
+        /// </summary>
         public Query(ReadOnlySpan<ComponentTypeId> all, ReadOnlySpan<ComponentTypeId> none)
+            : this(all, none, ReadOnlySpan<ComponentTypeId>.Empty)
+        {
+        }
+
+        /// <summary>
+        /// Creates a query with All + None + Any.
+        /// </summary>
+        public Query(ReadOnlySpan<ComponentTypeId> all, ReadOnlySpan<ComponentTypeId> none,
+            ReadOnlySpan<ComponentTypeId> any)
         {
             if (all.Length == 0)
                 throw new ArgumentException("Query.All is required (must not be empty).", nameof(all));
 
             All = Normalize(all);
             None = Normalize(none);
+            Any = Normalize(any);
 
             AllMask = BuildMask(All);
             NoneMask = BuildMask(None);
+            AnyMask = BuildMask(Any);
+
+            Filters = new PreparedFilters(AllMask, NoneMask, AnyMask);
 
             _cachedArchetypes = Array.Empty<Archetype>();
             _cachedArchetypesCount = 0;
-            _cachedArchetypeVersion = int.MinValue;
+            _cachedStructuralVersion = int.MinValue;
         }
 
         internal ArchetypeCache GetOrBuildCache(StorageService storage)
         {
-            int version = storage.ArchetypeVersion;
+            int version = storage.StructuralVersion;
 
             // No allocations per tick: cache rebuild happens only on structural changes (version change).
-            if (_cachedArchetypeVersion == version)
+            if (_cachedStructuralVersion == version)
                 return new ArchetypeCache(_cachedArchetypes, _cachedArchetypesCount);
 
             int count = 0;
@@ -71,7 +116,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
                 ReturnCached();
                 _cachedArchetypes = Array.Empty<Archetype>();
                 _cachedArchetypesCount = 0;
-                _cachedArchetypeVersion = version;
+                _cachedStructuralVersion = version;
                 return new ArchetypeCache(_cachedArchetypes, 0);
             }
 
@@ -87,7 +132,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 
             _cachedArchetypes = newBuf;
             _cachedArchetypesCount = write;
-            _cachedArchetypeVersion = version;
+            _cachedStructuralVersion = version;
 
             return new ArchetypeCache(_cachedArchetypes, _cachedArchetypesCount);
         }
@@ -97,22 +142,46 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
             // Fast matching by bitset:
             // - AllMask bits must be present in signature mask.
             // - NoneMask bits must be absent.
+            // - If AnyMask is not empty: at least one Any bit must be present.
             ulong[] sig = archetype.Signature.MaskWords;
 
             // All
-            for (int i = 0; i < AllMask.Length; i++)
+            ulong[] all = Filters.All;
+            for (int i = 0; i < all.Length; i++)
             {
                 ulong sigWord = (uint)i < (uint)sig.Length ? sig[i] : 0UL;
-                ulong need = AllMask[i];
+                ulong need = all[i];
                 if ((sigWord & need) != need) return false;
             }
 
             // None
-            for (int i = 0; i < NoneMask.Length; i++)
+            ulong[] none = Filters.None;
+            for (int i = 0; i < none.Length; i++)
             {
                 ulong sigWord = (uint)i < (uint)sig.Length ? sig[i] : 0UL;
-                if ((sigWord & NoneMask[i]) != 0UL) return false;
+                if ((sigWord & none[i]) != 0UL) return false;
             }
+
+            // Any (optional)
+            ulong[] any = Filters.Any;
+            if (any.Length > 0)
+            {
+                bool anyHit = false;
+
+                for (int i = 0; i < any.Length; i++)
+                {
+                    ulong sigWord = (uint)i < (uint)sig.Length ? sig[i] : 0UL;
+                    if ((sigWord & any[i]) != 0UL)
+                    {
+                        anyHit = true;
+                        break;
+                    }
+                }
+
+                if (!anyHit) return false;
+            }
+
+            // Future filters (Enabled/Disabled) intentionally not applied yet.
 
             return true;
         }

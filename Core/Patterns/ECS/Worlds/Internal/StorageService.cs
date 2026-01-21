@@ -24,6 +24,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public int ArchetypeVersion => _state.ArchetypeVersion;
 
+        public int StructuralVersion => _state.StructuralVersion;
+
         public void InitializeEmptyArchetype()
         {
             ArchetypeSignature emptySig = new(ReadOnlySpan<int>.Empty);
@@ -133,10 +135,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                     _state.ArchetypeVersion++;
                 }
 
+                // Structural metadata changed (new archetype).
+                _state.IncrementStructuralVersion();
+
                 return created;
             }
 
-            // New bucket.
             uint disambiguator = signature.ComputeStableHash32();
             ArchetypeId freshId = new(hash, disambiguator);
 
@@ -148,7 +152,200 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 _state.ArchetypeVersion++;
             }
 
+            // Structural metadata changed (new archetype).
+            _state.IncrementStructuralVersion();
+
             return fresh;
+        }
+
+        /// <summary>
+        /// Hot-path friendly archetype lookup for "signature = src + addTypeId".
+        /// Uses pooled temporary buffers and avoids per-call GC allocations.
+        /// Only allocates when a brand new archetype must be created.
+        /// </summary>
+        internal Archetype GetOrCreateArchetypeWithAdded(Archetype srcArchetype, ComponentTypeId addTypeId)
+        {
+            ReadOnlySpan<int> src = srcArchetype.Signature.TypeIds;
+            int add = addTypeId.Value;
+
+            // Caller typically checks presence, but keep it safe and fast.
+            if (Array.BinarySearch(srcArchetype.Signature.TypeIds, add) >= 0)
+                return srcArchetype;
+
+            int required = src.Length + 1;
+            int[] tmp = EcsArrayPool<int>.Rent(required);
+
+            try
+            {
+                int write = 0;
+                bool inserted = false;
+
+                for (int i = 0; i < src.Length; i++)
+                {
+                    int v = src[i];
+
+                    if (!inserted && add < v)
+                    {
+                        tmp[write++] = add;
+                        inserted = true;
+                    }
+
+                    tmp[write++] = v;
+                }
+
+                if (!inserted)
+                    tmp[write++] = add;
+
+                return GetOrCreateArchetypeFromSortedTypes(tmp, write);
+            }
+            finally
+            {
+                EcsArrayPool<int>.Return(tmp, false);
+            }
+        }
+
+        /// <summary>
+        /// Hot-path friendly archetype lookup for "signature = src - removeTypeId".
+        /// Uses pooled temporary buffers and avoids per-call GC allocations.
+        /// Only allocates when a brand new archetype must be created.
+        /// </summary>
+        internal Archetype GetOrCreateArchetypeWithRemoved(Archetype srcArchetype, ComponentTypeId removeTypeId)
+        {
+            ReadOnlySpan<int> src = srcArchetype.Signature.TypeIds;
+            int rem = removeTypeId.Value;
+
+            int idx = Array.BinarySearch(srcArchetype.Signature.TypeIds, rem);
+            if (idx < 0)
+                return srcArchetype;
+
+            int required = src.Length - 1;
+            if (required <= 0)
+                return _state.EmptyArchetype;
+
+            int[] tmp = EcsArrayPool<int>.Rent(required);
+
+            try
+            {
+                int write = 0;
+                for (int i = 0; i < src.Length; i++)
+                {
+                    int v = src[i];
+                    if (v == rem) continue;
+                    tmp[write++] = v;
+                }
+
+                return GetOrCreateArchetypeFromSortedTypes(tmp, write);
+            }
+            finally
+            {
+                EcsArrayPool<int>.Return(tmp, false);
+            }
+        }
+
+        private Archetype GetOrCreateArchetypeFromSortedTypes(int[] sortedTypesBuffer, int count)
+        {
+            ReadOnlySpan<int> types = new(sortedTypesBuffer, 0, count);
+
+            ulong hash64 = ArchetypeSignature.ComputeStableHash64(types);
+
+            if (_state.ArchetypesByHash.TryGetValue(hash64, out List<Archetype> existing))
+            {
+                for (int i = 0; i < existing.Count; i++)
+                {
+                    Archetype a = existing[i];
+                    if (SignatureEquals(a.Signature.TypeIds, types))
+                        return a;
+                }
+
+                // One-time allocation for this new archetype signature.
+                ArchetypeSignature signature = CreateSignatureOwned(types);
+                ArchetypeId id = CreateUniqueArchetypeIdWithinBucket(types, hash64, existing);
+
+                Archetype created = new(signature, id);
+                existing.Add(created);
+                existing.Sort(CompareArchetypeByIdThenSignature);
+
+                unchecked
+                {
+                    _state.ArchetypeVersion++;
+                }
+
+                // Structural metadata changed (new archetype).
+                _state.IncrementStructuralVersion();
+
+                return created;
+            }
+            else
+            {
+                ArchetypeSignature signature = CreateSignatureOwned(types);
+
+                uint disambiguator = ArchetypeSignature.ComputeStableHash32(types, 2166136261u);
+                ArchetypeId freshId = new(hash64, disambiguator);
+
+                Archetype fresh = new(signature, freshId);
+                _state.ArchetypesByHash.Add(hash64, new List<Archetype>(1) { fresh });
+
+                unchecked
+                {
+                    _state.ArchetypeVersion++;
+                }
+
+                // Structural metadata changed (new archetype).
+                _state.IncrementStructuralVersion();
+
+                return fresh;
+            }
+        }
+
+        private static bool SignatureEquals(int[] a, ReadOnlySpan<int> b)
+        {
+            if (a.Length != b.Length) return false;
+
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i] != b[i]) return false;
+            }
+
+            return true;
+        }
+
+        private static ArchetypeSignature CreateSignatureOwned(ReadOnlySpan<int> sortedTypes)
+        {
+            // Create an owned array for long-lived archetype signature storage (one-time allocation per archetype).
+            int[] owned = new int[sortedTypes.Length];
+            sortedTypes.CopyTo(owned);
+            return new ArchetypeSignature(owned, true);
+        }
+
+        private static ArchetypeId CreateUniqueArchetypeIdWithinBucket(
+            ReadOnlySpan<int> signatureSortedTypeIds,
+            ulong bucketHash,
+            List<Archetype> bucket)
+        {
+            uint dis = ArchetypeSignature.ComputeStableHash32(signatureSortedTypeIds, 2166136261u);
+
+            if (!BucketContainsId(bucket, bucketHash, dis))
+                return new ArchetypeId(bucketHash, dis);
+
+            for (int attempt = 1; attempt <= 32; attempt++)
+            {
+                uint seed = unchecked(2166136261u ^ (uint)(attempt * 0x9E3779B9u));
+                dis = ArchetypeSignature.ComputeStableHash32(signatureSortedTypeIds, seed);
+
+                if (!BucketContainsId(bucket, bucketHash, dis))
+                    return new ArchetypeId(bucketHash, dis);
+            }
+
+            dis = ArchetypeSignature.ComputeStableHash32(signatureSortedTypeIds, 2166136261u);
+            uint probe = dis;
+            for (uint step = 1; step != 0; step++)
+            {
+                probe = unchecked(dis + step);
+                if (!BucketContainsId(bucket, bucketHash, probe))
+                    return new ArchetypeId(bucketHash, probe);
+            }
+
+            throw new InvalidOperationException("Failed to create a unique ArchetypeId within the hash bucket.");
         }
 
         public Archetype GetArchetypeById(ArchetypeId id)
@@ -162,11 +359,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             throw new InvalidOperationException($"Archetype {id} was not found.");
         }
 
-        /// <summary>
-        /// Zero-allocation archetype enumeration in deterministic order:
-        /// 1) primary hash ascending (SortedDictionary key),
-        /// 2) ArchetypeId ascending within the bucket (list already sorted).
-        /// </summary>
         public ArchetypeEnumerable EnumerateArchetypesStable()
         {
             return new ArchetypeEnumerable(_state.ArchetypesByHash);
@@ -204,7 +396,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
                 public bool MoveNext()
                 {
-                    // Continue within the current list.
                     if (_currentList != null)
                     {
                         _listIndex++;
@@ -218,7 +409,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                         _listIndex = -1;
                     }
 
-                    // Advance dictionary until a non-empty list is found.
                     while (_dictEnumerator.MoveNext())
                     {
                         List<Archetype> list = _dictEnumerator.Current.Value;
@@ -241,7 +431,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             Archetype empty = _state.EmptyArchetype;
 
             Chunk chunk = empty.GetOrCreateChunkWithSpace(
-                WorldState.DefaultChunkCapacity,
+                _state.ChunkCapacity,
+                _state.StoragePolicies.AllocationPolicy,
                 cap => CreateColumnsForSignature(cap, empty.Signature));
 
             int row = chunk.AddEntity(entity);
@@ -252,6 +443,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 ChunkId = chunk.ChunkId,
                 Row = row
             };
+
+            _state.IncrementStructuralVersion();
         }
 
         public void RemoveFromStorage(Entity entity)
@@ -264,23 +457,23 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             Archetype archetype = GetArchetypeById(loc.ArchetypeId);
             Chunk chunk = archetype.GetChunkById(loc.ChunkId);
 
-            chunk.RemoveAtSwapBack(loc.Row, out Entity swappedEntity, out bool didSwap);
-
-            if (didSwap)
-                _state.Locations[swappedEntity.Index] = new EntityLocation
-                {
-                    ArchetypeId = loc.ArchetypeId,
-                    ChunkId = loc.ChunkId,
-                    Row = loc.Row
-                };
+            RemoveFromChunkAndFixLocations(
+                loc.ArchetypeId,
+                loc.ChunkId,
+                chunk,
+                loc.Row,
+                _state.StoragePolicies.RemovalPolicy);
 
             _state.Locations[index] = EntityLocation.Invalid;
+
+            _state.IncrementStructuralVersion();
         }
 
         public Chunk AllocateDestinationSlot(Archetype dstArchetype, Entity entity, out int dstRow)
         {
             Chunk dstChunk = dstArchetype.GetOrCreateChunkWithSpace(
-                WorldState.DefaultChunkCapacity,
+                _state.ChunkCapacity,
+                _state.StoragePolicies.AllocationPolicy,
                 cap => CreateColumnsForSignature(cap, dstArchetype.Signature));
 
             dstRow = dstChunk.AddEntity(entity);
@@ -310,6 +503,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             }
         }
 
+        /// <summary>
+        /// Removes an entity row from the source archetype chunk and fixes locations affected by the chosen removal policy.
+        /// Used by structural moves (Add/Remove component) where the entity already has a new destination location.
+        /// </summary>
         public void RemoveFromSourceAndFixSwap(
             Archetype srcArchetype,
             EntityLocation srcLoc,
@@ -317,14 +514,91 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         {
             Chunk srcChunk = srcArchetype.GetChunkById(srcLoc.ChunkId);
 
-            srcChunk.RemoveAtSwapBack(removedRow, out Entity swappedEntity, out bool didSwap);
+            RemoveFromChunkAndFixLocations(
+                srcArchetype.ArchetypeId,
+                srcLoc.ChunkId,
+                srcChunk,
+                removedRow,
+                _state.StoragePolicies.RemovalPolicy);
+        }
+
+        private void RemoveFromChunkAndFixLocations(
+            ArchetypeId archetypeId,
+            int chunkId,
+            Chunk chunk,
+            int removedRow,
+            StorageRemovalPolicy removalPolicy)
+        {
+            switch (removalPolicy)
+            {
+                case StorageRemovalPolicy.SwapBack:
+                    RemoveFromChunkSwapBack(archetypeId, chunkId, chunk, removedRow);
+                    break;
+
+                case StorageRemovalPolicy.StableRemove:
+                    RemoveFromChunkStable(archetypeId, chunkId, chunk, removedRow);
+                    break;
+
+                default:
+                    throw new InvalidOperationException("Unknown storage removal policy.");
+            }
+        }
+
+        private void RemoveFromChunkSwapBack(
+            ArchetypeId archetypeId,
+            int chunkId,
+            Chunk chunk,
+            int removedRow)
+        {
+            chunk.RemoveAtSwapBack(removedRow, out Entity swappedEntity, out bool didSwap);
+
             if (didSwap)
                 _state.Locations[swappedEntity.Index] = new EntityLocation
                 {
-                    ArchetypeId = srcArchetype.ArchetypeId,
-                    ChunkId = srcLoc.ChunkId,
+                    ArchetypeId = archetypeId,
+                    ChunkId = chunkId,
                     Row = removedRow
                 };
+        }
+
+        private void RemoveFromChunkStable(
+            ArchetypeId archetypeId,
+            int chunkId,
+            Chunk chunk,
+            int removedRow)
+        {
+            int count = chunk.Count;
+            int last = count - 1;
+
+            for (int row = removedRow; row < last; row++)
+            {
+                Entity moved = chunk.Entities[row + 1];
+                chunk.Entities[row] = moved;
+
+                for (int c = 0; c < chunk.Columns.Length; c++)
+                {
+                    chunk.Columns[c].MoveElement(row + 1, row);
+                }
+
+                _state.Locations[moved.Index] = new EntityLocation
+                {
+                    ArchetypeId = archetypeId,
+                    ChunkId = chunkId,
+                    Row = row
+                };
+            }
+
+            if (last >= 0)
+            {
+                chunk.Entities[last] = Entity.Invalid;
+
+                for (int c = 0; c < chunk.Columns.Length; c++)
+                {
+                    chunk.Columns[c].SetDefault(last);
+                }
+            }
+
+            chunk.SetCountUnsafe(last);
         }
 
         public IChunkColumn[] CreateColumnsForSignature(int capacity, ArchetypeSignature signature)

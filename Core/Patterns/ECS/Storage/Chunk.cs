@@ -68,6 +68,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             Count = last;
         }
 
+        /// <summary>
+        /// Internal helper used by stable-remove policy (StorageService). Do not call directly outside storage.
+        /// </summary>
+        internal void SetCountUnsafe(int newCount)
+        {
+            Count = newCount;
+        }
+
         internal void ReturnToPool()
         {
             for (int i = 0; i < Columns.Length; i++)

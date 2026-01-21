@@ -65,8 +65,33 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
         /// </summary>
         /// <param name="entityIndex">Entity index.</param>
         /// <returns>Readonly reference to component.</returns>
+        public bool TryGetRO(int entityIndex, out T value)
+        {
+            if ((uint)entityIndex >= (uint)_present.Length || !_present[entityIndex])
+            {
+                value = default;
+                return false;
+            }
+
+            value = _data[entityIndex];
+            return true;
+        }
+
+        public bool TryGetRW(int entityIndex, out RefValue<T> value)
+        {
+            if ((uint)entityIndex >= (uint)_present.Length || !_present[entityIndex])
+            {
+                value = default;
+                return false;
+            }
+
+            value = new RefValue<T>(this, entityIndex);
+            return true;
+        }
+
         public ref readonly T GetRO(int entityIndex)
         {
+            ValidateIndexAndPresence(entityIndex);
             return ref _data[entityIndex];
         }
 
@@ -77,10 +102,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
         /// <returns>Writable reference to component.</returns>
         public ref T GetRW(int entityIndex)
         {
+            ValidateIndexAndPresence(entityIndex);
             return ref _data[entityIndex];
         }
 
-        /// <inheritdoc/>
         public void EnsureCapacity(int requiredCapacity)
         {
             if (requiredCapacity <= _data.Length) return;
@@ -93,6 +118,31 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
 
             Array.Resize(ref _data, newSize);
             Array.Resize(ref _present, newSize);
+        }
+
+        private void ValidateIndexAndPresence(int entityIndex)
+        {
+            if ((uint)entityIndex >= (uint)_present.Length)
+                throw new IndexOutOfRangeException(
+                    $"Entity index {entityIndex} is out of range (pool size {_present.Length}).");
+
+            if (!_present[entityIndex])
+                throw new InvalidOperationException(
+                    $"Component {typeof(T).Name} is not present on entity index {entityIndex}.");
+        }
+
+        internal readonly struct RefValue<TValue> where TValue : struct
+        {
+            private readonly ComponentPool<TValue> _pool;
+            private readonly int _index;
+
+            public RefValue(ComponentPool<TValue> pool, int index)
+            {
+                _pool = pool;
+                _index = index;
+            }
+
+            public ref TValue Value => ref _pool.GetRW(_index);
         }
     }
 }

@@ -11,6 +11,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         private readonly PooledList<Chunk> _chunks;
         private int _nextChunkId;
 
+        // Optional optimization for allocation policy.
+        private int _lastChunkWithSpaceIndex;
+
         public ArchetypeId ArchetypeId { get; }
 
         public ArchetypeSignature Signature { get; }
@@ -39,6 +42,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 
             _chunks = new PooledList<Chunk>(16);
             _nextChunkId = 0;
+
+            _lastChunkWithSpaceIndex = -1;
         }
 
         public bool Contains(ComponentTypeId typeId)
@@ -51,18 +56,37 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             return _typeIdToColumnIndex.TryGetValue(typeId.Value, out columnIndex);
         }
 
-        internal Chunk GetOrCreateChunkWithSpace(int chunkCapacity, Func<int, IChunkColumn[]> createColumns)
+        internal Chunk GetOrCreateChunkWithSpace(
+            int chunkCapacity,
+            ChunkAllocationPolicy allocationPolicy,
+            Func<int, IChunkColumn[]> createColumns)
         {
+            if (allocationPolicy == ChunkAllocationPolicy.TrackLastWithSpace)
+            {
+                int last = _lastChunkWithSpaceIndex;
+                if ((uint)last < (uint)_chunks.Count)
+                {
+                    Chunk cached = _chunks[last];
+                    if (cached.HasSpace) return cached;
+                }
+            }
+
             for (int i = 0; i < _chunks.Count; i++)
             {
                 Chunk c = _chunks[i];
-                if (c.HasSpace) return c;
+                if (c.HasSpace)
+                {
+                    _lastChunkWithSpaceIndex = i;
+                    return c;
+                }
             }
 
             int id = _nextChunkId++;
             IChunkColumn[] cols = createColumns(chunkCapacity);
             Chunk chunk = new(id, chunkCapacity, cols);
             _chunks.Add(chunk);
+
+            _lastChunkWithSpaceIndex = _chunks.Count - 1;
             return chunk;
         }
 

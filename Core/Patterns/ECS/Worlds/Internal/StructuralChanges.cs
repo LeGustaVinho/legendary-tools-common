@@ -5,10 +5,6 @@ using LegendaryTools.Common.Core.Patterns.ECS.Storage;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 {
-    /// <summary>
-    /// Structural changes (Add/Remove/move between archetypes).
-    /// In this MVP, changes apply immediately; later this will be routed through ECB.
-    /// </summary>
     internal sealed class StructuralChanges
     {
         private readonly WorldState _state;
@@ -40,7 +36,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             EntityLocation srcLoc = _storage.GetLocation(entity);
             Archetype srcArchetype = _storage.GetArchetypeById(srcLoc.ArchetypeId);
 
-            // If already has component, just set value in-place.
+            // Not a structural change: component already present, only write the value.
             if (srcArchetype.TryGetColumnIndex(typeId, out int existingColumnIndex))
             {
                 Chunk srcChunk0 = srcArchetype.GetChunkById(srcLoc.ChunkId);
@@ -49,17 +45,17 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 return;
             }
 
-            ArchetypeSignature dstSig = srcArchetype.Signature.WithAdded(typeId);
-            Archetype dstArchetype = _storage.GetOrCreateArchetype(dstSig);
+            // Zero-GC hot path (pooled temp signature).
+            Archetype dstArchetype = _storage.GetOrCreateArchetypeWithAdded(srcArchetype, typeId);
 
-            // 1) Allocate destination slot (stable, deterministic).
+            // Allocate destination slot (adds entity to destination chunk).
             Chunk dstChunk = _storage.AllocateDestinationSlot(dstArchetype, entity, out int dstRow);
 
-            // 2) Copy overlapping components src -> dst.
+            // Copy overlapping components from source to destination.
             Chunk srcChunk = srcArchetype.GetChunkById(srcLoc.ChunkId);
             _storage.CopyOverlappingComponents(srcArchetype, srcChunk, srcLoc.Row, dstArchetype, dstChunk, dstRow);
 
-            // 3) Set the new component value.
+            // Write the newly added component value.
             if (!dstArchetype.TryGetColumnIndex(typeId, out int newColIndex))
                 throw new InvalidOperationException(
                     "Destination archetype does not contain the expected new component.");
@@ -67,7 +63,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             ChunkColumn<T> newCol = (ChunkColumn<T>)dstChunk.Columns[newColIndex];
             newCol.Data[dstRow] = value;
 
-            // 4) Update entity location to destination.
+            // Update entity location to destination.
             _storage.SetLocation(entity.Index, new EntityLocation
             {
                 ArchetypeId = dstArchetype.ArchetypeId,
@@ -75,8 +71,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 Row = dstRow
             });
 
-            // 5) Remove from source (swap-back) and fix swapped entity location.
+            // Policy-based removal (SwapBack or StableRemove).
             _storage.RemoveFromSourceAndFixSwap(srcArchetype, srcLoc, srcLoc.Row);
+
+            // Structural change: entity moved between archetypes/chunks.
+            _state.IncrementStructuralVersion();
         }
 
         public void Remove<T>(Entity entity) where T : struct
@@ -93,17 +92,17 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             Archetype srcArchetype = _storage.GetArchetypeById(srcLoc.ArchetypeId);
             if (!srcArchetype.Contains(typeId)) return;
 
-            ArchetypeSignature dstSig = srcArchetype.Signature.WithRemoved(typeId);
-            Archetype dstArchetype = _storage.GetOrCreateArchetype(dstSig);
+            // Zero-GC hot path (pooled temp signature).
+            Archetype dstArchetype = _storage.GetOrCreateArchetypeWithRemoved(srcArchetype, typeId);
 
-            // 1) Allocate destination slot.
+            // Allocate destination slot (adds entity to destination chunk).
             Chunk dstChunk = _storage.AllocateDestinationSlot(dstArchetype, entity, out int dstRow);
 
-            // 2) Copy overlapping components src -> dst.
+            // Copy overlapping components from source to destination (excluding removed type).
             Chunk srcChunk = srcArchetype.GetChunkById(srcLoc.ChunkId);
             _storage.CopyOverlappingComponents(srcArchetype, srcChunk, srcLoc.Row, dstArchetype, dstChunk, dstRow);
 
-            // 3) Update entity location to destination.
+            // Update entity location to destination.
             _storage.SetLocation(entity.Index, new EntityLocation
             {
                 ArchetypeId = dstArchetype.ArchetypeId,
@@ -111,8 +110,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 Row = dstRow
             });
 
-            // 4) Remove from source and fix swap.
+            // Policy-based removal (SwapBack or StableRemove).
             _storage.RemoveFromSourceAndFixSwap(srcArchetype, srcLoc, srcLoc.Row);
+
+            // Structural change: entity moved between archetypes/chunks.
+            _state.IncrementStructuralVersion();
         }
     }
 }

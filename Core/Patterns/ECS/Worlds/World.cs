@@ -1,3 +1,4 @@
+using LegendaryTools.Common.Core.Patterns.ECS.Storage;
 using LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
@@ -13,12 +14,21 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         internal readonly StructuralChanges Structural;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="World"/> class.
+        /// Creates a deterministic ECS world.
         /// </summary>
         /// <param name="initialCapacity">Initial entity capacity.</param>
-        public World(int initialCapacity = 1024)
+        /// <param name="chunkCapacity">Number of entities per chunk.</param>
+        /// <param name="removalPolicy">How entities are removed from chunks.</param>
+        /// <param name="allocationPolicy">How archetypes select/reuse chunks for insertion.</param>
+        public World(
+            int initialCapacity = 1024,
+            int chunkCapacity = WorldState.DefaultChunkCapacity,
+            StorageRemovalPolicy removalPolicy = StorageRemovalPolicy.SwapBack,
+            ChunkAllocationPolicy allocationPolicy = ChunkAllocationPolicy.ScanFirstFit)
         {
-            State = new WorldState(initialCapacity);
+            StoragePolicies policies = new(chunkCapacity, removalPolicy, allocationPolicy);
+
+            State = new WorldState(initialCapacity, policies);
 
             Storage = new StorageService(State);
             Entities = new EntityManager(State);
@@ -26,7 +36,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
 
             Storage.InitializeEmptyArchetype();
 
-            // ECB setup.
             EnsureEcbInitialized();
         }
     }

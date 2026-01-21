@@ -9,6 +9,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
     /// </summary>
     internal sealed class WorldState
     {
+        /// <summary>
+        /// Default capacity used when the user does not specify a chunk capacity.
+        /// </summary>
         public const int DefaultChunkCapacity = 128;
 
         public int[] Versions;
@@ -29,19 +32,44 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         /// </summary>
         public bool IsUpdating;
 
-        /// <summary>
-        /// Gets or sets the archetype version. Increment whenever archetype set changes.
-        /// Used to invalidate query caches.
-        /// </summary>
         public int ArchetypeVersion;
+
+        /// <summary>
+        /// Incremented whenever a structural change happens that can affect queries:
+        /// - entity added/removed from chunks
+        /// - entity moved between archetypes
+        /// - chunk creation due to capacity
+        /// - archetype creation
+        /// </summary>
+        public int StructuralVersion;
 
         public readonly SortedDictionary<ulong, List<Archetype>> ArchetypesByHash;
 
         public Archetype EmptyArchetype;
 
+        /// <summary>
+        /// Storage behavior policies for this world.
+        /// </summary>
+        public readonly StoragePolicies StoragePolicies;
+
+        /// <summary>
+        /// Configured chunk capacity for the world.
+        /// </summary>
+        public int ChunkCapacity => StoragePolicies.ChunkCapacity;
+
+        /// <summary>
+        /// Backward-compatible constructor using default storage policies.
+        /// </summary>
         public WorldState(int initialCapacity)
+            : this(initialCapacity, StoragePolicies.Default)
+        {
+        }
+
+        public WorldState(int initialCapacity, StoragePolicies storagePolicies)
         {
             if (initialCapacity < 1) initialCapacity = 1;
+
+            StoragePolicies = storagePolicies;
 
             Versions = new int[initialCapacity];
             Alive = new bool[initialCapacity];
@@ -60,6 +88,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             IterationDepth = 0;
             IsUpdating = false;
             ArchetypeVersion = 0;
+            StructuralVersion = 0;
 
             ArchetypesByHash = new SortedDictionary<ulong, List<Archetype>>();
             EmptyArchetype = null;
@@ -110,6 +139,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             index = -1;
             return false;
+        }
+
+        public void IncrementStructuralVersion()
+        {
+            unchecked
+            {
+                StructuralVersion++;
+            }
         }
     }
 }
