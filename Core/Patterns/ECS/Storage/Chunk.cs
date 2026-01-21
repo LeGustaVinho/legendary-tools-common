@@ -1,3 +1,4 @@
+using System;
 using LegendaryTools.Common.Core.Patterns.ECS.Entities;
 using LegendaryTools.Common.Core.Patterns.ECS.Memory;
 
@@ -74,6 +75,26 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         internal void SetCountUnsafe(int newCount)
         {
             Count = newCount;
+        }
+
+        /// <summary>
+        /// Returns a read-only span over a typed column for the active rows (0..Count).
+        /// Intended for fast iteration inside chunk-based queries.
+        /// </summary>
+        public ReadOnlySpan<T> GetSpanRO<T>(int columnIndex) where T : struct
+        {
+            ChunkColumn<T> col = (ChunkColumn<T>)Columns[columnIndex];
+            return new ReadOnlySpan<T>(col.Data, 0, Count);
+        }
+
+        /// <summary>
+        /// Returns a writable span over a typed column for the active rows (0..Count).
+        /// Intended for fast iteration inside chunk-based queries.
+        /// </summary>
+        public Span<T> GetSpanRW<T>(int columnIndex) where T : struct
+        {
+            ChunkColumn<T> col = (ChunkColumn<T>)Columns[columnIndex];
+            return new Span<T>(col.Data, 0, Count);
         }
 
         internal void ReturnToPool()

@@ -5,9 +5,21 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
 {
     public sealed partial class World
     {
-        public Query CreateQuery(Query query)
+        /// <summary>
+        /// Starts a query iteration scope and returns the matching archetypes as a span via <see cref="WorldQueryResult"/>.
+        /// This is the recommended API for high-performance code:
+        /// iterate archetypes/chunks and use <see cref="Chunk.GetSpanRO{T}(int)"/> / <see cref="Chunk.GetSpanRW{T}(int)"/>
+        /// with plain for loops.
+        /// </summary>
+        /// <remarks>
+        /// While the result is alive, structural changes are disallowed (same rule as other iteration APIs).
+        /// </remarks>
+        public WorldQueryResult BeginQuery(Query query)
         {
-            return query;
+            EnterIteration();
+
+            Query.ArchetypeCache cache = query.GetOrBuildCache(Storage);
+            return new WorldQueryResult(this, cache.Buffer, cache.Count);
         }
 
         public void ForEachChunk<TProcessor>(Query query, ref TProcessor processor)

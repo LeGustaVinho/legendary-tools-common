@@ -28,16 +28,27 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         }
 
         /// <summary>
-        /// Checks whether the entity has a component of type <typeparamref name="T"/>.
+        /// Gets a cached handle for a component type. Systems should store this handle and reuse it.
+        /// This avoids repeated type registry lookups in hot paths.
         /// </summary>
+        public ComponentHandle<T> GetComponentHandle<T>() where T : struct
+        {
+            return new ComponentHandle<T>(Storage.GetComponentTypeId<T>().Value);
+        }
+
         public bool Has<T>(Entity e) where T : struct
         {
             return Storage.Has<T>(e);
         }
 
         /// <summary>
-        /// Gets a readonly reference to the component value for <typeparamref name="T"/>.
+        /// Hot path overload: uses a cached handle to avoid repeated type registry lookups.
         /// </summary>
+        public bool Has<T>(Entity e, in ComponentHandle<T> handle) where T : struct
+        {
+            return Storage.Has(e, handle);
+        }
+
         public ref readonly T GetRO<T>(Entity e) where T : struct
         {
             if (!IsAlive(e)) throw new InvalidOperationException($"Entity {e} is not alive (or is stale).");
@@ -46,8 +57,15 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         }
 
         /// <summary>
-        /// Gets a writable reference to the component value for <typeparamref name="T"/>.
+        /// Hot path overload: uses a cached handle to avoid repeated type registry lookups.
         /// </summary>
+        public ref readonly T GetRO<T>(Entity e, in ComponentHandle<T> handle) where T : struct
+        {
+            if (!IsAlive(e)) throw new InvalidOperationException($"Entity {e} is not alive (or is stale).");
+
+            return ref Storage.GetRO(e, handle);
+        }
+
         public ref T GetRW<T>(Entity e) where T : struct
         {
             if (!IsAlive(e)) throw new InvalidOperationException($"Entity {e} is not alive (or is stale).");
@@ -56,9 +74,15 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         }
 
         /// <summary>
-        /// Adds a component to an entity (structural change) with default value.
-        /// Forbidden during tick update; use <see cref="ECB"/> instead.
+        /// Hot path overload: uses a cached handle to avoid repeated type registry lookups.
         /// </summary>
+        public ref T GetRW<T>(Entity e, in ComponentHandle<T> handle) where T : struct
+        {
+            if (!IsAlive(e)) throw new InvalidOperationException($"Entity {e} is not alive (or is stale).");
+
+            return ref Storage.GetRW(e, handle);
+        }
+
         public void Add<T>(Entity e) where T : struct
         {
             if (State.IsUpdating)

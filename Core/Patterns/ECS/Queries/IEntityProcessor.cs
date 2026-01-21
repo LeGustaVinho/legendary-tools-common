@@ -3,15 +3,15 @@ using LegendaryTools.Common.Core.Patterns.ECS.Entities;
 namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 {
     /// <summary>
-    /// Allocation-free entity processing contract.
-    /// Implement this as a struct and pass by ref to avoid allocations.
+    /// Per-entity callback processor.
+    /// Convenience API only: prefer chunk/span iteration for hot paths.
     /// </summary>
     public interface IEntityProcessor
     {
         /// <summary>
-        /// Executes logic for an entity during iteration.
+        /// Executes once per entity.
         /// </summary>
-        /// <param name="entity">Entity.</param>
+        /// <param name="entity">Entity handle.</param>
         void Execute(Entity entity);
     }
 }

@@ -8,25 +8,21 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
     public sealed class Archetype
     {
         private readonly Dictionary<int, int> _typeIdToColumnIndex;
+
+        // Fast path: typeId -> (columnIndex + 1). 0 means "not present".
+        private readonly int[] _columnIndexByTypeIdPlus1;
+
         private readonly PooledList<Chunk> _chunks;
         private int _nextChunkId;
 
-        // Optional optimization for allocation policy.
         private int _lastChunkWithSpaceIndex;
 
         public ArchetypeId ArchetypeId { get; }
 
         public ArchetypeSignature Signature { get; }
 
-        /// <summary>
-        /// Number of chunks currently owned by this archetype.
-        /// </summary>
         public int ChunkCount => _chunks.Count;
 
-        /// <summary>
-        /// Direct access to the internal chunk buffer (only first <see cref="ChunkCount"/> entries are valid).
-        /// This is provided to support zero-allocation iteration in hot paths.
-        /// </summary>
         public Chunk[] ChunksBuffer => _chunks.DangerousGetBuffer();
 
         internal Archetype(ArchetypeSignature signature, ArchetypeId archetypeId)
@@ -39,6 +35,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             {
                 _typeIdToColumnIndex.Add(signature.TypeIds[i], i);
             }
+
+            // Build O(1) column index lookup table.
+            _columnIndexByTypeIdPlus1 = BuildColumnIndexMap(signature.TypeIds);
 
             _chunks = new PooledList<Chunk>(16);
             _nextChunkId = 0;
@@ -54,6 +53,38 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         public bool TryGetColumnIndex(ComponentTypeId typeId, out int columnIndex)
         {
             return _typeIdToColumnIndex.TryGetValue(typeId.Value, out columnIndex);
+        }
+
+        /// <summary>
+        /// Fast O(1) lookup for a column index. Prefer this in hot paths.
+        /// </summary>
+        public bool TryGetColumnIndexFast(ComponentTypeId typeId, out int columnIndex)
+        {
+            return TryGetColumnIndexFast(typeId.Value, out columnIndex);
+        }
+
+        /// <summary>
+        /// Fast O(1) lookup for a column index. Prefer this in hot paths.
+        /// </summary>
+        internal bool TryGetColumnIndexFast(int typeIdValue, out int columnIndex)
+        {
+            int[] map = _columnIndexByTypeIdPlus1;
+
+            if ((uint)typeIdValue >= (uint)map.Length)
+            {
+                columnIndex = -1;
+                return false;
+            }
+
+            int encoded = map[typeIdValue];
+            if (encoded == 0)
+            {
+                columnIndex = -1;
+                return false;
+            }
+
+            columnIndex = encoded - 1;
+            return true;
         }
 
         internal Chunk GetOrCreateChunkWithSpace(
@@ -100,6 +131,25 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
                 throw new InvalidOperationException($"ChunkId mismatch for archetype {ArchetypeId}.");
 
             return c;
+        }
+
+        private static int[] BuildColumnIndexMap(int[] sortedTypeIds)
+        {
+            if (sortedTypeIds == null || sortedTypeIds.Length == 0) return Array.Empty<int>();
+
+            int maxId = sortedTypeIds[sortedTypeIds.Length - 1];
+            if (maxId < 0) return Array.Empty<int>();
+
+            // Index directly by type id. Store (columnIndex + 1) so 0 can mean "absent".
+            int[] map = new int[maxId + 1];
+            for (int col = 0; col < sortedTypeIds.Length; col++)
+            {
+                int typeId = sortedTypeIds[col];
+                if (typeId >= 0 && typeId < map.Length)
+                    map[typeId] = col + 1;
+            }
+
+            return map;
         }
     }
 }

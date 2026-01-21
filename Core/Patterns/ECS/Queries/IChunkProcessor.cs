@@ -3,16 +3,17 @@ using LegendaryTools.Common.Core.Patterns.ECS.Storage;
 namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 {
     /// <summary>
-    /// Allocation-free chunk processing contract.
-    /// Implement this as a struct and pass by ref to avoid allocations.
+    /// Per-chunk processor. Recommended for hot paths.
+    /// Inside <see cref="Execute"/>, prefer getting column spans from <see cref="Chunk"/>
+    /// and iterating with plain for loops for best performance.
     /// </summary>
     public interface IChunkProcessor
     {
         /// <summary>
-        /// Executes logic for a matching chunk.
+        /// Executes once per non-empty chunk.
         /// </summary>
-        /// <param name="archetype">Owning archetype.</param>
-        /// <param name="chunk">Chunk.</param>
+        /// <param name="archetype">Archetype that owns the chunk.</param>
+        /// <param name="chunk">Chunk to process.</param>
         void Execute(Archetype archetype, Chunk chunk);
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
 {
@@ -16,6 +17,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
         /// Rents an array with at least <paramref name="minLength"/> elements.
         /// Returned array length can be larger than requested.
         /// </summary>
+        private static readonly bool s_typeContainsReferences =
+            RuntimeHelpers.IsReferenceOrContainsReferences<T>();
+
         public static T[] Rent(int minLength)
         {
             if (minLength < 1) minLength = 1;
@@ -24,7 +28,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
 
             lock (s_lock)
             {
-                if (s_buckets.TryGetValue(size, out Stack<T[]> stack) && stack.Count > 0) return stack.Pop();
+                if (s_buckets.TryGetValue(size, out Stack<T[]> stack) && stack.Count > 0)
+                    return stack.Pop();
             }
 
             return new T[size];
@@ -37,7 +42,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
         {
             if (array == null) return;
 
-            if (clear) Array.Clear(array, 0, array.Length);
+            // Always clear if T can contain references to avoid retaining objects via the pool.
+            if (clear || s_typeContainsReferences)
+                Array.Clear(array, 0, array.Length);
 
             int size = array.Length;
             lock (s_lock)

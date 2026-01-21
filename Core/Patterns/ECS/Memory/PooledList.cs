@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
 {
@@ -8,6 +9,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
     /// </summary>
     internal sealed class PooledList<T>
     {
+        private static readonly bool s_typeContainsReferences = RuntimeHelpers.IsReferenceOrContainsReferences<T>();
+
         private T[] _buffer;
 
         public PooledList(int initialCapacity = 16)
@@ -33,7 +36,21 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
 
         public void Clear()
         {
+            Clear(false);
+        }
+
+        public void Clear(bool clearReferences)
+        {
+            if (clearReferences && s_typeContainsReferences && Count > 0)
+                // Clear only the active range to release references.
+                Array.Clear(_buffer, 0, Count);
+
             Count = 0;
+        }
+
+        public void ClearReferences()
+        {
+            Clear(true);
         }
 
         public void Add(in T item)
@@ -67,7 +84,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
             T[] tmp = _buffer;
             _buffer = Array.Empty<T>();
             Count = 0;
-            EcsArrayPool<T>.Return(tmp, clear);
+
+            // If T contains references, always clear before pooling to avoid retaining objects.
+            bool shouldClear = clear || s_typeContainsReferences;
+            EcsArrayPool<T>.Return(tmp, shouldClear);
         }
 
         private void Grow(int required)
@@ -81,7 +101,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
             T[] newBuf = EcsArrayPool<T>.Rent(newSize);
             Array.Copy(_buffer, 0, newBuf, 0, Count);
 
-            EcsArrayPool<T>.Return(_buffer, false);
+            // If T contains references, clear before pooling to avoid retaining objects.
+            EcsArrayPool<T>.Return(_buffer, s_typeContainsReferences);
             _buffer = newBuf;
         }
     }
