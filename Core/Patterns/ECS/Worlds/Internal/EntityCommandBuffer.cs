@@ -75,6 +75,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         private readonly PooledList<Entity> _tempToReal;
 
+        private static readonly CommandComparer s_commandComparer = new();
+
         public EntityCommandBuffer(World world, int initialCapacity = 256)
         {
             _world = world;
@@ -84,6 +86,19 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             _sequence = 0;
             _tempToReal = new PooledList<Entity>(64);
+        }
+
+        /// <summary>
+        /// Pre-allocates internal buffers to avoid growth (Rent/Return) during hotpaths.
+        /// Call this during initialization (outside simulation update).
+        /// </summary>
+        public void Warmup(int expectedCommands, int expectedTempEntities)
+        {
+            if (expectedCommands < 0) expectedCommands = 0;
+            if (expectedTempEntities < 0) expectedTempEntities = 0;
+
+            _commands.EnsureCapacity(expectedCommands);
+            _tempToReal.EnsureCapacity(expectedTempEntities);
         }
 
         public void Reset(int tick)
@@ -114,7 +129,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             {
                 Type = CommandType.CreateEntity,
                 Tick = Tick,
-                SystemOrder = 0,
+                SystemOrder = _world.CurrentSystemOrder,
                 SortKey = 0,
                 Sequence = _sequence++,
                 Entity = temp,
@@ -131,7 +146,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             {
                 Type = CommandType.DestroyEntity,
                 Tick = Tick,
-                SystemOrder = 0,
+                SystemOrder = _world.CurrentSystemOrder,
                 SortKey = 0,
                 Sequence = _sequence++,
                 Entity = entity,
@@ -162,7 +177,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             {
                 Type = CommandType.AddComponent,
                 Tick = Tick,
-                SystemOrder = 0,
+                SystemOrder = _world.CurrentSystemOrder,
                 SortKey = 0,
                 Sequence = _sequence++,
                 Entity = entity,
@@ -179,7 +194,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             {
                 Type = CommandType.RemoveComponent,
                 Tick = Tick,
-                SystemOrder = 0,
+                SystemOrder = _world.CurrentSystemOrder,
                 SortKey = 0,
                 Sequence = _sequence++,
                 Entity = entity,
@@ -191,6 +206,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         public void Playback()
         {
             int cmdCount = _commands.Count;
+            if (cmdCount <= 0) return;
+
+            Array.Sort(_commands.DangerousGetBuffer(), 0, cmdCount, s_commandComparer);
 
             for (int i = 0; i < cmdCount; i++)
             {
@@ -254,6 +272,23 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             if (real.Index < 0) throw new InvalidOperationException("Temp entity was not created before being used.");
 
             return real;
+        }
+
+        private sealed class CommandComparer : IComparer<Command>
+        {
+            public int Compare(Command x, Command y)
+            {
+                int cmp = x.Tick.CompareTo(y.Tick);
+                if (cmp != 0) return cmp;
+
+                cmp = x.SystemOrder.CompareTo(y.SystemOrder);
+                if (cmp != 0) return cmp;
+
+                cmp = x.SortKey.CompareTo(y.SortKey);
+                if (cmp != 0) return cmp;
+
+                return x.Sequence.CompareTo(y.Sequence);
+            }
         }
     }
 }

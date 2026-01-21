@@ -47,6 +47,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
                 existing.Sort(CompareArchetypeByIdThenSignature);
 
+                AddToIdIndex(created);
+
                 unchecked
                 {
                     _state.ArchetypeVersion++;
@@ -62,6 +64,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             Archetype fresh = new(signature, freshId);
             _state.ArchetypesByHash.Add(hash, new List<Archetype>(1) { fresh });
+
+            AddToIdIndex(fresh);
 
             unchecked
             {
@@ -148,18 +152,16 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public Archetype GetArchetypeById(ArchetypeId id)
         {
-            if (_state.ArchetypesByHash.TryGetValue(id.Value, out List<Archetype> list))
-                for (int i = 0; i < list.Count; i++)
-                {
-                    if (list[i].ArchetypeId == id) return list[i];
-                }
+            if (_state.ArchetypesById.TryGetValue(id, out Archetype a))
+                return a;
 
             throw new InvalidOperationException($"Archetype {id} was not found.");
         }
 
         public ArchetypeEnumerable EnumerateArchetypesStable()
         {
-            return new ArchetypeEnumerable(_state.ArchetypesByHash);
+            // Deterministic order: ArchetypeId ascending.
+            return new ArchetypeEnumerable(_state.ArchetypesById);
         }
 
         private Archetype GetOrCreateArchetypeFromSortedTypes(int[] sortedTypesBuffer, int count)
@@ -184,6 +186,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 existing.Add(created);
                 existing.Sort(CompareArchetypeByIdThenSignature);
 
+                AddToIdIndex(created);
+
                 unchecked
                 {
                     _state.ArchetypeVersion++;
@@ -203,6 +207,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 Archetype fresh = new(signature, freshId);
                 _state.ArchetypesByHash.Add(hash64, new List<Archetype>(1) { fresh });
 
+                AddToIdIndex(fresh);
+
                 unchecked
                 {
                     _state.ArchetypeVersion++;
@@ -212,6 +218,15 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
                 return fresh;
             }
+        }
+
+        private void AddToIdIndex(Archetype archetype)
+        {
+            // In practice collisions should not happen; but guard anyway.
+            if (_state.ArchetypesById.ContainsKey(archetype.ArchetypeId))
+                throw new InvalidOperationException($"Duplicate ArchetypeId detected: {archetype.ArchetypeId}");
+
+            _state.ArchetypesById.Add(archetype.ArchetypeId, archetype);
         }
 
         private static bool SignatureEquals(int[] a, ReadOnlySpan<int> b)

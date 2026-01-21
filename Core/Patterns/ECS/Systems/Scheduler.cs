@@ -15,17 +15,22 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
 
         private bool _created;
 
+        // IMPORTANT: Must NOT be readonly (FixedTickClock is a mutable struct).
+        private FixedTickClock _clock;
+
         /// <summary>
-        /// Initializes a new instance of the <see cref="Scheduler"/> class.
+        /// Version tag for deterministic scheduling layouts.
         /// </summary>
-        /// <param name="world">Target world.</param>
-        public Scheduler(World world)
+        public int LayoutVersion { get; }
+
+        public Scheduler(World world, int simulationHz = 60, int layoutVersion = 1)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
 
+            LayoutVersion = layoutVersion;
+
             _groups = new Dictionary<SystemPhase, SystemGroup>(4);
 
-            // Fixed order for determinism.
             _fixedOrder = new[]
             {
                 SystemPhase.BeginSimulation,
@@ -34,14 +39,15 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
                 SystemPhase.Presentation
             };
 
-            // Create groups upfront so order is always stable.
             for (int i = 0; i < _fixedOrder.Length; i++)
             {
                 SystemPhase phase = _fixedOrder[i];
-                _groups.Add(phase, new SystemGroup(phase));
+                _groups.Add(phase, new SystemGroup(phase, layoutVersion));
             }
 
             _created = false;
+
+            _clock = new FixedTickClock(simulationHz, 0);
         }
 
         /// <summary>
@@ -64,9 +70,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
             _groups[phase].Add(system);
         }
 
-        /// <summary>
-        /// Creates all systems (OnCreate) in fixed order. Safe to call once.
-        /// </summary>
+        public void AddSystem(SystemPhase phase, ISystem system, int order)
+        {
+            _groups[phase].Add(system, order);
+        }
+
         public void Create()
         {
             if (_created) return;
@@ -95,14 +103,16 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
         }
 
         /// <summary>
-        /// Runs one fixed simulation tick in fixed phase order.
+        /// Runs exactly one deterministic simulation tick (fixed TickDelta),
+        /// then runs presentation once with a provided variable deltaTime.
         /// </summary>
-        /// <param name="tick">Current tick.</param>
-        public void Tick(int tick)
+        public void Tick(int tick, float presentationDeltaTime)
         {
             if (!_created) Create();
 
-            // Simulation scope: structural changes must go through ECB.
+            // Keep clock in sync for users that mix APIs.
+            _clock.Reset(tick);
+
             _world.BeginTick(tick);
 
             // BeginSimulation (optional, but kept as a stable phase)
@@ -117,8 +127,46 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
             // Playback at end of tick (defined sync point).
             _world.EndTick();
 
-            // Presentation: read-only by convention (not enforced in MVP).
+            _world.SetPresentationDeltaTime(presentationDeltaTime);
             _groups[SystemPhase.Presentation].UpdateAll(_world, tick);
+        }
+
+        /// <summary>
+        /// Backwards-compatible manual tick. Uses the last presentation delta stored in the world.
+        /// </summary>
+        public void Tick(int tick)
+        {
+            Tick(tick, _world.Time.PresentationDeltaTime);
+        }
+
+        /// <summary>
+        /// Unity-style driving API:
+        /// consumes 0..N fixed simulation ticks from a variable frame deltaTime,
+        /// then runs presentation exactly once using that variable deltaTime.
+        /// </summary>
+        public void Advance(float deltaTime)
+        {
+            if (!_created) Create();
+
+            _clock.Accumulate(deltaTime);
+
+            int tickForPresentation = _clock.Tick;
+
+            while (_clock.TryConsumeTick(out int tick))
+            {
+                tickForPresentation = tick;
+
+                _world.BeginTick(tick);
+
+                _groups[SystemPhase.BeginSimulation].UpdateAll(_world, tick);
+                _groups[SystemPhase.Simulation].UpdateAll(_world, tick);
+                _groups[SystemPhase.EndSimulation].UpdateAll(_world, tick);
+
+                _world.EndTick();
+            }
+
+            _world.SetPresentationDeltaTime(deltaTime);
+            _groups[SystemPhase.Presentation].UpdateAll(_world, tickForPresentation);
         }
     }
 }

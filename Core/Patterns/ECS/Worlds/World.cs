@@ -24,11 +24,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
             int initialCapacity = 1024,
             int chunkCapacity = WorldState.DefaultChunkCapacity,
             StorageRemovalPolicy removalPolicy = StorageRemovalPolicy.SwapBack,
-            ChunkAllocationPolicy allocationPolicy = ChunkAllocationPolicy.ScanFirstFit)
+            ChunkAllocationPolicy allocationPolicy = ChunkAllocationPolicy.ScanFirstFit,
+            int simulationHz = 60)
         {
             StoragePolicies policies = new(chunkCapacity, removalPolicy, allocationPolicy);
 
-            State = new WorldState(initialCapacity, policies);
+            State = new WorldState(initialCapacity, policies, simulationHz);
 
             Storage = new StorageService(State);
             Entities = new EntityManager(State);
@@ -37,6 +38,24 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
             Storage.InitializeEmptyArchetype();
 
             EnsureEcbInitialized();
+        }
+
+        /// <summary>
+        /// Deterministic time snapshot.
+        /// </summary>
+        public WorldTime Time =>
+            new(State.CurrentTick, State.TickDelta, State.PresentationDeltaTime, State.SimulationHz);
+
+        internal int CurrentSystemOrder => State.CurrentSystemOrder;
+
+        internal void SetCurrentSystemOrder(int order)
+        {
+            State.CurrentSystemOrder = order;
+        }
+
+        internal void SetPresentationDeltaTime(float deltaTime)
+        {
+            State.PresentationDeltaTime = deltaTime;
         }
     }
 }

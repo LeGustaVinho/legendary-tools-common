@@ -4,13 +4,14 @@ using LegendaryTools.Common.Core.Patterns.ECS.Storage;
 namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 {
     /// <summary>
-    /// Stable archetype enumeration wrapper (deterministic order via SortedDictionary buckets).
+    /// Stable archetype enumeration in deterministic order:
+    /// ArchetypeId ascending (Value, then Disambiguator).
     /// </summary>
     internal readonly struct ArchetypeEnumerable
     {
-        private readonly SortedDictionary<ulong, List<Archetype>> _dict;
+        private readonly SortedDictionary<ArchetypeId, Archetype> _dict;
 
-        public ArchetypeEnumerable(SortedDictionary<ulong, List<Archetype>> dict)
+        public ArchetypeEnumerable(SortedDictionary<ArchetypeId, Archetype> dict)
         {
             _dict = dict;
         }
@@ -22,43 +23,21 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public struct Enumerator
         {
-            private SortedDictionary<ulong, List<Archetype>>.Enumerator _dictEnumerator;
-            private List<Archetype> _currentList;
-            private int _listIndex;
+            private SortedDictionary<ArchetypeId, Archetype>.Enumerator _enumerator;
 
             public Archetype Current { get; private set; }
 
-            public Enumerator(SortedDictionary<ulong, List<Archetype>> dict)
+            public Enumerator(SortedDictionary<ArchetypeId, Archetype> dict)
             {
-                _dictEnumerator = dict.GetEnumerator();
-                _currentList = null;
-                _listIndex = -1;
+                _enumerator = dict.GetEnumerator();
                 Current = null;
             }
 
             public bool MoveNext()
             {
-                if (_currentList != null)
+                if (_enumerator.MoveNext())
                 {
-                    _listIndex++;
-                    if (_listIndex < _currentList.Count)
-                    {
-                        Current = _currentList[_listIndex];
-                        return true;
-                    }
-
-                    _currentList = null;
-                    _listIndex = -1;
-                }
-
-                while (_dictEnumerator.MoveNext())
-                {
-                    List<Archetype> list = _dictEnumerator.Current.Value;
-                    if (list == null || list.Count == 0) continue;
-
-                    _currentList = list;
-                    _listIndex = 0;
-                    Current = _currentList[0];
+                    Current = _enumerator.Current.Value;
                     return true;
                 }
 

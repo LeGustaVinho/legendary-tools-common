@@ -43,7 +43,20 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         /// </summary>
         public int StructuralVersion;
 
+        // Deterministic time state.
+        public readonly int SimulationHz;
+        public readonly float TickDelta;
+        public int CurrentTick;
+        public float PresentationDeltaTime;
+
+        // Deterministic system order hook (used for ECB sorting).
+        public int CurrentSystemOrder;
+
+        // Bucketed storage for signature lookup (fast).
         public readonly SortedDictionary<ulong, List<Archetype>> ArchetypesByHash;
+
+        // Stable deterministic order for queries: ArchetypeId ascending.
+        public readonly SortedDictionary<ArchetypeId, Archetype> ArchetypesById;
 
         public Archetype EmptyArchetype;
 
@@ -61,13 +74,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         /// Backward-compatible constructor using default storage policies.
         /// </summary>
         public WorldState(int initialCapacity)
-            : this(initialCapacity, StoragePolicies.Default)
+            : this(initialCapacity, StoragePolicies.Default, 60)
         {
         }
 
-        public WorldState(int initialCapacity, StoragePolicies storagePolicies)
+        public WorldState(int initialCapacity, StoragePolicies storagePolicies, int simulationHz)
         {
             if (initialCapacity < 1) initialCapacity = 1;
+            if (simulationHz < 1) simulationHz = 1;
 
             StoragePolicies = storagePolicies;
 
@@ -87,10 +101,20 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             IterationDepth = 0;
             IsUpdating = false;
+
             ArchetypeVersion = 0;
             StructuralVersion = 0;
 
+            SimulationHz = simulationHz;
+            TickDelta = 1.0f / simulationHz;
+            CurrentTick = 0;
+            PresentationDeltaTime = 0f;
+
+            CurrentSystemOrder = 0;
+
             ArchetypesByHash = new SortedDictionary<ulong, List<Archetype>>();
+            ArchetypesById = new SortedDictionary<ArchetypeId, Archetype>(ArchetypeIdComparer.Instance);
+
             EmptyArchetype = null;
         }
 

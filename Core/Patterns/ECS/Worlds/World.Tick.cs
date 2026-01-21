@@ -18,7 +18,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
 
             State.IsUpdating = true;
 
-            // Reset ECB for this tick.
+            // Deterministic tick state for simulation.
+            State.CurrentTick = tick;
+
+            // Reset system order for this tick.
+            State.CurrentSystemOrder = 0;
+
             StateEcb.Reset(tick);
         }
 
