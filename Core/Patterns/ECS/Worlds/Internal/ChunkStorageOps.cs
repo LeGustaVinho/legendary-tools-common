@@ -25,9 +25,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         {
             Archetype empty = _archetypes.GetEmptyArchetype();
 
+            int columnCount = empty.Signature.TypeIds.Length;
+
             Chunk chunk = empty.GetOrCreateChunkWithSpace(
                 _state.ChunkCapacity,
                 _state.StoragePolicies.AllocationPolicy,
+                columnCount,
                 cap => _components.CreateColumnsForSignature(cap, empty.Signature));
 
             int row = chunk.AddEntity(entity);
@@ -66,9 +69,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public Chunk AllocateDestinationSlot(Archetype dstArchetype, Entity entity, out int dstRow)
         {
+            int columnCount = dstArchetype.Signature.TypeIds.Length;
+
             Chunk dstChunk = dstArchetype.GetOrCreateChunkWithSpace(
                 _state.ChunkCapacity,
                 _state.StoragePolicies.AllocationPolicy,
+                columnCount,
                 cap => _components.CreateColumnsForSignature(cap, dstArchetype.Signature));
 
             dstRow = dstChunk.AddEntity(entity);
@@ -167,7 +173,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 Entity moved = chunk.Entities[row + 1];
                 chunk.Entities[row] = moved;
 
-                for (int c = 0; c < chunk.Columns.Length; c++)
+                // IMPORTANT: Only iterate valid columns; pooled array may have trailing nulls.
+                for (int c = 0; c < chunk.ColumnCount; c++)
                 {
                     chunk.Columns[c].MoveElement(row + 1, row);
                 }
@@ -184,7 +191,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             {
                 chunk.Entities[last] = Entity.Invalid;
 
-                for (int c = 0; c < chunk.Columns.Length; c++)
+                for (int c = 0; c < chunk.ColumnCount; c++)
                 {
                     chunk.Columns[c].SetDefault(last);
                 }

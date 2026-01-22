@@ -5,15 +5,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
     public sealed class ArchetypeSignature : IEquatable<ArchetypeSignature>
     {
         /// <summary>
-        /// Non-shared (chunk-stored) component type ids, sorted ascending.
+        /// Sorted stable type ids (hashed ids). Must never be used to index large arrays.
         /// </summary>
         public readonly int[] TypeIds;
 
-        public readonly ulong[] MaskWords;
-
         /// <summary>
-        /// Reserved for future "shared components" support.
-        /// Keep empty for now; do not use in hashing/lookup until shared components are implemented.
+        /// Reserved for future shared components.
         /// </summary>
         public readonly int[] SharedTypeIds;
 
@@ -22,15 +19,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             if (typeIds.Length == 0)
             {
                 TypeIds = Array.Empty<int>();
-                MaskWords = Array.Empty<ulong>();
                 SharedTypeIds = Array.Empty<int>();
                 return;
             }
 
             TypeIds = typeIds.ToArray();
             Array.Sort(TypeIds);
-
-            MaskWords = BuildMaskFromSorted(TypeIds);
 
             // Shared components not implemented yet.
             SharedTypeIds = Array.Empty<int>();
@@ -44,7 +38,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             if (typeIdsSortedOwned == null || typeIdsSortedOwned.Length == 0)
             {
                 TypeIds = Array.Empty<int>();
-                MaskWords = Array.Empty<ulong>();
                 SharedTypeIds = Array.Empty<int>();
                 return;
             }
@@ -53,8 +46,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 
             if (!alreadySorted)
                 Array.Sort(TypeIds);
-
-            MaskWords = BuildMaskFromSorted(TypeIds);
 
             // Shared components not implemented yet.
             SharedTypeIds = Array.Empty<int>();
@@ -219,29 +210,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 
                 return h;
             }
-        }
-
-        private static ulong[] BuildMaskFromSorted(ReadOnlySpan<int> sortedTypeIds)
-        {
-            if (sortedTypeIds.Length == 0) return Array.Empty<ulong>();
-
-            int maxId = sortedTypeIds[sortedTypeIds.Length - 1];
-            if (maxId < 0) return Array.Empty<ulong>();
-
-            int words = (maxId >> 6) + 1;
-            ulong[] mask = new ulong[words];
-
-            for (int i = 0; i < sortedTypeIds.Length; i++)
-            {
-                int id = sortedTypeIds[i];
-                if (id < 0) continue;
-
-                int w = id >> 6;
-                int b = id & 63;
-                mask[w] |= 1UL << b;
-            }
-
-            return mask;
         }
     }
 }

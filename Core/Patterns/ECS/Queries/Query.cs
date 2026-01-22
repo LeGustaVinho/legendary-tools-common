@@ -6,48 +6,12 @@ using LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 {
-    /// <summary>
-    /// Query: All (required) + None (optional) + Any (optional).
-    /// Designed for hot paths: matching uses bitsets and caches matching archetypes.
-    /// Cache invalidation uses World structural version (changes on archetype/chunk structural updates).
-    /// </summary>
     public sealed class Query
     {
-        // Kept only for debugging/introspection; matching uses masks.
+        // Sorted unique stable type ids (hashed ids). Never use them as bit positions.
         internal readonly int[] All;
         internal readonly int[] None;
         internal readonly int[] Any;
-
-        // Hot path masks.
-        internal readonly ulong[] AllMask;
-        internal readonly ulong[] NoneMask;
-        internal readonly ulong[] AnyMask;
-
-        /// <summary>
-        /// Prepared filter container for future extensions (e.g., enabled bits).
-        /// </summary>
-        internal readonly struct PreparedFilters
-        {
-            public readonly ulong[] All;
-            public readonly ulong[] None;
-            public readonly ulong[] Any;
-
-            // Reserved for future filters (kept here to avoid API breaking later).
-            public readonly ulong[] Enabled;
-            public readonly ulong[] Disabled;
-
-            public PreparedFilters(ulong[] all, ulong[] none, ulong[] any)
-            {
-                All = all;
-                None = none;
-                Any = any;
-
-                Enabled = Array.Empty<ulong>();
-                Disabled = Array.Empty<ulong>();
-            }
-        }
-
-        internal readonly PreparedFilters Filters;
 
         internal readonly struct ArchetypeCache
         {
@@ -65,18 +29,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
         private int _cachedArchetypesCount;
         private int _cachedStructuralVersion;
 
-        /// <summary>
-        /// Creates a query with All + None (Any is empty).
-        /// </summary>
         public Query(ReadOnlySpan<ComponentTypeId> all, ReadOnlySpan<ComponentTypeId> none)
             : this(all, none, ReadOnlySpan<ComponentTypeId>.Empty)
         {
         }
 
-        /// <summary>
-        /// Creates a query with All + None + Any.
-        /// </summary>
-        public Query(ReadOnlySpan<ComponentTypeId> all, ReadOnlySpan<ComponentTypeId> none,
+        public Query(
+            ReadOnlySpan<ComponentTypeId> all,
+            ReadOnlySpan<ComponentTypeId> none,
             ReadOnlySpan<ComponentTypeId> any)
         {
             if (all.Length == 0)
@@ -85,12 +45,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
             All = Normalize(all);
             None = Normalize(none);
             Any = Normalize(any);
-
-            AllMask = BuildMask(All);
-            NoneMask = BuildMask(None);
-            AnyMask = BuildMask(Any);
-
-            Filters = new PreparedFilters(AllMask, NoneMask, AnyMask);
 
             _cachedArchetypes = Array.Empty<Archetype>();
             _cachedArchetypesCount = 0;
@@ -101,7 +55,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
         {
             int version = storage.StructuralVersion;
 
-            // No allocations per tick: cache rebuild happens only on structural changes (version change).
             if (_cachedStructuralVersion == version)
                 return new ArchetypeCache(_cachedArchetypes, _cachedArchetypesCount);
 
@@ -139,49 +92,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 
         internal bool Matches(Archetype archetype)
         {
-            // Fast matching by bitset:
-            // - AllMask bits must be present in signature mask.
-            // - NoneMask bits must be absent.
-            // - If AnyMask is not empty: at least one Any bit must be present.
-            ulong[] sig = archetype.Signature.MaskWords;
+            // Match using sorted arrays (merge/binary search). This avoids any mask allocations
+            // and is safe even when ComponentTypeId values are large hashes.
+            int[] sig = archetype.Signature.TypeIds;
 
-            // All
-            ulong[] all = Filters.All;
-            for (int i = 0; i < all.Length; i++)
-            {
-                ulong sigWord = (uint)i < (uint)sig.Length ? sig[i] : 0UL;
-                ulong need = all[i];
-                if ((sigWord & need) != need) return false;
-            }
+            if (!ContainsAll(sig, All)) return false;
+            if (Intersects(sig, None)) return false;
 
-            // None
-            ulong[] none = Filters.None;
-            for (int i = 0; i < none.Length; i++)
-            {
-                ulong sigWord = (uint)i < (uint)sig.Length ? sig[i] : 0UL;
-                if ((sigWord & none[i]) != 0UL) return false;
-            }
-
-            // Any (optional)
-            ulong[] any = Filters.Any;
-            if (any.Length > 0)
-            {
-                bool anyHit = false;
-
-                for (int i = 0; i < any.Length; i++)
-                {
-                    ulong sigWord = (uint)i < (uint)sig.Length ? sig[i] : 0UL;
-                    if ((sigWord & any[i]) != 0UL)
-                    {
-                        anyHit = true;
-                        break;
-                    }
-                }
-
-                if (!anyHit) return false;
-            }
-
-            // Future filters (Enabled/Disabled) intentionally not applied yet.
+            if (Any.Length > 0 && !Intersects(sig, Any)) return false;
 
             return true;
         }
@@ -217,27 +135,65 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
             return trimmed;
         }
 
-        private static ulong[] BuildMask(int[] sortedUniqueTypeIds)
+        /// <summary>
+        /// Returns true if <paramref name="signatureSorted"/> contains all elements in <paramref name="requiredSorted"/>.
+        /// Both arrays must be sorted ascending and unique.
+        /// </summary>
+        private static bool ContainsAll(int[] signatureSorted, int[] requiredSorted)
         {
-            if (sortedUniqueTypeIds.Length == 0) return Array.Empty<ulong>();
+            if (requiredSorted.Length == 0) return true;
+            if (signatureSorted.Length == 0) return false;
 
-            int maxId = sortedUniqueTypeIds[sortedUniqueTypeIds.Length - 1];
-            if (maxId < 0) return Array.Empty<ulong>();
+            int i = 0; // signature
+            int j = 0; // required
 
-            int words = (maxId >> 6) + 1;
-            ulong[] mask = new ulong[words];
-
-            for (int i = 0; i < sortedUniqueTypeIds.Length; i++)
+            while (i < signatureSorted.Length && j < requiredSorted.Length)
             {
-                int id = sortedUniqueTypeIds[i];
-                if (id < 0) continue;
+                int a = signatureSorted[i];
+                int b = requiredSorted[j];
 
-                int w = id >> 6;
-                int b = id & 63;
-                mask[w] |= 1UL << b;
+                if (a == b)
+                {
+                    i++;
+                    j++;
+                }
+                else if (a < b)
+                {
+                    i++;
+                }
+                else
+                {
+                    // Required element not found.
+                    return false;
+                }
             }
 
-            return mask;
+            return j == requiredSorted.Length;
+        }
+
+        /// <summary>
+        /// Returns true if <paramref name="signatureSorted"/> intersects <paramref name="probeSorted"/>.
+        /// Both arrays must be sorted ascending and unique.
+        /// </summary>
+        private static bool Intersects(int[] signatureSorted, int[] probeSorted)
+        {
+            if (probeSorted.Length == 0) return false;
+            if (signatureSorted.Length == 0) return false;
+
+            int i = 0;
+            int j = 0;
+
+            while (i < signatureSorted.Length && j < probeSorted.Length)
+            {
+                int a = signatureSorted[i];
+                int b = probeSorted[j];
+
+                if (a == b) return true;
+                if (a < b) i++;
+                else j++;
+            }
+
+            return false;
         }
     }
 }

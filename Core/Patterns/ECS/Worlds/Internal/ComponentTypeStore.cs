@@ -58,7 +58,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         {
             int[] typeIds = signature.TypeIds;
 
+            // NOTE: This array can be larger than typeIds.Length because the pool rounds to power-of-two.
+            // Chunk must use ColumnCount = typeIds.Length to avoid touching trailing null entries.
             IChunkColumn[] cols = EcsArrayPool<IChunkColumn>.Rent(typeIds.Length);
+
             for (int i = 0; i < typeIds.Length; i++)
             {
                 cols[i] = CreateTypedColumn(typeIds[i], capacity);

@@ -8,21 +8,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
     public sealed class Archetype
     {
         private readonly Dictionary<int, int> _typeIdToColumnIndex;
-
-        // Fast path: typeId -> (columnIndex + 1). 0 means "not present".
-        private readonly int[] _columnIndexByTypeIdPlus1;
-
         private readonly PooledList<Chunk> _chunks;
         private int _nextChunkId;
-
         private int _lastChunkWithSpaceIndex;
 
         public ArchetypeId ArchetypeId { get; }
-
         public ArchetypeSignature Signature { get; }
 
         public int ChunkCount => _chunks.Count;
-
         public Chunk[] ChunksBuffer => _chunks.DangerousGetBuffer();
 
         internal Archetype(ArchetypeSignature signature, ArchetypeId archetypeId)
@@ -36,12 +29,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
                 _typeIdToColumnIndex.Add(signature.TypeIds[i], i);
             }
 
-            // Build O(1) column index lookup table.
-            _columnIndexByTypeIdPlus1 = BuildColumnIndexMap(signature.TypeIds);
-
             _chunks = new PooledList<Chunk>(16);
             _nextChunkId = 0;
-
             _lastChunkWithSpaceIndex = -1;
         }
 
@@ -55,41 +44,36 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             return _typeIdToColumnIndex.TryGetValue(typeId.Value, out columnIndex);
         }
 
-        /// <summary>
-        /// Fast O(1) lookup for a column index. Prefer this in hot paths.
-        /// </summary>
         public bool TryGetColumnIndexFast(ComponentTypeId typeId, out int columnIndex)
         {
-            return TryGetColumnIndexFast(typeId.Value, out columnIndex);
+            int idx = Array.BinarySearch(Signature.TypeIds, typeId.Value);
+            if (idx >= 0)
+            {
+                columnIndex = idx;
+                return true;
+            }
+
+            columnIndex = -1;
+            return false;
         }
 
-        /// <summary>
-        /// Fast O(1) lookup for a column index. Prefer this in hot paths.
-        /// </summary>
         internal bool TryGetColumnIndexFast(int typeIdValue, out int columnIndex)
         {
-            int[] map = _columnIndexByTypeIdPlus1;
-
-            if ((uint)typeIdValue >= (uint)map.Length)
+            int idx = Array.BinarySearch(Signature.TypeIds, typeIdValue);
+            if (idx >= 0)
             {
-                columnIndex = -1;
-                return false;
+                columnIndex = idx;
+                return true;
             }
 
-            int encoded = map[typeIdValue];
-            if (encoded == 0)
-            {
-                columnIndex = -1;
-                return false;
-            }
-
-            columnIndex = encoded - 1;
-            return true;
+            columnIndex = -1;
+            return false;
         }
 
         internal Chunk GetOrCreateChunkWithSpace(
             int chunkCapacity,
             ChunkAllocationPolicy allocationPolicy,
+            int columnCount,
             Func<int, IChunkColumn[]> createColumns)
         {
             if (allocationPolicy == ChunkAllocationPolicy.TrackLastWithSpace)
@@ -114,7 +98,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 
             int id = _nextChunkId++;
             IChunkColumn[] cols = createColumns(chunkCapacity);
-            Chunk chunk = new(id, chunkCapacity, cols);
+            Chunk chunk = new(id, chunkCapacity, cols, columnCount);
             _chunks.Add(chunk);
 
             _lastChunkWithSpaceIndex = _chunks.Count - 1;
@@ -131,25 +115,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
                 throw new InvalidOperationException($"ChunkId mismatch for archetype {ArchetypeId}.");
 
             return c;
-        }
-
-        private static int[] BuildColumnIndexMap(int[] sortedTypeIds)
-        {
-            if (sortedTypeIds == null || sortedTypeIds.Length == 0) return Array.Empty<int>();
-
-            int maxId = sortedTypeIds[sortedTypeIds.Length - 1];
-            if (maxId < 0) return Array.Empty<int>();
-
-            // Index directly by type id. Store (columnIndex + 1) so 0 can mean "absent".
-            int[] map = new int[maxId + 1];
-            for (int col = 0; col < sortedTypeIds.Length; col++)
-            {
-                int typeId = sortedTypeIds[col];
-                if (typeId >= 0 && typeId < map.Length)
-                    map[typeId] = col + 1;
-            }
-
-            return map;
         }
     }
 }

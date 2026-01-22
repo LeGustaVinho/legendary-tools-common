@@ -10,7 +10,16 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 
         public readonly Entity[] Entities;
 
+        /// <summary>
+        /// Backing array may be larger than <see cref="ColumnCount"/> when rented from the pool.
+        /// Only indices [0..ColumnCount-1] are valid and must be iterated.
+        /// </summary>
         public readonly IChunkColumn[] Columns;
+
+        /// <summary>
+        /// Number of valid columns in <see cref="Columns"/>.
+        /// </summary>
+        public readonly int ColumnCount;
 
         private readonly int _capacity;
 
@@ -18,15 +27,23 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 
         public int Capacity => _capacity;
 
-        internal Chunk(int chunkId, int capacity, IChunkColumn[] columns)
+        internal Chunk(int chunkId, int capacity, IChunkColumn[] columns, int columnCount)
         {
             ChunkId = chunkId;
 
             if (capacity < 1) capacity = 1;
 
+            if (columns == null) throw new ArgumentNullException(nameof(columns));
+            if (columnCount < 0) throw new ArgumentOutOfRangeException(nameof(columnCount));
+            if (columnCount > columns.Length) throw new ArgumentOutOfRangeException(nameof(columnCount));
+
             _capacity = capacity;
+
             Entities = EcsArrayPool<Entity>.Rent(capacity);
+
             Columns = columns;
+            ColumnCount = columnCount;
+
             Count = 0;
         }
 
@@ -49,7 +66,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
                 swappedEntity = Entities[last];
                 Entities[row] = swappedEntity;
 
-                for (int i = 0; i < Columns.Length; i++)
+                for (int i = 0; i < ColumnCount; i++)
                 {
                     Columns[i].MoveElement(last, row);
                 }
@@ -61,7 +78,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 
             Entities[last] = Entity.Invalid;
 
-            for (int i = 0; i < Columns.Length; i++)
+            for (int i = 0; i < ColumnCount; i++)
             {
                 Columns[i].SetDefault(last);
             }
@@ -83,6 +100,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         /// </summary>
         public ReadOnlySpan<T> GetSpanRO<T>(int columnIndex) where T : struct
         {
+            if ((uint)columnIndex >= (uint)ColumnCount)
+                throw new ArgumentOutOfRangeException(nameof(columnIndex));
+
             ChunkColumn<T> col = (ChunkColumn<T>)Columns[columnIndex];
             return new ReadOnlySpan<T>(col.Data, 0, Count);
         }
@@ -93,18 +113,23 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         /// </summary>
         public Span<T> GetSpanRW<T>(int columnIndex) where T : struct
         {
+            if ((uint)columnIndex >= (uint)ColumnCount)
+                throw new ArgumentOutOfRangeException(nameof(columnIndex));
+
             ChunkColumn<T> col = (ChunkColumn<T>)Columns[columnIndex];
             return new Span<T>(col.Data, 0, Count);
         }
 
         internal void ReturnToPool()
         {
-            for (int i = 0; i < Columns.Length; i++)
+            for (int i = 0; i < ColumnCount; i++)
             {
                 Columns[i].ReturnToPool();
             }
 
             EcsArrayPool<Entity>.Return(Entities, false);
+
+            // This is a reference array; EcsArrayPool will clear it on Return automatically.
             EcsArrayPool<IChunkColumn>.Return(Columns, true);
         }
     }
