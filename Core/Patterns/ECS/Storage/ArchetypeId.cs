@@ -57,11 +57,23 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             }
         }
 
+        /// <summary>
+        /// Checks if two archetype IDs are equal.
+        /// </summary>
+        /// <param name="a">First ID.</param>
+        /// <param name="b">Second ID.</param>
+        /// <returns>True if equal.</returns>
         public static bool operator ==(ArchetypeId a, ArchetypeId b)
         {
             return a.Equals(b);
         }
 
+        /// <summary>
+        /// Checks if two archetype IDs are not equal.
+        /// </summary>
+        /// <param name="a">First ID.</param>
+        /// <param name="b">Second ID.</param>
+        /// <returns>True if not equal.</returns>
         public static bool operator !=(ArchetypeId a, ArchetypeId b)
         {
             return !a.Equals(b);

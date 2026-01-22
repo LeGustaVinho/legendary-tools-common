@@ -12,11 +12,19 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
         /// </summary>
         public readonly int TypeId;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ComponentHandle{T}"/> struct.
+        /// </summary>
+        /// <param name="typeId">The internal type ID.</param>
         internal ComponentHandle(int typeId)
         {
             TypeId = typeId;
         }
 
+        /// <summary>
+        /// Returns a string representation of the component handle.
+        /// </summary>
+        /// <returns>A string containing the component type name and ID.</returns>
         public override string ToString()
         {
             return $"ComponentHandle<{typeof(T).Name}>(TypeId={TypeId})";

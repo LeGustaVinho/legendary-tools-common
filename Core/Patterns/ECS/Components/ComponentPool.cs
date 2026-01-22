@@ -60,11 +60,13 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
             _data[entityIndex] = default;
         }
 
+
         /// <summary>
         /// Gets a readonly reference to the component for the given entity index.
         /// </summary>
         /// <param name="entityIndex">Entity index.</param>
-        /// <returns>Readonly reference to component.</returns>
+        /// <param name="value">The read-only component value.</param>
+        /// <returns>True if present.</returns>
         public bool TryGetRO(int entityIndex, out T value)
         {
             if ((uint)entityIndex >= (uint)_present.Length || !_present[entityIndex])
@@ -77,6 +79,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
             return true;
         }
 
+        /// <summary>
+        /// Tries to get a writable reference wrapper for the given entity index.
+        /// </summary>
+        /// <param name="entityIndex">Entity index.</param>
+        /// <param name="value">The writable reference wrapper.</param>
+        /// <returns>True if present.</returns>
         public bool TryGetRW(int entityIndex, out RefValue<T> value)
         {
             if ((uint)entityIndex >= (uint)_present.Length || !_present[entityIndex])
@@ -89,6 +97,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
             return true;
         }
 
+        /// <summary>
+        /// Gets a strict readonly reference to the component. Throws if missing.
+        /// </summary>
+        /// <param name="entityIndex">Entity index.</param>
+        /// <returns>Readonly reference.</returns>
         public ref readonly T GetRO(int entityIndex)
         {
             ValidateIndexAndPresence(entityIndex);
@@ -106,6 +119,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
             return ref _data[entityIndex];
         }
 
+        /// <summary>
+        /// Ensures internal arrays have at least the specified capacity.
+        /// </summary>
+        /// <param name="requiredCapacity">Required number of elements.</param>
         public void EnsureCapacity(int requiredCapacity)
         {
             if (requiredCapacity <= _data.Length) return;
@@ -131,6 +148,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
                     $"Component {typeof(T).Name} is not present on entity index {entityIndex}.");
         }
 
+        /// <summary>
+        /// Helper struct to return a writable reference (ref return) via an out parameter pattern,
+        /// by deferring the actual ref return access.
+        /// </summary>
         internal readonly struct RefValue<TValue> where TValue : struct
         {
             private readonly ComponentPool<TValue> _pool;
@@ -142,6 +163,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
                 _index = index;
             }
 
+            /// <summary>
+            /// Gets the writable reference to the component.
+            /// </summary>
             public ref TValue Value => ref _pool.GetRW(_index);
         }
     }

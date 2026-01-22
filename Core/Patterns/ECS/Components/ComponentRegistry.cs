@@ -17,6 +17,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
 
         private readonly bool _strictDeterminism;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ComponentRegistry"/> class.
+        /// </summary>
+        /// <param name="strictDeterminism">If true, hash collisions raise an exception instead of probing.</param>
         public ComponentRegistry(bool strictDeterminism)
         {
             _strictDeterminism = strictDeterminism;
@@ -29,8 +33,16 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
             _manifestSum64 = 0UL;
         }
 
+        /// <summary>
+        /// Gets the current manifest of registered components, including checksums.
+        /// </summary>
         public ComponentManifest Manifest => new ComponentManifest(_manifestCount, _manifestXor64, _manifestSum64);
 
+        /// <summary>
+        /// Registers a component type or returns its existing ID.
+        /// </summary>
+        /// <typeparam name="T">The component type.</typeparam>
+        /// <returns>The stable component type ID.</returns>
         public ComponentTypeId RegisterOrGet<T>() where T : struct
         {
             Type type = typeof(T);
@@ -84,6 +96,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
             return new ComponentTypeId(id);
         }
 
+        /// <summary>
+        /// Tries to get the ID of an already registered component type.
+        /// </summary>
+        /// <typeparam name="T">The component type.</typeparam>
+        /// <param name="id">The component type ID if found.</param>
+        /// <returns>True if the type is registered.</returns>
         public bool TryGetExisting<T>(out ComponentTypeId id) where T : struct
         {
             if (_typeToId.TryGetValue(typeof(T), out int v))

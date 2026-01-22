@@ -2,6 +2,10 @@ using System;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 {
+    /// <summary>
+    /// Represents a sorted list of component types that define an archetype.
+    /// Immutable and hashable.
+    /// </summary>
     public sealed class ArchetypeSignature : IEquatable<ArchetypeSignature>
     {
         /// <summary>
@@ -14,6 +18,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         /// </summary>
         public readonly int[] SharedTypeIds;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ArchetypeSignature"/> class.
+        /// </summary>
+        /// <param name="typeIds">List of component type IDs (will be sorted and copied).</param>
         public ArchetypeSignature(ReadOnlySpan<int> typeIds)
         {
             if (typeIds.Length == 0)
@@ -51,12 +59,21 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             SharedTypeIds = Array.Empty<int>();
         }
 
+        /// <summary>
+        /// Computes a stable 64-bit hash of the signature.
+        /// </summary>
+        /// <returns>64-bit hash.</returns>
         public ulong ComputeStableHash64()
         {
             // NOTE: Intentionally hashes only TypeIds for now (shared components are not implemented).
             return ComputeStableHash64(TypeIds);
         }
 
+        /// <summary>
+        /// Computes a stable 32-bit hash of the signature.
+        /// </summary>
+        /// <param name="seed">Optional seed.</param>
+        /// <returns>32-bit hash.</returns>
         public uint ComputeStableHash32(uint seed = 2166136261u)
         {
             // NOTE: Intentionally hashes only TypeIds for now (shared components are not implemented).
@@ -122,11 +139,21 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             return hash;
         }
 
+        /// <summary>
+        /// Checks if the signature contains the specified component type.
+        /// </summary>
+        /// <param name="typeId">Component type ID.</param>
+        /// <returns>True if present.</returns>
         public bool Contains(Components.ComponentTypeId typeId)
         {
             return Array.BinarySearch(TypeIds, typeId.Value) >= 0;
         }
 
+        /// <summary>
+        /// Creates a new signature with the added component type.
+        /// </summary>
+        /// <param name="typeId">Component type ID to add.</param>
+        /// <returns>A new signature or the same instance if already present.</returns>
         public ArchetypeSignature WithAdded(Components.ComponentTypeId typeId)
         {
             if (Contains(typeId)) return this;
@@ -138,6 +165,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             return new ArchetypeSignature(tmp);
         }
 
+        /// <summary>
+        /// Creates a new signature with the removed component type.
+        /// </summary>
+        /// <param name="typeId">Component type ID to remove.</param>
+        /// <returns>A new signature or the same instance if not present.</returns>
         public ArchetypeSignature WithRemoved(Components.ComponentTypeId typeId)
         {
             int idx = Array.BinarySearch(TypeIds, typeId.Value);
@@ -153,6 +185,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             return new ArchetypeSignature(tmp);
         }
 
+        /// <summary>
+        /// Compares two signatures lexicographically.
+        /// </summary>
+        /// <param name="a">First signature.</param>
+        /// <param name="b">Second signature.</param>
+        /// <returns>Comparison result.</returns>
         public static int CompareLexicographic(ArchetypeSignature a, ArchetypeSignature b)
         {
             int min = a.TypeIds.Length < b.TypeIds.Length ? a.TypeIds.Length : b.TypeIds.Length;

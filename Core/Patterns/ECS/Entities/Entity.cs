@@ -60,11 +60,23 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Entities
             return Index == other.Index && Version == other.Version;
         }
 
+        /// <summary>
+        /// Checks if two entities are equal.
+        /// </summary>
+        /// <param name="a">First entity.</param>
+        /// <param name="b">Second entity.</param>
+        /// <returns>True if equal.</returns>
         public static bool operator ==(Entity a, Entity b)
         {
             return a.Equals(b);
         }
 
+        /// <summary>
+        /// Checks if two entities are not equal.
+        /// </summary>
+        /// <param name="a">First entity.</param>
+        /// <param name="b">Second entity.</param>
+        /// <returns>True if not equal.</returns>
         public static bool operator !=(Entity a, Entity b)
         {
             return !a.Equals(b);

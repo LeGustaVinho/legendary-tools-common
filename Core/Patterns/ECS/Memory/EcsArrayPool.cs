@@ -13,13 +13,15 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
         private static readonly object s_lock = new();
         private static readonly Dictionary<int, Stack<T[]>> s_buckets = new(16);
 
+        private static readonly bool s_typeContainsReferences =
+            RuntimeHelpers.IsReferenceOrContainsReferences<T>();
+
         /// <summary>
         /// Rents an array with at least <paramref name="minLength"/> elements.
         /// Returned array length can be larger than requested.
         /// </summary>
-        private static readonly bool s_typeContainsReferences =
-            RuntimeHelpers.IsReferenceOrContainsReferences<T>();
-
+        /// <param name="minLength">Minimum required length.</param>
+        /// <returns>An array satisfying the length requirement.</returns>
         public static T[] Rent(int minLength)
         {
             if (minLength < 1) minLength = 1;
@@ -38,6 +40,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
         /// <summary>
         /// Returns an array to the pool.
         /// </summary>
+        /// <param name="array">The array to return.</param>
+        /// <param name="clear">Whether to clear the array contents.</param>
         public static void Return(T[] array, bool clear)
         {
             if (array == null) return;

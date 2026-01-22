@@ -11,11 +11,18 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Instrumentation
     {
         private readonly Stopwatch _watch = new Stopwatch();
 
+        /// <summary>
+        /// Starts or restarts the profiling sample timer.
+        /// </summary>
         public void BeginSample()
         {
             _watch.Restart();
         }
 
+        /// <summary>
+        /// Stops the timer and returns the elapsed ticks since the last sample started.
+        /// </summary>
+        /// <returns>Elapsed ticks.</returns>
         public long EndSampleTicks()
         {
             _watch.Stop();

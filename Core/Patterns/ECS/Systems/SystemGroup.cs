@@ -15,6 +15,11 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
 
         private int _autoOrder;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SystemGroup"/> class.
+        /// </summary>
+        /// <param name="phase">The phase this group belongs to.</param>
+        /// <param name="layoutVersion">Layout version for determinism.</param>
         public SystemGroup(SystemPhase phase, int layoutVersion = 1)
         {
             Phase = phase;
@@ -27,6 +32,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
             _autoOrder = 0;
         }
 
+        /// <summary>
+        /// Gets the phase associated with this group.
+        /// </summary>
         public SystemPhase Phase { get; }
 
         /// <summary>

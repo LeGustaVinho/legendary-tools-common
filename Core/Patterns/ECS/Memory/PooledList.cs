@@ -13,6 +13,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
 
         private T[] _buffer;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="PooledList{T}"/> class.
+        /// </summary>
+        /// <param name="initialCapacity">Initial capacity of the list.</param>
         public PooledList(int initialCapacity = 16)
         {
             if (initialCapacity < 1) initialCapacity = 1;
@@ -21,6 +25,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
             Count = 0;
         }
 
+        /// <summary>
+        /// Gets the current number of elements in the list.
+        /// </summary>
         public int Count { get; private set; }
 
         /// <summary>
@@ -28,22 +35,38 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
         /// </summary>
         public int Capacity => _buffer.Length;
 
+        /// <summary>
+        /// Gets or sets the element at the specified index.
+        /// </summary>
+        /// <param name="index">The zero-based index of the element.</param>
+        /// <returns>The element at the specified index.</returns>
         public T this[int index]
         {
             get => _buffer[index];
             set => _buffer[index] = value;
         }
 
+        /// <summary>
+        /// Returns a Span view of the active elements.
+        /// </summary>
+        /// <returns>A Span&lt;T&gt; of the active range.</returns>
         public Span<T> AsSpan()
         {
             return new Span<T>(_buffer, 0, Count);
         }
 
+        /// <summary>
+        /// Clears the list. Does not clear the underlying array unless T contains references.
+        /// </summary>
         public void Clear()
         {
             Clear(false);
         }
 
+        /// <summary>
+        /// Clears the list, optionally forcing a clear of the underlying array.
+        /// </summary>
+        /// <param name="clearReferences">If true, clears the array range.</param>
         public void Clear(bool clearReferences)
         {
             if (clearReferences && s_typeContainsReferences && Count > 0)
@@ -53,11 +76,18 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
             Count = 0;
         }
 
+        /// <summary>
+        /// Clears the list and forces a clear of the underlying array (useful for dropping references).
+        /// </summary>
         public void ClearReferences()
         {
             Clear(true);
         }
 
+        /// <summary>
+        /// Adds an item to the list, growing if necessary.
+        /// </summary>
+        /// <param name="item">The item to add.</param>
         public void Add(in T item)
         {
             int next = Count + 1;
@@ -81,6 +111,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
             return true;
         }
 
+        /// <summary>
+        /// Ensures the list has at least the specified capacity.
+        /// </summary>
+        /// <param name="capacity">Minimum capacity required.</param>
         public void EnsureCapacity(int capacity)
         {
             if (capacity <= _buffer.Length) return;
@@ -88,16 +122,28 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Memory
             Grow(capacity);
         }
 
+        /// <summary>
+        /// Sorts the elements in the entire list using the specified comparer.
+        /// </summary>
+        /// <param name="comparer">The IComparer&lt;T&gt; implementation to use when comparing elements.</param>
         public void Sort(IComparer<T> comparer)
         {
             Array.Sort(_buffer, 0, Count, comparer);
         }
 
+        /// <summary>
+        /// Returns the internal array buffer. Warning: usage may exceed Count.
+        /// </summary>
+        /// <returns>The raw backing array.</returns>
         public T[] DangerousGetBuffer()
         {
             return _buffer;
         }
 
+        /// <summary>
+        /// Disposes the list, returning the buffer to the pool.
+        /// </summary>
+        /// <param name="clear">Whether to clear the buffer contents before returning.</param>
         public void Dispose(bool clear)
         {
             T[] tmp = _buffer;

@@ -23,6 +23,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
         /// </summary>
         public int LayoutVersion { get; }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Scheduler"/> class.
+        /// </summary>
+        /// <param name="world">The world to schedule for.</param>
+        /// <param name="simulationHz">Simulation frequency in Hz.</param>
+        /// <param name="layoutVersion">Deterministic layout version.</param>
         public Scheduler(World world, int simulationHz = 60, int layoutVersion = 1)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
@@ -70,11 +76,20 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
             _groups[phase].Add(system);
         }
 
+        /// <summary>
+        /// Adds a system to the specified phase group with an explicit order.
+        /// </summary>
+        /// <param name="phase">Target phase.</param>
+        /// <param name="system">System instance.</param>
+        /// <param name="order">Sort order (lower executes first).</param>
         public void AddSystem(SystemPhase phase, ISystem system, int order)
         {
             _groups[phase].Add(system, order);
         }
 
+        /// <summary>
+        /// Initializes all systems that have not been initialized yet.
+        /// </summary>
         public void Create()
         {
             if (_created) return;

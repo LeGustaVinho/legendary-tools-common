@@ -5,6 +5,10 @@ using LegendaryTools.Common.Core.Patterns.ECS.Memory;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 {
+    /// <summary>
+    /// Represents a unique combination of component types (archetype).
+    /// Stores entities in chunks (SoA layout) for cache efficiency.
+    /// </summary>
     public sealed class Archetype
     {
         private readonly Dictionary<int, int> _typeIdToColumnIndex;
@@ -12,10 +16,24 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         private int _nextChunkId;
         private int _lastChunkWithSpaceIndex;
 
+        /// <summary>
+        /// Gets the unique ID of this archetype.
+        /// </summary>
         public ArchetypeId ArchetypeId { get; }
+
+        /// <summary>
+        /// Gets the component type signature of this archetype.
+        /// </summary>
         public ArchetypeSignature Signature { get; }
 
+        /// <summary>
+        /// Gets the number of allocated chunks in this archetype.
+        /// </summary>
         public int ChunkCount => _chunks.Count;
+
+        /// <summary>
+        /// Gets the raw buffer of chunks. Iterate up to <see cref="ChunkCount"/>.
+        /// </summary>
         public Chunk[] ChunksBuffer => _chunks.DangerousGetBuffer();
 
         internal Archetype(ArchetypeSignature signature, ArchetypeId archetypeId)
@@ -34,16 +52,34 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             _lastChunkWithSpaceIndex = -1;
         }
 
+        /// <summary>
+        /// Checks if this archetype contains a specific component type.
+        /// </summary>
+        /// <param name="typeId">The component type ID.</param>
+        /// <returns>True if the archetype contains the component.</returns>
         public bool Contains(ComponentTypeId typeId)
         {
             return Signature.Contains(typeId);
         }
 
+        /// <summary>
+        /// Tries to get the column index for a specific component type using a dictionary (O(1)).
+        /// </summary>
+        /// <param name="typeId">The component type ID.</param>
+        /// <param name="columnIndex">The column index if found.</param>
+        /// <returns>True if found.</returns>
         public bool TryGetColumnIndex(ComponentTypeId typeId, out int columnIndex)
         {
             return _typeIdToColumnIndex.TryGetValue(typeId.Value, out columnIndex);
         }
 
+        /// <summary>
+        /// Tries to get the column index using binary search on the signature (O(log N)).
+        /// Avoids dictionary lookup overhead for small component counts.
+        /// </summary>
+        /// <param name="typeId">The component type ID.</param>
+        /// <param name="columnIndex">The column index if found.</param>
+        /// <returns>True if found.</returns>
         public bool TryGetColumnIndexFast(ComponentTypeId typeId, out int columnIndex)
         {
             int idx = Array.BinarySearch(Signature.TypeIds, typeId.Value);

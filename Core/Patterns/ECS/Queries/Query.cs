@@ -6,6 +6,10 @@ using LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
 {
+    /// <summary>
+    /// Describes a filter for entities based on their component types.
+    /// Can include All (required), None (excluded), and Any (at least one) constraints.
+    /// </summary>
     public sealed class Query
     {
         // Sorted unique stable type ids (hashed ids). Never use them as bit positions.
@@ -29,11 +33,22 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
         private int _cachedArchetypesCount;
         private int _cachedStructuralVersion;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Query"/> class.
+        /// </summary>
+        /// <param name="all">Components that MUST be present on the entity.</param>
+        /// <param name="none">Components that MUST NOT be present on the entity.</param>
         public Query(ReadOnlySpan<ComponentTypeId> all, ReadOnlySpan<ComponentTypeId> none)
             : this(all, none, ReadOnlySpan<ComponentTypeId>.Empty)
         {
         }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Query"/> class.
+        /// </summary>
+        /// <param name="all">Components that MUST be present on the entity.</param>
+        /// <param name="none">Components that MUST NOT be present on the entity.</param>
+        /// <param name="any">Components where AT LEAST ONE must be present on the entity (if the list is not empty).</param>
         public Query(
             ReadOnlySpan<ComponentTypeId> all,
             ReadOnlySpan<ComponentTypeId> none,
@@ -51,6 +66,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
             _cachedStructuralVersion = int.MinValue;
         }
 
+        /// <summary>
+        /// Gets or refreshes the cached list of matching archetypes.
+        /// </summary>
         internal ArchetypeCache GetOrBuildCache(StorageService storage)
         {
             int version = storage.StructuralVersion;
@@ -90,6 +108,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Queries
             return new ArchetypeCache(_cachedArchetypes, _cachedArchetypesCount);
         }
 
+        /// <summary>
+        /// Checks if an archetype matches the query constraints.
+        /// </summary>
         internal bool Matches(Archetype archetype)
         {
             // Match using sorted arrays (merge/binary search). This avoids any mask allocations

@@ -4,10 +4,20 @@ using LegendaryTools.Common.Core.Patterns.ECS.Memory;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 {
+    /// <summary>
+    /// Represents a block of memory storing a fixed number of entities with the same archetype.
+    /// Data is stored in Structure of Arrays (SoA) layout (columns).
+    /// </summary>
     public sealed class Chunk
     {
+        /// <summary>
+        /// Unique ID of this chunk within the archetype.
+        /// </summary>
         public readonly int ChunkId;
 
+        /// <summary>
+        /// Array of entity handles stored in this chunk.
+        /// </summary>
         public readonly Entity[] Entities;
 
         /// <summary>
@@ -23,8 +33,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
 
         private readonly int _capacity;
 
+        /// <summary>
+        /// Gets the number of entities currently stored in this chunk.
+        /// </summary>
         public int Count { get; private set; }
 
+        /// <summary>
+        /// Gets the maximum capacity of this chunk.
+        /// </summary>
         public int Capacity => _capacity;
 
         internal Chunk(int chunkId, int capacity, IChunkColumn[] columns, int columnCount)
@@ -47,6 +63,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
             Count = 0;
         }
 
+        /// <summary>
+        /// Gets a value indicating whether this chunk has space for more entities.
+        /// </summary>
         public bool HasSpace => Count < _capacity;
 
         internal int AddEntity(Entity entity)

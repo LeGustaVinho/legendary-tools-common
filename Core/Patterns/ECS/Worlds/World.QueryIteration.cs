@@ -22,6 +22,13 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
             return new WorldQueryResult(this, cache.Buffer, cache.Count);
         }
 
+        /// <summary>
+        /// Iterates over all chunks matching the query.
+        /// High performance iteration (alloc-free, cache-friendly).
+        /// </summary>
+        /// <typeparam name="TProcessor">Struct implementing IChunkProcessor.</typeparam>
+        /// <param name="query">The query to match.</param>
+        /// <param name="processor">The processor struct (passed by ref).</param>
         public void ForEachChunk<TProcessor>(Query query, ref TProcessor processor)
             where TProcessor : struct, IChunkProcessor
         {
@@ -59,6 +66,13 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
             }
         }
 
+        /// <summary>
+        /// Iterates over all entities matching the query.
+        /// Convenience API; slightly slower than chunk iteration due to callback overhead.
+        /// </summary>
+        /// <typeparam name="TProcessor">Struct implementing IEntityProcessor.</typeparam>
+        /// <param name="query">The query to match.</param>
+        /// <param name="processor">The processor struct (passed by ref).</param>
         public void ForEachEntity<TProcessor>(Query query, ref TProcessor processor)
             where TProcessor : struct, IEntityProcessor
         {

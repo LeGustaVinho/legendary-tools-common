@@ -19,6 +19,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         /// <summary>
         /// Internal immediate create used by ECB playback.
         /// </summary>
+        /// <returns>Created entity.</returns>
         internal Entity InternalCreateEntity()
         {
             Entity e = Entities.CreateEntity();
@@ -29,6 +30,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         /// <summary>
         /// Internal immediate destroy used by ECB playback.
         /// </summary>
+        /// <param name="e">Entity to destroy.</param>
         internal void InternalDestroyEntity(Entity e)
         {
             // If entity is already dead/stale, ignore for MVP resilience.
@@ -41,6 +43,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         /// <summary>
         /// Internal immediate add used by ECB playback.
         /// </summary>
+        /// <typeparam name="T">Component type.</typeparam>
+        /// <param name="e">Entity.</param>
+        /// <param name="value">Component value.</param>
         internal void InternalAdd<T>(Entity e, in T value) where T : struct
         {
             Structural.Add(e, value);
@@ -49,6 +54,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         /// <summary>
         /// Internal immediate remove used by ECB playback.
         /// </summary>
+        /// <typeparam name="T">Component type.</typeparam>
+        /// <param name="e">Entity.</param>
         internal void InternalRemove<T>(Entity e) where T : struct
         {
             Structural.Remove<T>(e);
@@ -58,6 +65,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds
         /// Internal remove by ComponentTypeId used by ECB playback.
         /// MVP implementation: resolves the typeId via registered remove delegates.
         /// </summary>
+        /// <param name="e">Entity.</param>
+        /// <param name="componentTypeId">Component type ID.</param>
         internal void InternalRemoveByTypeId(Entity e, int componentTypeId)
         {
             if (!_removeByTypeId.TryGetValue(componentTypeId, out Action<Entity> remover))
