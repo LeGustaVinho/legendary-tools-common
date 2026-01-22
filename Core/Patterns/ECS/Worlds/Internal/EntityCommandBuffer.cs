@@ -108,7 +108,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         private int _maxCommands;
         private int _maxTempEntities;
 
-        private static readonly CommandComparer s_commandComparer = new CommandComparer();
+        private static readonly CommandComparer s_commandComparer = new();
 
         public EntityCommandBuffer(World world, int initialCapacity = 256)
         {
@@ -176,26 +176,20 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         public Entity CreateEntity()
         {
             if (_deterministic && _world.State.IsUpdating)
-            {
                 throw new InvalidOperationException(
                     "CreateEntity() without sortKey is forbidden in determinism mode because temp indices depend on emission order. " +
                     "Use ECB.CreateEntity(sortKey) with a stable, non-zero sortKey (e.g., ownerEntity.Index or (chunkId<<16)|row).");
-            }
 
-            return CreateEntity(sortKey: int.MinValue);
+            return CreateEntity(int.MinValue);
         }
 
         public Entity CreateEntity(int sortKey)
         {
             if (_deterministic && _world.State.IsUpdating)
-            {
                 if (sortKey == 0)
-                {
                     throw new InvalidOperationException(
                         "CreateEntity(sortKey=0) is forbidden in determinism mode. " +
                         "Provide a stable, non-zero sortKey (e.g., ownerEntity.Index or (chunkId<<16)|row).");
-                }
-            }
 
             EnsureCanAddTempEntity();
 
@@ -203,11 +197,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             Entity temp = new(-(tempIndex + 1), 0);
 
             if (!_tempToReal.TryAddNoGrow(Entity.Invalid) && _deterministic && _world.State.IsUpdating)
-            {
                 throw new InvalidOperationException(
                     "ECB temp entity capacity exceeded. Call World.WarmupEcb(expectedCommands, expectedTempEntities) " +
                     "with a larger expectedTempEntities value before simulation.");
-            }
 
             int effectiveSortKey = sortKey != 0 ? sortKey : int.MinValue;
 
@@ -229,7 +221,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public void DestroyEntity(Entity entity)
         {
-            DestroyEntity(entity, sortKey: 0);
+            DestroyEntity(entity, 0);
         }
 
         public void DestroyEntity(Entity entity, int sortKey)
@@ -254,7 +246,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public void Add<T>(Entity entity) where T : struct
         {
-            Add(entity, default(T), sortKey: 0);
+            Add(entity, default(T), 0);
         }
 
         public void Add<T>(Entity entity, int sortKey) where T : struct
@@ -264,7 +256,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public void Add<T>(Entity entity, in T value) where T : struct
         {
-            Add(entity, value, sortKey: 0);
+            Add(entity, value, 0);
         }
 
         public void Add<T>(Entity entity, in T value, int sortKey) where T : struct
@@ -276,11 +268,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             if (!_valueStoresByTypeId.TryGetValue(typeId.Value, out IValueStore store))
             {
                 if (_deterministic && _world.State.IsUpdating)
-                {
                     throw new InvalidOperationException(
                         $"ECB value store for {typeof(T).FullName} was not warmed up. " +
                         "Call World.WarmupEcbValues<T>(expectedAddsForType) during bootstrap.");
-                }
 
                 store = new ValueStore<T>();
                 _valueStoresByTypeId.Add(typeId.Value, store);
@@ -291,11 +281,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             {
                 ValueStore<T> typedStrict = (ValueStore<T>)store;
                 if (!typedStrict.TryAddNoGrow(value, out valueIndex))
-                {
                     throw new InvalidOperationException(
                         $"ECB value capacity exceeded for {typeof(T).FullName}. " +
                         "Call World.WarmupEcbValues<T>(expectedAddsForType) with a larger value before simulation.");
-                }
             }
             else
             {
@@ -321,7 +309,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public void Remove<T>(Entity entity) where T : struct
         {
-            Remove<T>(entity, sortKey: 0);
+            Remove<T>(entity, 0);
         }
 
         public void Remove<T>(Entity entity, int sortKey) where T : struct
@@ -407,11 +395,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             if (!_deterministic || !_world.State.IsUpdating) return;
 
             if (_maxTempEntities > 0 && _tempToReal.Count + 1 > _maxTempEntities)
-            {
                 throw new InvalidOperationException(
                     "ECB temp entity limit exceeded. Call World.WarmupEcb(expectedCommands, expectedTempEntities) " +
                     "with a larger expectedTempEntities value before simulation.");
-            }
         }
 
         private void AddCommandNoGrowOrThrow(in Command cmd)
@@ -419,18 +405,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             if (_deterministic && _world.State.IsUpdating)
             {
                 if (_maxCommands > 0 && _commands.Count + 1 > _maxCommands)
-                {
                     throw new InvalidOperationException(
                         "ECB command limit exceeded. Call World.WarmupEcb(expectedCommands, expectedTempEntities) " +
                         "with a larger expectedCommands value before simulation.");
-                }
 
                 if (!_commands.TryAddNoGrow(cmd))
-                {
                     throw new InvalidOperationException(
                         "ECB command capacity exceeded. Call World.WarmupEcb(expectedCommands, expectedTempEntities) " +
                         "with a larger expectedCommands value before simulation.");
-                }
 
                 return;
             }
@@ -463,12 +445,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             if (!_deterministic || !_world.State.IsUpdating) return;
 
             if (entity.Index < 0 && sortKey == 0)
-            {
                 throw new InvalidOperationException(
                     $"{apiName} on a temp entity requires a stable, non-zero sortKey in determinism mode. " +
                     "Example: ownerEntity.Index or (chunkId<<16)|row. " +
                     "This prevents order-dependent playback across peers.");
-            }
         }
 
         private sealed class CommandComparer : IComparer<Command>

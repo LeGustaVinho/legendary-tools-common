@@ -13,6 +13,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Systems
         /// Gets the number of simulation ticks per second.
         /// </summary>
         public readonly int SimulationHz;
+
         /// <summary>
         /// Gets the time delta per tick (1/Hz).
         /// </summary>

@@ -76,7 +76,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         /// Backward-compatible constructor using default storage policies.
         /// </summary>
         public WorldState(int initialCapacity)
-            : this(initialCapacity, StoragePolicies.Default, 60, deterministic: false)
+            : this(initialCapacity, StoragePolicies.Default, 60, false)
         {
         }
 

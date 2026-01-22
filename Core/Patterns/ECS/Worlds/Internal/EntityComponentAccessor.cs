@@ -112,7 +112,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         private ComponentTypeId GetTypeId<T>() where T : struct
         {
-            return _components.GetComponentTypeId<T>(strictRegisteredOnly: _state.Deterministic);
+            return _components.GetComponentTypeId<T>(_state.Deterministic);
         }
 
         private void ValidateHasLocation(Entity entity)

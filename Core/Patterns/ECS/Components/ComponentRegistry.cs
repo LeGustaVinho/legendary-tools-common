@@ -36,7 +36,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
         /// <summary>
         /// Gets the current manifest of registered components, including checksums.
         /// </summary>
-        public ComponentManifest Manifest => new ComponentManifest(_manifestCount, _manifestXor64, _manifestSum64);
+        public ComponentManifest Manifest => new(_manifestCount, _manifestXor64, _manifestSum64);
 
         /// <summary>
         /// Registers a component type or returns its existing ID.
@@ -54,20 +54,17 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
             if (id == 0) id = 1;
 
             if (_idToType.TryGetValue(id, out Type usedBy))
-            {
                 if (usedBy != type)
                 {
                     // In deterministic mode we must never resolve collisions by probing,
                     // because it becomes order-dependent across peers.
                     if (_strictDeterminism)
-                    {
                         throw new InvalidOperationException(
                             "ComponentTypeId hash collision detected in determinism mode.\n" +
                             $"Type A: {usedBy.FullName}\n" +
                             $"Type B: {type.FullName}\n" +
                             $"Colliding Id: {id}\n" +
                             "Fix: rename one of the types (or change namespace/assembly) and ensure a fixed bootstrap registration list.");
-                    }
 
                     // Non-deterministic mode: resolve collision by probing.
                     int probe = id;
@@ -79,7 +76,6 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Components
 
                     id = probe;
                 }
-            }
 
             _typeToId.Add(type, id);
             if (!_idToType.ContainsKey(id))

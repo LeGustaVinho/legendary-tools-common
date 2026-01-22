@@ -11,10 +11,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Storage
         /// Maximum number of entities per chunk.
         /// </summary>
         public readonly int ChunkCapacity;
+
         /// <summary>
         /// Policy for removing entities (swap-back vs stable).
         /// </summary>
         public readonly StorageRemovalPolicy RemovalPolicy;
+
         /// <summary>
         /// Policy for allocating new entities (first fit vs track last).
         /// </summary>

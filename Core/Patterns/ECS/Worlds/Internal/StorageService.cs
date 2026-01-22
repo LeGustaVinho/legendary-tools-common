@@ -25,7 +25,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         {
             _state = state ?? throw new ArgumentNullException(nameof(state));
 
-            _components = new ComponentTypeStore(deterministic: _state.Deterministic);
+            _components = new ComponentTypeStore(_state.Deterministic);
             _archetypes = new ArchetypeStore(_state);
             _chunks = new ChunkStorageOps(_state, _archetypes, _components);
             _accessor = new EntityComponentAccessor(_state, _archetypes, _components);
@@ -49,7 +49,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public ComponentTypeId GetComponentTypeId<T>() where T : struct
         {
-            return _components.GetComponentTypeId<T>(strictRegisteredOnly: _state.Deterministic);
+            return _components.GetComponentTypeId<T>(_state.Deterministic);
         }
 
         public bool Has<T>(Entity entity) where T : struct

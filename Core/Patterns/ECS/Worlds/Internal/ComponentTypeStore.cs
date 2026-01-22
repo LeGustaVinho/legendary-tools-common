@@ -20,7 +20,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
         {
             _deterministic = deterministic;
 
-            _registry = new ComponentRegistry(strictDeterminism: deterministic);
+            _registry = new ComponentRegistry(deterministic);
             _typedColumnFactories = new Dictionary<int, Func<int, IChunkColumn>>(128);
         }
 
