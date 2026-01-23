@@ -30,6 +30,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             public int EntityIndexKey;
 
             public int ComponentTypeId;
+
+            public int Worker;
             public int Sequence;
 
             public Entity Entity;
@@ -98,15 +100,87 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         private readonly World _world;
 
-        private readonly PooledList<Command> _commands;
-        private readonly Dictionary<int, IValueStore> _valueStoresByTypeId;
+        private sealed class WorkerApi : ICommandBuffer
+        {
+            private readonly EntityCommandBuffer _owner;
+            private readonly int _worker;
 
-        private int _sequence;
+            public WorkerApi(EntityCommandBuffer owner, int worker)
+            {
+                _owner = owner;
+                _worker = worker;
+            }
 
-        private readonly PooledList<Entity> _tempToReal;
+            public Entity CreateEntity()
+            {
+                return _owner.CreateEntityInternal(_worker);
+            }
 
-        private int _maxCommands;
-        private int _maxTempEntities;
+            public Entity CreateEntity(int sortKey)
+            {
+                return _owner.CreateEntityInternal(_worker, sortKey);
+            }
+
+            public void DestroyEntity(Entity entity)
+            {
+                _owner.DestroyEntityInternal(_worker, entity, 0);
+            }
+
+            public void DestroyEntity(Entity entity, int sortKey)
+            {
+                _owner.DestroyEntityInternal(_worker, entity, sortKey);
+            }
+
+            public void Add<T>(Entity entity) where T : struct
+            {
+                _owner.AddInternal(_worker, entity, default(T), 0);
+            }
+
+            public void Add<T>(Entity entity, int sortKey) where T : struct
+            {
+                _owner.AddInternal(_worker, entity, default(T), sortKey);
+            }
+
+            public void Add<T>(Entity entity, in T value) where T : struct
+            {
+                _owner.AddInternal(_worker, entity, value, 0);
+            }
+
+            public void Add<T>(Entity entity, in T value, int sortKey) where T : struct
+            {
+                _owner.AddInternal(_worker, entity, value, sortKey);
+            }
+
+            public void Remove<T>(Entity entity) where T : struct
+            {
+                _owner.RemoveInternal<T>(_worker, entity, 0);
+            }
+
+            public void Remove<T>(Entity entity, int sortKey) where T : struct
+            {
+                _owner.RemoveInternal<T>(_worker, entity, sortKey);
+            }
+        }
+
+        private struct WorkerBuffer
+        {
+            public PooledList<Command> Commands;
+            public Dictionary<int, IValueStore> ValueStores;
+
+            public int Sequence;
+            public int TempCount;
+        }
+
+        private WorkerBuffer[] _workers;
+        private WorkerApi[] _workerApis;
+
+        private int _workerCount;
+
+        private int _maxCommandsPerWorker;
+        private int _maxTempPerWorker;
+
+        private Entity[] _tempToReal;
+        private int _tempStride;
 
         private static readonly CommandComparer s_commandComparer = new();
 
@@ -115,42 +189,141 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             _world = world;
             _deterministic = world.State.Deterministic;
 
-            _commands = new PooledList<Command>(initialCapacity);
-            _valueStoresByTypeId = new Dictionary<int, IValueStore>(128);
+            _workers = Array.Empty<WorkerBuffer>();
+            _workerApis = Array.Empty<WorkerApi>();
+            _workerCount = 0;
 
-            _sequence = 0;
-            _tempToReal = new PooledList<Entity>(64);
+            _maxCommandsPerWorker = 0;
+            _maxTempPerWorker = 0;
 
-            _maxCommands = 0;
-            _maxTempEntities = 0;
+            _tempToReal = Array.Empty<Entity>();
+            _tempStride = 0;
+
+            EnsureWorkers(1);
+
+            _workers[0].Commands.EnsureCapacity(initialCapacity);
+
+            ResetTempMapToInvalid();
         }
 
-        /// <summary>
-        /// Pre-allocates internal buffers to avoid growth (Rent/Return) during hotpaths.
-        /// Call this during initialization (outside simulation update).
-        /// </summary>
+        internal void EnsureWorkers(int workerCount)
+        {
+            if (workerCount < 1) workerCount = 1;
+            if (_workerCount == workerCount && _workers.Length == workerCount && _workerApis.Length == workerCount)
+                return;
+
+            WorkerBuffer[] newWorkers = new WorkerBuffer[workerCount];
+            WorkerApi[] newApis = new WorkerApi[workerCount];
+
+            int copy = Math.Min(_workerCount, workerCount);
+
+            for (int i = 0; i < copy; i++)
+            {
+                newWorkers[i] = _workers[i];
+                newApis[i] = _workerApis[i];
+            }
+
+            for (int i = copy; i < workerCount; i++)
+            {
+                newWorkers[i] = new WorkerBuffer
+                {
+                    Commands = new PooledList<Command>(256),
+                    ValueStores = new Dictionary<int, IValueStore>(128),
+                    Sequence = 0,
+                    TempCount = 0
+                };
+
+                newApis[i] = new WorkerApi(this, i);
+            }
+
+            _workers = newWorkers;
+            _workerApis = newApis;
+            _workerCount = workerCount;
+
+            if (_tempStride > 0)
+            {
+                int required = _workerCount * _tempStride;
+                if (_tempToReal.Length < required)
+                {
+                    int old = _tempToReal.Length;
+                    Array.Resize(ref _tempToReal, required);
+                    FillInvalid(old, required - old);
+                }
+            }
+        }
+
+        internal ICommandBuffer GetWorkerBuffer(int workerIndex)
+        {
+            if ((uint)workerIndex >= (uint)_workerCount)
+                throw new ArgumentOutOfRangeException(nameof(workerIndex));
+
+            return _workerApis[workerIndex];
+        }
+
         public void Warmup(int expectedCommands, int expectedTempEntities)
         {
-            if (expectedCommands < 0) expectedCommands = 0;
-            if (expectedTempEntities < 0) expectedTempEntities = 0;
+            WarmupParallel(1, expectedCommands, expectedTempEntities);
+        }
 
-            _commands.EnsureCapacity(expectedCommands);
-            _tempToReal.EnsureCapacity(expectedTempEntities);
+        public void WarmupParallel(int workerCount, int expectedCommandsPerWorker, int expectedTempEntitiesPerWorker)
+        {
+            if (workerCount < 1) workerCount = 1;
+            if (expectedCommandsPerWorker < 0) expectedCommandsPerWorker = 0;
+            if (expectedTempEntitiesPerWorker < 0) expectedTempEntitiesPerWorker = 0;
 
-            _maxCommands = expectedCommands;
-            _maxTempEntities = expectedTempEntities;
+            EnsureWorkers(workerCount);
+
+            for (int i = 0; i < workerCount; i++)
+            {
+                _workers[i].Commands.EnsureCapacity(Math.Max(16, expectedCommandsPerWorker));
+            }
+
+            _maxCommandsPerWorker = expectedCommandsPerWorker;
+            _maxTempPerWorker = expectedTempEntitiesPerWorker;
+
+            _tempStride = Math.Max(1, expectedTempEntitiesPerWorker);
+            int required = workerCount * _tempStride;
+
+            if (_tempToReal.Length < required)
+            {
+                int old = _tempToReal.Length;
+                Array.Resize(ref _tempToReal, required);
+                FillInvalid(old, required - old);
+            }
+
+            ResetTempMapToInvalid();
         }
 
         public void WarmupValues<T>(int expectedValues) where T : struct
         {
+            WarmupValuesParallel<T>(1, expectedValues);
+        }
+
+        public void WarmupValuesParallel<T>(int workerCount, int expectedValuesPerWorker) where T : struct
+        {
+            if (workerCount < 1) workerCount = 1;
+            if (expectedValuesPerWorker < 0) expectedValuesPerWorker = 0;
+
+            EnsureWorkers(workerCount);
+
+            for (int w = 0; w < workerCount; w++)
+            {
+                WarmupValuesWorker<T>(w, expectedValuesPerWorker);
+            }
+        }
+
+        private void WarmupValuesWorker<T>(int worker, int expectedValues) where T : struct
+        {
             if (expectedValues < 0) expectedValues = 0;
+
+            EnsureWorkers(Math.Max(_workerCount, worker + 1));
 
             ComponentTypeId typeId = _world.GetComponentTypeId<T>();
 
-            if (!_valueStoresByTypeId.TryGetValue(typeId.Value, out IValueStore store))
+            if (!_workers[worker].ValueStores.TryGetValue(typeId.Value, out IValueStore store))
             {
                 store = new ValueStore<T>(Math.Max(16, expectedValues));
-                _valueStoresByTypeId.Add(typeId.Value, store);
+                _workers[worker].ValueStores.Add(typeId.Value, store);
             }
 
             store.EnsureCapacity(expectedValues);
@@ -158,15 +331,19 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public void Reset(int tick)
         {
-            _commands.Clear();
-            _sequence = 0;
-
-            foreach (IValueStore store in _valueStoresByTypeId.Values)
+            for (int w = 0; w < _workerCount; w++)
             {
-                store.Clear();
+                _workers[w].Commands.Clear();
+                _workers[w].Sequence = 0;
+                _workers[w].TempCount = 0;
+
+                foreach (IValueStore store in _workers[w].ValueStores.Values)
+                {
+                    store.Clear();
+                }
             }
 
-            _tempToReal.Clear();
+            ResetTempMapToInvalid();
 
             Tick = tick;
         }
@@ -175,43 +352,99 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public Entity CreateEntity()
         {
+            return CreateEntityInternal(0);
+        }
+
+        public Entity CreateEntity(int sortKey)
+        {
+            return CreateEntityInternal(0, sortKey);
+        }
+
+        public void DestroyEntity(Entity entity)
+        {
+            DestroyEntityInternal(0, entity, 0);
+        }
+
+        public void DestroyEntity(Entity entity, int sortKey)
+        {
+            DestroyEntityInternal(0, entity, sortKey);
+        }
+
+        public void Add<T>(Entity entity) where T : struct
+        {
+            AddInternal(0, entity, default(T), 0);
+        }
+
+        public void Add<T>(Entity entity, int sortKey) where T : struct
+        {
+            AddInternal(0, entity, default(T), sortKey);
+        }
+
+        public void Add<T>(Entity entity, in T value) where T : struct
+        {
+            AddInternal(0, entity, value, 0);
+        }
+
+        public void Add<T>(Entity entity, in T value, int sortKey) where T : struct
+        {
+            AddInternal(0, entity, value, sortKey);
+        }
+
+        public void Remove<T>(Entity entity) where T : struct
+        {
+            RemoveInternal<T>(0, entity, 0);
+        }
+
+        public void Remove<T>(Entity entity, int sortKey) where T : struct
+        {
+            RemoveInternal<T>(0, entity, sortKey);
+        }
+
+        private Entity CreateEntityInternal(int worker)
+        {
             if (_deterministic && _world.State.IsUpdating)
                 throw new InvalidOperationException(
                     "CreateEntity() without sortKey is forbidden in determinism mode because temp indices depend on emission order. " +
                     "Use ECB.CreateEntity(sortKey) with a stable, non-zero sortKey (e.g., ownerEntity.Index or (chunkId<<16)|row).");
 
-            return CreateEntity(int.MinValue);
+            return CreateEntityInternal(worker, int.MinValue);
         }
 
-        public Entity CreateEntity(int sortKey)
+        private Entity CreateEntityInternal(int worker, int sortKey)
         {
-            if (_deterministic && _world.State.IsUpdating)
-                if (sortKey == 0)
-                    throw new InvalidOperationException(
-                        "CreateEntity(sortKey=0) is forbidden in determinism mode. " +
-                        "Provide a stable, non-zero sortKey (e.g., ownerEntity.Index or (chunkId<<16)|row).");
-
-            EnsureCanAddTempEntity();
-
-            int tempIndex = _tempToReal.Count;
-            Entity temp = new(-(tempIndex + 1), 0);
-
-            if (!_tempToReal.TryAddNoGrow(Entity.Invalid) && _deterministic && _world.State.IsUpdating)
+            if (_deterministic && _world.State.IsUpdating && sortKey == 0)
                 throw new InvalidOperationException(
-                    "ECB temp entity capacity exceeded. Call World.WarmupEcb(expectedCommands, expectedTempEntities) " +
-                    "with a larger expectedTempEntities value before simulation.");
+                    "CreateEntity(sortKey=0) is forbidden in determinism mode. " +
+                    "Provide a stable, non-zero sortKey (e.g., ownerEntity.Index or (chunkId<<16)|row).");
+
+            EnsureTempStrideForParallel(worker);
+
+            int local = _workers[worker].TempCount++;
+            if (_deterministic && _world.State.IsUpdating && _maxTempPerWorker > 0 && local >= _maxTempPerWorker)
+                throw new InvalidOperationException(
+                    "ECB temp entity limit exceeded for worker. Call World.WarmupEcbParallel(workerCount, expectedCommandsPerWorker, expectedTempEntitiesPerWorker) " +
+                    "with a larger expectedTempEntitiesPerWorker value before simulation.");
+
+            int globalTempIndex = worker * _tempStride + local;
+            Entity temp = new(-(globalTempIndex + 1), 0);
 
             int effectiveSortKey = sortKey != 0 ? sortKey : int.MinValue;
 
-            AddCommandNoGrowOrThrow(new Command
+            // IMPORTANT (Determinism hardening):
+            // If multiple CreateEntity commands share the same SortKey, order must not fall back to Worker/Sequence.
+            // Use the deterministic temp index as EntityIndexKey to break ties before Worker/Sequence.
+            int createEntityIndexKey = globalTempIndex;
+
+            AddCommandNoGrowOrThrow(worker, new Command
             {
                 Type = CommandType.CreateEntity,
                 Tick = Tick,
                 SystemOrder = _world.CurrentSystemOrder,
                 SortKey = effectiveSortKey,
-                EntityIndexKey = effectiveSortKey,
+                EntityIndexKey = createEntityIndexKey,
                 ComponentTypeId = 0,
-                Sequence = _sequence++,
+                Worker = worker,
+                Sequence = _workers[worker].Sequence++,
                 Entity = temp,
                 ValueIndex = -1
             });
@@ -219,18 +452,13 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             return temp;
         }
 
-        public void DestroyEntity(Entity entity)
-        {
-            DestroyEntity(entity, 0);
-        }
-
-        public void DestroyEntity(Entity entity, int sortKey)
+        private void DestroyEntityInternal(int worker, Entity entity, int sortKey)
         {
             EnforceDeterministicSortKeyForTempEntity(entity, sortKey, "DestroyEntity");
 
             int effectiveSortKey = sortKey != 0 ? sortKey : entity.Index;
 
-            AddCommandNoGrowOrThrow(new Command
+            AddCommandNoGrowOrThrow(worker, new Command
             {
                 Type = CommandType.DestroyEntity,
                 Tick = Tick,
@@ -238,42 +466,28 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 SortKey = effectiveSortKey,
                 EntityIndexKey = ComputeEntityIndexKey(entity, effectiveSortKey),
                 ComponentTypeId = 0,
-                Sequence = _sequence++,
+                Worker = worker,
+                Sequence = _workers[worker].Sequence++,
                 Entity = entity,
                 ValueIndex = -1
             });
         }
 
-        public void Add<T>(Entity entity) where T : struct
-        {
-            Add(entity, default(T), 0);
-        }
-
-        public void Add<T>(Entity entity, int sortKey) where T : struct
-        {
-            Add(entity, default(T), sortKey);
-        }
-
-        public void Add<T>(Entity entity, in T value) where T : struct
-        {
-            Add(entity, value, 0);
-        }
-
-        public void Add<T>(Entity entity, in T value, int sortKey) where T : struct
+        private void AddInternal<T>(int worker, Entity entity, in T value, int sortKey) where T : struct
         {
             EnforceDeterministicSortKeyForTempEntity(entity, sortKey, "Add");
 
             ComponentTypeId typeId = _world.GetComponentTypeId<T>();
 
-            if (!_valueStoresByTypeId.TryGetValue(typeId.Value, out IValueStore store))
+            if (!_workers[worker].ValueStores.TryGetValue(typeId.Value, out IValueStore store))
             {
                 if (_deterministic && _world.State.IsUpdating)
                     throw new InvalidOperationException(
-                        $"ECB value store for {typeof(T).FullName} was not warmed up. " +
-                        "Call World.WarmupEcbValues<T>(expectedAddsForType) during bootstrap.");
+                        $"ECB value store for {typeof(T).FullName} was not warmed up for worker {worker}. " +
+                        "Call World.WarmupEcbValuesParallel<T>(workerCount, expectedAddsPerWorker) during bootstrap.");
 
                 store = new ValueStore<T>();
-                _valueStoresByTypeId.Add(typeId.Value, store);
+                _workers[worker].ValueStores.Add(typeId.Value, store);
             }
 
             int valueIndex;
@@ -282,8 +496,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 ValueStore<T> typedStrict = (ValueStore<T>)store;
                 if (!typedStrict.TryAddNoGrow(value, out valueIndex))
                     throw new InvalidOperationException(
-                        $"ECB value capacity exceeded for {typeof(T).FullName}. " +
-                        "Call World.WarmupEcbValues<T>(expectedAddsForType) with a larger value before simulation.");
+                        $"ECB value capacity exceeded for {typeof(T).FullName} on worker {worker}. " +
+                        "Increase expectedAddsPerWorker in World.WarmupEcbValuesParallel<T>().");
             }
             else
             {
@@ -293,7 +507,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             int effectiveSortKey = sortKey != 0 ? sortKey : entity.Index;
 
-            AddCommandNoGrowOrThrow(new Command
+            AddCommandNoGrowOrThrow(worker, new Command
             {
                 Type = CommandType.AddComponent,
                 Tick = Tick,
@@ -301,18 +515,14 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 SortKey = effectiveSortKey,
                 EntityIndexKey = ComputeEntityIndexKey(entity, effectiveSortKey),
                 ComponentTypeId = typeId.Value,
-                Sequence = _sequence++,
+                Worker = worker,
+                Sequence = _workers[worker].Sequence++,
                 Entity = entity,
                 ValueIndex = valueIndex
             });
         }
 
-        public void Remove<T>(Entity entity) where T : struct
-        {
-            Remove<T>(entity, 0);
-        }
-
-        public void Remove<T>(Entity entity, int sortKey) where T : struct
+        private void RemoveInternal<T>(int worker, Entity entity, int sortKey) where T : struct
         {
             EnforceDeterministicSortKeyForTempEntity(entity, sortKey, "Remove");
 
@@ -320,7 +530,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
             int effectiveSortKey = sortKey != 0 ? sortKey : entity.Index;
 
-            AddCommandNoGrowOrThrow(new Command
+            AddCommandNoGrowOrThrow(worker, new Command
             {
                 Type = CommandType.RemoveComponent,
                 Tick = Tick,
@@ -328,7 +538,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 SortKey = effectiveSortKey,
                 EntityIndexKey = ComputeEntityIndexKey(entity, effectiveSortKey),
                 ComponentTypeId = typeId.Value,
-                Sequence = _sequence++,
+                Worker = worker,
+                Sequence = _workers[worker].Sequence++,
                 Entity = entity,
                 ValueIndex = -1
             });
@@ -336,14 +547,32 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
 
         public void Playback()
         {
-            int cmdCount = _commands.Count;
-            if (cmdCount <= 0) return;
-
-            Array.Sort(_commands.DangerousGetBuffer(), 0, cmdCount, s_commandComparer);
-
-            for (int i = 0; i < cmdCount; i++)
+            int total = 0;
+            for (int w = 0; w < _workerCount; w++)
             {
-                Command cmd = _commands[i];
+                total += _workers[w].Commands.Count;
+            }
+
+            if (total <= 0) return;
+
+            Command[] merged = EcsArrayPool<Command>.Rent(total);
+            int write = 0;
+
+            for (int w = 0; w < _workerCount; w++)
+            {
+                PooledList<Command> cmds = _workers[w].Commands;
+                Command[] buf = cmds.DangerousGetBuffer();
+                int count = cmds.Count;
+
+                Array.Copy(buf, 0, merged, write, count);
+                write += count;
+            }
+
+            Array.Sort(merged, 0, total, s_commandComparer);
+
+            for (int i = 0; i < total; i++)
+            {
+                Command cmd = merged[i];
 
                 switch (cmd.Type)
                 {
@@ -351,6 +580,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                     {
                         Entity real = _world.InternalCreateEntity();
                         int tempIdx = ToTempIndex(cmd.Entity);
+
+                        EnsureTempMapCapacity(tempIdx + 1);
+
                         _tempToReal[tempIdx] = real;
                         break;
                     }
@@ -365,7 +597,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                     case CommandType.AddComponent:
                     {
                         Entity resolved = Resolve(cmd.Entity);
-                        if (!_valueStoresByTypeId.TryGetValue(cmd.ComponentTypeId, out IValueStore store))
+
+                        int worker = cmd.Worker;
+                        if ((uint)worker >= (uint)_workerCount)
+                            throw new InvalidOperationException("ECB worker index out of range during playback.");
+
+                        if (!_workers[worker].ValueStores.TryGetValue(cmd.ComponentTypeId, out IValueStore store))
                             throw new InvalidOperationException("ECB value store missing for AddComponent.");
 
                         store.ApplyAdd(_world, resolved, cmd.ValueIndex);
@@ -383,6 +620,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                         throw new InvalidOperationException("Unknown ECB command type.");
                 }
             }
+
+            EcsArrayPool<Command>.Return(merged, false);
         }
 
         private static int ComputeEntityIndexKey(Entity entity, int effectiveSortKey)
@@ -390,34 +629,23 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             return entity.Index >= 0 ? entity.Index : effectiveSortKey;
         }
 
-        private void EnsureCanAddTempEntity()
-        {
-            if (!_deterministic || !_world.State.IsUpdating) return;
-
-            if (_maxTempEntities > 0 && _tempToReal.Count + 1 > _maxTempEntities)
-                throw new InvalidOperationException(
-                    "ECB temp entity limit exceeded. Call World.WarmupEcb(expectedCommands, expectedTempEntities) " +
-                    "with a larger expectedTempEntities value before simulation.");
-        }
-
-        private void AddCommandNoGrowOrThrow(in Command cmd)
+        private void AddCommandNoGrowOrThrow(int worker, in Command cmd)
         {
             if (_deterministic && _world.State.IsUpdating)
             {
-                if (_maxCommands > 0 && _commands.Count + 1 > _maxCommands)
+                if (_maxCommandsPerWorker > 0 && _workers[worker].Commands.Count + 1 > _maxCommandsPerWorker)
                     throw new InvalidOperationException(
-                        "ECB command limit exceeded. Call World.WarmupEcb(expectedCommands, expectedTempEntities) " +
-                        "with a larger expectedCommands value before simulation.");
+                        "ECB command limit exceeded for worker. Call World.WarmupEcbParallel(workerCount, expectedCommandsPerWorker, expectedTempEntitiesPerWorker) " +
+                        "with a larger expectedCommandsPerWorker value before simulation.");
 
-                if (!_commands.TryAddNoGrow(cmd))
+                if (!_workers[worker].Commands.TryAddNoGrow(cmd))
                     throw new InvalidOperationException(
-                        "ECB command capacity exceeded. Call World.WarmupEcb(expectedCommands, expectedTempEntities) " +
-                        "with a larger expectedCommands value before simulation.");
+                        "ECB command capacity exceeded for worker. Warm up more capacity before simulation.");
 
                 return;
             }
 
-            _commands.Add(cmd);
+            _workers[worker].Commands.Add(cmd);
         }
 
         private static int ToTempIndex(Entity e)
@@ -431,13 +659,80 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
             if (e.Index >= 0) return e;
 
             int tempIdx = ToTempIndex(e);
-            if ((uint)tempIdx >= (uint)_tempToReal.Count)
+            if ((uint)tempIdx >= (uint)_tempToReal.Length)
                 throw new InvalidOperationException("Invalid temp entity handle.");
 
             Entity real = _tempToReal[tempIdx];
-            if (real.Index < 0) throw new InvalidOperationException("Temp entity was not created before being used.");
+            if (real.Index < 0)
+                throw new InvalidOperationException("Temp entity was not created before being used.");
 
             return real;
+        }
+
+        private void EnsureTempStrideForParallel(int worker)
+        {
+            if (_tempStride <= 0)
+            {
+                if (_deterministic && _world.State.IsUpdating && _workerCount > 1)
+                    throw new InvalidOperationException(
+                        "Parallel temp entities require WarmupEcbParallel(workerCount, expectedCommandsPerWorker, expectedTempEntitiesPerWorker).");
+
+                _tempStride = 1024;
+
+                int required = _workerCount * _tempStride;
+                if (_tempToReal.Length < required)
+                {
+                    int old = _tempToReal.Length;
+                    Array.Resize(ref _tempToReal, required);
+                    FillInvalid(old, required - old);
+                }
+
+                ResetTempMapToInvalid();
+            }
+
+            int required2 = (worker + 1) * _tempStride;
+            if (_tempToReal.Length < required2)
+            {
+                if (_deterministic && _world.State.IsUpdating)
+                    throw new InvalidOperationException(
+                        "Temp entity map exceeded in determinism mode. Increase expectedTempEntitiesPerWorker in WarmupEcbParallel().");
+
+                int old = _tempToReal.Length;
+                Array.Resize(ref _tempToReal, required2);
+                FillInvalid(old, required2 - old);
+            }
+        }
+
+        private void EnsureTempMapCapacity(int required)
+        {
+            if (required <= _tempToReal.Length) return;
+
+            if (_deterministic && _world.State.IsUpdating)
+                throw new InvalidOperationException(
+                    "Temp entity map capacity exceeded in determinism mode. Increase expectedTempEntitiesPerWorker in WarmupEcbParallel().");
+
+            int old = _tempToReal.Length;
+            Array.Resize(ref _tempToReal, required);
+            FillInvalid(old, required - old);
+        }
+
+        private void ResetTempMapToInvalid()
+        {
+            if (_tempToReal == null || _tempToReal.Length == 0) return;
+            FillInvalid(0, _tempToReal.Length);
+        }
+
+        private void FillInvalid(int start, int count)
+        {
+            if (count <= 0) return;
+
+            Entity invalid = Entity.Invalid;
+            int end = start + count;
+
+            for (int i = start; i < end; i++)
+            {
+                _tempToReal[i] = invalid;
+            }
         }
 
         private void EnforceDeterministicSortKeyForTempEntity(Entity entity, int sortKey, string apiName)
@@ -476,6 +771,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Worlds.Internal
                 if (cmp != 0) return cmp;
 
                 cmp = x.ComponentTypeId.CompareTo(y.ComponentTypeId);
+                if (cmp != 0) return cmp;
+
+                cmp = x.Worker.CompareTo(y.Worker);
                 if (cmp != 0) return cmp;
 
                 return x.Sequence.CompareTo(y.Sequence);
