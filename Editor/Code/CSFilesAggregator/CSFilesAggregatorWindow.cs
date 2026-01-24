@@ -24,7 +24,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         private Vector2 _scrollPosition;
         private Tab _activeTab;
 
-        private TreeViewState _filesTreeState;
+        private TreeViewState<int> _filesTreeState;
         private SearchField _filesSearchField;
         private CSFilesAggregatorFilesTreeView _filesTreeView;
 
@@ -42,7 +42,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             _controller = CSFilesAggregatorCompositionRoot.CreateController();
             _controller.StateChanged += OnControllerStateChanged;
 
-            _filesTreeState ??= new TreeViewState();
+            _filesTreeState ??= new TreeViewState<int>();
             _filesSearchField ??= new SearchField();
 
             _filesTreeView ??= new CSFilesAggregatorFilesTreeView(
@@ -269,7 +269,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         {
             if (_filesTreeView == null)
             {
-                _filesTreeState ??= new TreeViewState();
+                _filesTreeState ??= new TreeViewState<int>();
                 _filesTreeView = new CSFilesAggregatorFilesTreeView(
                     _filesTreeState,
                     displayPath => _controller.ScanDependenciesForFile(displayPath),

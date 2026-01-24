@@ -11,7 +11,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
     /// <summary>
     /// TreeView that displays the effective files included in the aggregation plan, grouped by folders.
     /// </summary>
-    public sealed class CSFilesAggregatorFilesTreeView : TreeView
+    public sealed class CSFilesAggregatorFilesTreeView : TreeView<int>
     {
         private const float CheckboxWidth = 18f;
         private const float ButtonWidth = 80f;
@@ -34,7 +34,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         /// Creates a new TreeView.
         /// </summary>
         public CSFilesAggregatorFilesTreeView(
-            TreeViewState state,
+            TreeViewState<int> state,
             Func<string, IReadOnlyList<string>> resolveDependenciesByDisplayPath,
             Action<string, bool> onDoNotStripChanged)
             : base(state)
@@ -92,17 +92,17 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         }
 
         /// <inheritdoc />
-        protected override TreeViewItem BuildRoot()
+        protected override TreeViewItem<int> BuildRoot()
         {
-            TreeViewItem root = new(0, -1, "Root");
+            TreeViewItem<int> root = new(0, -1, "Root");
 
             if (_files == null || _files.Count == 0)
             {
-                root.children = new List<TreeViewItem>();
+                root.children = new List<TreeViewItem<int>>();
                 return root;
             }
 
-            Dictionary<string, TreeViewItem> folderNodeByPath = new(StringComparer.Ordinal);
+            Dictionary<string, TreeViewItem<int>> folderNodeByPath = new(StringComparer.Ordinal);
             Dictionary<int, string> sortKeyById = new();
 
             for (int i = 0; i < _files.Count; i++)
@@ -115,7 +115,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 if (parts.Length == 0) continue;
 
                 // Build folder chain.
-                TreeViewItem parent = root;
+                TreeViewItem<int> parent = root;
                 string currentFolderPath = string.Empty;
 
                 for (int p = 0; p < parts.Length - 1; p++)
@@ -125,12 +125,12 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                         ? folderName
                         : $"{currentFolderPath}/{folderName}";
 
-                    if (!folderNodeByPath.TryGetValue(currentFolderPath, out TreeViewItem folderNode))
+                    if (!folderNodeByPath.TryGetValue(currentFolderPath, out TreeViewItem<int> folderNode))
                     {
                         int id = _nextId++;
-                        folderNode = new TreeViewItem(id, parent.depth + 1, folderName)
+                        folderNode = new TreeViewItem<int>(id, parent.depth + 1, folderName)
                         {
-                            children = new List<TreeViewItem>()
+                            children = new List<TreeViewItem<int>>()
                         };
 
                         folderNodeByPath[currentFolderPath] = folderNode;
@@ -149,7 +149,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
                 string label = fileName;
                 if (file.Source == AggregationPlanFileSource.Dependency) label = $"{fileName}  (dep)";
 
-                TreeViewItem fileItem = new(fileId, parent.depth + 1, label);
+                TreeViewItem<int> fileItem = new(fileId, parent.depth + 1, label);
                 AddChild(parent, fileItem);
 
                 _fileById[fileId] = file;
@@ -313,16 +313,16 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
             menu.ShowAsContext();
         }
 
-        private static void AddChild(TreeViewItem parent, TreeViewItem child)
+        private static void AddChild(TreeViewItem<int> parent, TreeViewItem<int> child)
         {
             if (parent == null || child == null) return;
 
-            if (parent.children == null) parent.children = new List<TreeViewItem>();
+            if (parent.children == null) parent.children = new List<TreeViewItem<int>>();
 
             parent.children.Add(child);
         }
 
-        private static void SortRecursively(TreeViewItem item, Dictionary<int, string> sortKeyById)
+        private static void SortRecursively(TreeViewItem<int> item, Dictionary<int, string> sortKeyById)
         {
             if (item == null || item.children == null || item.children.Count == 0) return;
 

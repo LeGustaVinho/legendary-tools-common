@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEngine;
 
-public sealed class CsFileTreeView : TreeView
+public sealed class CsFileTreeView : TreeView<int>
 {
     private enum ColumnId
     {
@@ -27,7 +27,7 @@ public sealed class CsFileTreeView : TreeView
 
     private static GUIStyle s_rightAlignedLabelStyle;
 
-    public CsFileTreeView(TreeViewState state)
+    public CsFileTreeView(TreeViewState<int> state)
         : base(state, CreateMultiColumnHeader())
     {
         showBorder = true;
@@ -64,13 +64,13 @@ public sealed class CsFileTreeView : TreeView
         }
     }
 
-    protected override TreeViewItem BuildRoot()
+    protected override TreeViewItem<int> BuildRoot()
     {
         RefreshFileList();
 
-        TreeViewItem root = new(0, -1, "Root")
+        TreeViewItem<int> root = new(0, -1, "Root")
         {
-            children = new List<TreeViewItem>()
+            children = new List<TreeViewItem<int>>()
         };
 
         Dictionary<string, FolderNode> foldersByPath = new(StringComparer.OrdinalIgnoreCase)
@@ -115,12 +115,12 @@ public sealed class CsFileTreeView : TreeView
         FolderNode assetsRoot = foldersByPath["Assets"];
 
         // Build TreeViewItems and compute folder aggregates based only on the filtered-in files.
-        foreach (TreeViewItem child in BuildItemsRecursive(assetsRoot, 0))
+        foreach (TreeViewItem<int> child in BuildItemsRecursive(assetsRoot, 0))
         {
             root.AddChild(child);
         }
 
-        if (root.children == null) root.children = new List<TreeViewItem>();
+        if (root.children == null) root.children = new List<TreeViewItem<int>>();
 
         SetupDepthsFromParentsAndChildren(root);
         return root;
@@ -362,7 +362,7 @@ public sealed class CsFileTreeView : TreeView
         return true;
     }
 
-    private IEnumerable<TreeViewItem> BuildItemsRecursive(FolderNode folder, int depth)
+    private IEnumerable<TreeViewItem<int>> BuildItemsRecursive(FolderNode folder, int depth)
     {
         folder.Children.Sort(static (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         folder.Files.Sort(static (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
@@ -371,10 +371,10 @@ public sealed class CsFileTreeView : TreeView
 
         if (!isAssetsRoot)
         {
-            TreeViewItem folderItem =
+            TreeViewItem<int> folderItem =
                 new CsFileTreeViewItem(folder.Id, depth, folder.Name, null, true, folder.Aggregate)
                 {
-                    children = new List<TreeViewItem>()
+                    children = new List<TreeViewItem<int>>()
                 };
 
             // Recompute aggregate based on visible children.
@@ -382,7 +382,7 @@ public sealed class CsFileTreeView : TreeView
 
             foreach (FolderNode childFolder in folder.Children)
             {
-                foreach (TreeViewItem item in BuildItemsRecursive(childFolder, depth + 1))
+                foreach (TreeViewItem<int> item in BuildItemsRecursive(childFolder, depth + 1))
                 {
                     folderItem.AddChild(item);
 
@@ -409,7 +409,7 @@ public sealed class CsFileTreeView : TreeView
         // Assets root: emit children at depth 0.
         foreach (FolderNode childFolder in folder.Children)
         {
-            foreach (TreeViewItem item in BuildItemsRecursive(childFolder, depth))
+            foreach (TreeViewItem<int> item in BuildItemsRecursive(childFolder, depth))
             {
                 yield return item;
             }

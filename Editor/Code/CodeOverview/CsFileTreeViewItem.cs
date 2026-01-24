@@ -1,6 +1,6 @@
 using UnityEditor.IMGUI.Controls;
 
-public sealed class CsFileTreeViewItem : TreeViewItem
+public sealed class CsFileTreeViewItem : TreeViewItem<int>
 {
     public string AssetPath { get; }
     public bool IsFolder { get; }

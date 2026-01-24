@@ -7,7 +7,7 @@ public sealed class CsFileTreeWindow : EditorWindow
     private const string WindowTitle = "C# File Tree";
     private const float ToolbarHeight = 20f;
 
-    [SerializeField] private TreeViewState _treeViewState;
+    [SerializeField] private TreeViewState<int> _treeViewState;
 
     private SearchField _searchField;
     private CsFileTreeView _treeView;
@@ -30,7 +30,7 @@ public sealed class CsFileTreeWindow : EditorWindow
 
     private void OnEnable()
     {
-        _treeViewState ??= new TreeViewState();
+        _treeViewState ??= new TreeViewState<int>();
 
         _searchField ??= new SearchField();
         _searchField.downOrUpArrowKeyPressed += OnSearchFieldArrowKeyPressed;

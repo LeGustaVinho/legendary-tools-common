@@ -1,3 +1,6 @@
+// File: Assets/legendary-tools-common/Editor/Analysis/Installers/RoslynNuGetInstaller.cs
+
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -20,25 +23,35 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
         // Keep these inside Editor so they never ship into builds.
         private const string InstallFolderRelative = "Assets/legendary-tools-common/Editor/ThirdParty/Roslyn";
 
-        // Unity-friendly baseline. Unity docs mention Roslyn 3.8 for generator/analyzer compatibility. :contentReference[oaicite:2]{index=2}
+        // Unity-friendly baseline. Many Unity workflows are compatible with Roslyn 3.8 APIs.
         private const string RoslynVersion = "3.8.0";
 
-        // Known dependencies for Roslyn netstandard2.0 usage (parsing/compilation APIs).
-        // We pin versions that provide netstandard2.0 assets and are commonly compatible with Unity's .NET 4.x runtime.
+        // Dependencies for Microsoft.CodeAnalysis.Common 3.8.0 (netstandard2.0):
+        // - System.Collections.Immutable (>= 5.0.0)
+        // - System.Reflection.Metadata (>= 5.0.0)
+        // - System.Memory (>= 4.5.4)
+        // - System.Runtime.CompilerServices.Unsafe (>= 4.7.1)
+        // - System.Text.Encoding.CodePages (>= 4.5.1)
+        // - System.Threading.Tasks.Extensions (>= 4.5.4)
+        // Source: NuGet dependency list for Microsoft.CodeAnalysis.Common 3.8.0. :contentReference[oaicite:2]{index=2}
         private static readonly (string id, string version)[] Packages =
         {
+            // Roslyn.
             ("Microsoft.CodeAnalysis", RoslynVersion),
             ("Microsoft.CodeAnalysis.Common", RoslynVersion),
             ("Microsoft.CodeAnalysis.CSharp", RoslynVersion),
 
-            // Dependencies (netstandard2.0)
-            ("System.Collections.Immutable", "1.7.1"),
-            ("System.Reflection.Metadata", "1.8.1"),
+            // Dependencies (netstandard2.0).
+            ("System.Collections.Immutable", "5.0.0"),
+            ("System.Reflection.Metadata", "5.0.0"),
             ("System.Memory", "4.5.4"),
             ("System.Runtime.CompilerServices.Unsafe", "4.7.1"),
+            ("System.Text.Encoding.CodePages", "4.5.1"),
             ("System.Threading.Tasks.Extensions", "4.5.4"),
+
+            // Extra safe additions commonly needed by netstandard2.0 packages in Unity.
             ("System.Numerics.Vectors", "4.5.0"),
-            ("System.Buffers", "4.5.1"),
+            ("System.Buffers", "4.5.1")
         };
 
         [MenuItem("Tools/LegendaryTools/Installers/Roslyn/Install (NuGet)")]
@@ -50,19 +63,16 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
 
                 EditorUtility.DisplayProgressBar("Roslyn Installer", "Downloading packages...", 0f);
 
-                var downloaded = new List<string>(Packages.Length);
+                List<string> downloaded = new(Packages.Length);
                 for (int i = 0; i < Packages.Length; i++)
                 {
                     (string id, string version) = Packages[i];
 
-                    float p = (i / (float)Mathf.Max(1, Packages.Length)) * 0.4f;
+                    float p = i / (float)Mathf.Max(1, Packages.Length) * 0.4f;
                     EditorUtility.DisplayProgressBar("Roslyn Installer", $"Downloading {id} {version}", p);
 
                     string nupkgPath = DownloadNuGetPackageBlocking(id, version, tempAbsoluteFolder);
-                    if (!string.IsNullOrEmpty(nupkgPath))
-                    {
-                        downloaded.Add(nupkgPath);
-                    }
+                    if (!string.IsNullOrEmpty(nupkgPath)) downloaded.Add(nupkgPath);
                 }
 
                 EditorUtility.DisplayProgressBar("Roslyn Installer", "Extracting DLLs...", 0.45f);
@@ -70,8 +80,9 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
                 int extractedCount = 0;
                 for (int i = 0; i < downloaded.Count; i++)
                 {
-                    float p = 0.45f + (i / (float)Mathf.Max(1, downloaded.Count)) * 0.45f;
-                    EditorUtility.DisplayProgressBar("Roslyn Installer", $"Extracting {Path.GetFileName(downloaded[i])}", p);
+                    float p = 0.45f + i / (float)Mathf.Max(1, downloaded.Count) * 0.45f;
+                    EditorUtility.DisplayProgressBar("Roslyn Installer",
+                        $"Extracting {Path.GetFileName(downloaded[i])}", p);
 
                     extractedCount += ExtractNetStandardDlls(downloaded[i], installAbsoluteFolder);
                 }
@@ -80,8 +91,10 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
 
                 AssetDatabase.Refresh();
 
-                Debug.Log($"Roslyn install complete. Extracted DLLs: {extractedCount}. Installed to: {InstallFolderRelative}");
-                Debug.Log("If you still see compile errors, check for conflicting Roslyn DLLs already present in the project (e.g., other analyzers packages).");
+                Debug.Log(
+                    $"Roslyn install complete. Extracted DLLs: {extractedCount}. Installed to: {InstallFolderRelative}");
+                Debug.Log(
+                    "If you still see compile errors, search your project for duplicate System.Collections.Immutable.dll and remove older copies.");
             }
             catch (Exception ex)
             {
@@ -121,18 +134,12 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
         {
             installAbsoluteFolder = Path.GetFullPath(InstallFolderRelative);
 
-            if (!Directory.Exists(installAbsoluteFolder))
-            {
-                Directory.CreateDirectory(installAbsoluteFolder);
-            }
+            if (!Directory.Exists(installAbsoluteFolder)) Directory.CreateDirectory(installAbsoluteFolder);
 
             // Keep temp under Library to avoid polluting Assets.
             string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
             tempAbsoluteFolder = Path.Combine(projectRoot, "Library", "LegendaryTools", "TypeIndex", "NuGetCache");
-            if (!Directory.Exists(tempAbsoluteFolder))
-            {
-                Directory.CreateDirectory(tempAbsoluteFolder);
-            }
+            if (!Directory.Exists(tempAbsoluteFolder)) Directory.CreateDirectory(tempAbsoluteFolder);
         }
 
         private static string DownloadNuGetPackageBlocking(string id, string version, string tempAbsoluteFolder)
@@ -140,10 +147,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
             string fileName = $"{id}.{version}.nupkg";
             string outputPath = Path.Combine(tempAbsoluteFolder, fileName);
 
-            if (File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
-            {
-                return outputPath;
-            }
+            if (File.Exists(outputPath) && new FileInfo(outputPath).Length > 0) return outputPath;
 
             string url = string.Format(NuGetV2PackageUrlFormat, id, version);
 
@@ -154,8 +158,10 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
                 UnityWebRequestAsyncOperation op = req.SendWebRequest();
                 while (!op.isDone)
                 {
-                    // Keep UI responsive-ish with progress bar updates.
-                    EditorUtility.DisplayProgressBar("Roslyn Installer", $"Downloading {id} {version} ({req.downloadProgress:P0})", 0.1f);
+                    EditorUtility.DisplayProgressBar(
+                        "Roslyn Installer",
+                        $"Downloading {id} {version} ({req.downloadProgress:P0})",
+                        0.1f);
                 }
 
 #if UNITY_2020_1_OR_NEWER
@@ -186,9 +192,9 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
             int count = 0;
 
             using (FileStream fs = File.OpenRead(nupkgPath))
-            using (ZipArchive zip = new ZipArchive(fs, ZipArchiveMode.Read))
+            using (ZipArchive zip = new(fs, ZipArchiveMode.Read))
             {
-                // Prefer netstandard2.0. Fallback to net461/net472 if a package doesn't ship ns2.0.
+                // Prefer netstandard2.0. Fallback to net472/net461 if a package doesn't ship ns2.0.
                 string[] preferredRoots =
                 {
                     "lib/netstandard2.0/",
@@ -196,7 +202,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
                     "lib/net472/",
                     "lib/net471/",
                     "lib/net46/",
-                    "lib/net461/",
+                    "lib/net461/"
                 };
 
                 ZipArchiveEntry[] dllEntries = zip.Entries
@@ -204,27 +210,25 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
                     .ToArray();
 
                 // Group by filename; pick best target framework folder using preferredRoots order.
-                var byName = dllEntries
+                Dictionary<string, ZipArchiveEntry[]> byName = dllEntries
                     .GroupBy(e => Path.GetFileName(e.FullName), StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.OrdinalIgnoreCase);
 
                 foreach (KeyValuePair<string, ZipArchiveEntry[]> kvp in byName)
                 {
                     ZipArchiveEntry selected = SelectBestEntry(kvp.Value, preferredRoots);
-                    if (selected == null)
-                    {
-                        continue;
-                    }
+                    if (selected == null) continue;
 
                     string outPath = Path.Combine(installAbsoluteFolder, kvp.Key);
                     try
                     {
-                        selected.ExtractToFile(outPath, overwrite: true);
+                        selected.ExtractToFile(outPath, true);
                         count++;
                     }
                     catch (Exception ex)
                     {
-                        Debug.LogWarning($"Failed to extract {selected.FullName} from {Path.GetFileName(nupkgPath)}: {ex.Message}");
+                        Debug.LogWarning(
+                            $"Failed to extract {selected.FullName} from {Path.GetFileName(nupkgPath)}: {ex.Message}");
                     }
                 }
             }
@@ -241,10 +245,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
                 for (int j = 0; j < entries.Length; j++)
                 {
                     string full = entries[j].FullName.Replace('\\', '/');
-                    if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return entries[j];
-                    }
+                    if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return entries[j];
                 }
             }
 
