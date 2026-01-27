@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -17,7 +17,7 @@ namespace LegendaryTools.Chronos
         {
             TimeMachineTime.Year += 1;
         }
-        
+
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.Button]
         [Sirenix.OdinInspector.HorizontalGroup("Buttons")]
@@ -26,7 +26,7 @@ namespace LegendaryTools.Chronos
         {
             TimeMachineTime.Month += 1;
         }
-        
+
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.Button]
         [Sirenix.OdinInspector.HorizontalGroup("Buttons")]
@@ -35,7 +35,7 @@ namespace LegendaryTools.Chronos
         {
             TimeMachineTime.Day += 1;
         }
-        
+
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.Button]
         [Sirenix.OdinInspector.HorizontalGroup("Buttons")]
@@ -44,7 +44,7 @@ namespace LegendaryTools.Chronos
         {
             TimeMachineTime.Hour += 1;
         }
-        
+
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.Button]
         [Sirenix.OdinInspector.HorizontalGroup("Buttons")]
@@ -53,13 +53,13 @@ namespace LegendaryTools.Chronos
         {
             TimeMachineTime.Minute += 1;
         }
-        
+
         public override async Task<(bool, DateTime)> GetDateTime()
         {
             await Task.Yield();
             return (true, TimeMachineTime.DateTime);
         }
-        
+
         public override async Task<(bool, DateTime)> GetDateTimeUtc()
         {
             await Task.Yield();
