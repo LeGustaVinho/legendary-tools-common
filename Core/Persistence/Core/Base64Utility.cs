@@ -8,7 +8,7 @@ namespace LegendaryTools.Persistence
         {
             return Convert.ToBase64String(bytes);
         }
-        
+
         public static byte[] Base64ToBytes(string base64String)
         {
             return Convert.FromBase64String(base64String);

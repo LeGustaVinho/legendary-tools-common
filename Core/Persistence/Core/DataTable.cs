@@ -15,7 +15,7 @@ namespace LegendaryTools.Persistence
         [Sirenix.OdinInspector.ShowInInspector]
         [Sirenix.OdinInspector.TableList(ShowIndexLabels = true)]
 #endif
-        public Dictionary<string, object> IdentifiedEntries = new Dictionary<string, object>();
+        public Dictionary<string, object> IdentifiedEntries = new();
 
         public DataTable(Type type, int version, int revision, DateTime timestamp)
         {

@@ -11,7 +11,7 @@ namespace LegendaryTools.Persistence
         public Formatting FormatType;
         public TypeNameHandling TypeNameHandling = TypeNameHandling.None;
         public PreserveReferencesHandling PreserveReferencesHandling = PreserveReferencesHandling.None;
-        public List<JsonConverterProvider> JsonConverterProviders = new List<JsonConverterProvider>();
+        public List<JsonConverterProvider> JsonConverterProviders = new();
         public string Extension => "json";
 
         private readonly JsonSerializerSettings settings = new()
@@ -38,12 +38,12 @@ namespace LegendaryTools.Persistence
                 new RangeIntConverter(),
                 new RectIntConverter(),
                 new BoundsIntConverter(),
-                new Hash128Converter(),
+                new Hash128Converter()
             }
         };
 
         private bool isInitialized;
-        
+
         protected virtual void Initialize()
         {
             if (isInitialized) return;
@@ -51,11 +51,12 @@ namespace LegendaryTools.Persistence
             {
                 settings.Converters.Add(jsonConverterProvider.JsonConverter);
             }
+
             settings.TypeNameHandling = TypeNameHandling;
             settings.PreserveReferencesHandling = PreserveReferencesHandling;
             isInitialized = true;
         }
-        
+
         public virtual string Serialize(Dictionary<Type, DataTable> dataTable)
         {
             Initialize();

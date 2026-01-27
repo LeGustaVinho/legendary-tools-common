@@ -4,6 +4,6 @@ namespace LegendaryTools.Persistence
     {
         Add,
         Update,
-        Delete,
+        Delete
     }
 }

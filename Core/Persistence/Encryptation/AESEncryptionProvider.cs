@@ -41,13 +41,13 @@ namespace LegendaryTools.Persistence
             set => PlayerPrefs.SetString(SALT, Base64Utility.BytesToBase64(value));
             get => Base64Utility.Base64ToBytes(PlayerPrefs.GetString(SALT, string.Empty));
         }
-        
+
         private byte[] Key
         {
             set => PlayerPrefs.SetString(KEY, Base64Utility.BytesToBase64(value));
             get => Base64Utility.Base64ToBytes(PlayerPrefs.GetString(KEY, string.Empty));
         }
-        
+
         private byte[] Iv
         {
             set => PlayerPrefs.SetString(IV, Base64Utility.BytesToBase64(value));
@@ -56,15 +56,15 @@ namespace LegendaryTools.Persistence
 
         public void Initialize()
         {
-            if(!PlayerPrefs.HasKey(SALT))
+            if (!PlayerPrefs.HasKey(SALT))
                 // Gerar um salt aleatório
                 Salt = GenerateRandomBytes(SaltSize);
 
-            if(!PlayerPrefs.HasKey(KEY))
+            if (!PlayerPrefs.HasKey(KEY))
                 // Gerar a chave a partir do KeyString e do salt
                 Key = DeriveKey(KeyString, Salt);
 
-            if(!PlayerPrefs.HasKey(IV))
+            if (!PlayerPrefs.HasKey(IV))
                 // Gerar um IV aleatório
                 Iv = GenerateRandomBytes(IvSize);
         }
@@ -74,7 +74,7 @@ namespace LegendaryTools.Persistence
             if (data == null || data.Length == 0) return Array.Empty<byte>();
 
             Initialize();
-            
+
             using (Aes aesAlg = Aes.Create())
             {
                 aesAlg.KeySize = 256;
@@ -105,7 +105,7 @@ namespace LegendaryTools.Persistence
         public byte[] Decrypt(byte[] data)
         {
             if (data == null || data.Length == 0) return Array.Empty<byte>();
-            
+
             Initialize();
 
             // Extrair o salt e o IV dos dados
@@ -153,7 +153,7 @@ namespace LegendaryTools.Persistence
         private byte[] DeriveKey(string keyString, byte[] salt)
         {
             using (Rfc2898DeriveBytes keyDerivationFunction =
-                   new Rfc2898DeriveBytes(keyString, salt, Iterations, HashAlgorithmName.SHA256))
+                   new(keyString, salt, Iterations, HashAlgorithmName.SHA256))
             {
                 return keyDerivationFunction.GetBytes(32); // 32 bytes para chave de 256 bits
             }

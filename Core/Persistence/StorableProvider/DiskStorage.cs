@@ -9,14 +9,11 @@ namespace LegendaryTools.Persistence
     public class DiskStorage : ScriptableObject, IStringStorable, IBinaryStorable
     {
         public UnityFilePath FilePath;
-        
+
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
 #endif
-        public string StoragePath
-        {
-            get => FilePath.Path;
-        }
+        public string StoragePath => FilePath.Path;
 
         public void Save(string objToSave)
         {
@@ -55,7 +52,7 @@ namespace LegendaryTools.Persistence
 
         async Task<byte[]> IBinaryStorable.LoadAsync()
         {
-            return File.Exists(StoragePath) ? await File.ReadAllBytesAsync(StoragePath): Array.Empty<byte>();
+            return File.Exists(StoragePath) ? await File.ReadAllBytesAsync(StoragePath) : Array.Empty<byte>();
         }
     }
 }

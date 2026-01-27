@@ -1,18 +1,18 @@
 {
-    "name": "LegendaryTools.Persistence.OdinInspector",
-    "rootNamespace": "",
-    "references": [
-        "GUID:2247f345c1389cb428906dc038800b93"
-    ],
-    "includePlatforms": [],
-    "excludePlatforms": [],
-    "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
-    "autoReferenced": true,
-    "defineConstraints": [
-        "ODIN_INSPECTOR"
-    ],
-    "versionDefines": [],
-    "noEngineReferences": false
+  "name": "LegendaryTools.Persistence.OdinInspector",
+  "rootNamespace": "",
+  "references": [
+    "GUID:2247f345c1389cb428906dc038800b93"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "ODIN_INSPECTOR"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false
 }

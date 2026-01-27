@@ -6,7 +6,7 @@ namespace LegendaryTools.Persistence
     {
         public string StoragePath { get; }
     }
-    
+
     public interface IStringStorable : IStorable
     {
         public void Save(string objToSave);
@@ -14,7 +14,7 @@ namespace LegendaryTools.Persistence
         public Task SaveAsync(string objToSave);
         public Task<string> LoadAsync();
     }
-    
+
     public interface IBinaryStorable : IStorable
     {
         public void Save(byte[] objToSave);

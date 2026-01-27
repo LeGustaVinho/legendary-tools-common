@@ -450,13 +450,20 @@ namespace LegendaryTools.Persistence
     {
         public void Write(BinaryWriter writer, Matrix4x4 value)
         {
-            for (int i = 0; i < 16; i++) writer.Write(value[i]);
+            for (int i = 0; i < 16; i++)
+            {
+                writer.Write(value[i]);
+            }
         }
 
         public Matrix4x4 Read(BinaryReader reader)
         {
             Matrix4x4 matrix = new();
-            for (int i = 0; i < 16; i++) matrix[i] = reader.ReadSingle();
+            for (int i = 0; i < 16; i++)
+            {
+                matrix[i] = reader.ReadSingle();
+            }
+
             return matrix;
         }
 

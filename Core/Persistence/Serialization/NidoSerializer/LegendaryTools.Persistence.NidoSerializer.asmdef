@@ -1,18 +1,18 @@
 {
-    "name": "LegendaryTools.Persistence.NidoSerializer",
-    "rootNamespace": "",
-    "references": [
-        "GUID:c98329cb31e2d624ab596baece5b3d17"
-    ],
-    "includePlatforms": [],
-    "excludePlatforms": [],
-    "allowUnsafeCode": false,
-    "overrideReferences": false,
-    "precompiledReferences": [],
-    "autoReferenced": true,
-    "defineConstraints": [
-        "NIDO_SERIALIZER"
-    ],
-    "versionDefines": [],
-    "noEngineReferences": false
+  "name": "LegendaryTools.Persistence.NidoSerializer",
+  "rootNamespace": "",
+  "references": [
+    "GUID:c98329cb31e2d624ab596baece5b3d17"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "NIDO_SERIALIZER"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false
 }

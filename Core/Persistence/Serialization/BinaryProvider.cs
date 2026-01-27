@@ -10,22 +10,23 @@ namespace LegendaryTools.Persistence
     public class BinaryProvider : ScriptableObject, IBinarySerializationProvider
     {
         public string Extension => "bin";
+
         public virtual byte[] Serialize(Dictionary<Type, DataTable> dataTable)
         {
-            BinaryFormatter formatter = new BinaryFormatter();
-            using (MemoryStream stream = new MemoryStream())
+            BinaryFormatter formatter = new();
+            using (MemoryStream stream = new())
             {
                 formatter.Serialize(stream, dataTable);
                 return stream.ToArray();
             }
         }
-        
+
         public virtual Dictionary<Type, DataTable> Deserialize(byte[] serializedData)
         {
             if (serializedData.Length == 0) return new Dictionary<Type, DataTable>();
-            
-            BinaryFormatter formatter = new BinaryFormatter();
-            using (MemoryStream stream = new MemoryStream(serializedData))
+
+            BinaryFormatter formatter = new();
+            using (MemoryStream stream = new(serializedData))
             {
                 return formatter.Deserialize(stream) as Dictionary<Type, DataTable>;
             }
@@ -33,9 +34,9 @@ namespace LegendaryTools.Persistence
 
         object ISerializationProvider.Serialize(Dictionary<Type, DataTable> dataTable)
         {
-            return this.Serialize(dataTable);
+            return Serialize(dataTable);
         }
-        
+
         public Dictionary<Type, DataTable> Deserialize(object serializedData)
         {
             return Deserialize(serializedData as byte[]);

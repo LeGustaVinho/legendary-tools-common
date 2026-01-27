@@ -10,11 +10,12 @@ namespace LegendaryTools.Persistence
     public class XmlProvider : ScriptableObject, IStringSerializationProvider
     {
         public string Extension => "xml";
+
         object ISerializationProvider.Serialize(Dictionary<Type, DataTable> dataTable)
         {
             return Serialize(dataTable);
         }
-        
+
         public Dictionary<Type, DataTable> Deserialize(object serializedData)
         {
             return Deserialize(serializedData as string);
@@ -22,18 +23,18 @@ namespace LegendaryTools.Persistence
 
         public Dictionary<Type, DataTable> Deserialize(string serializedData)
         {
-            using (StringReader reader = new StringReader(serializedData))
+            using (StringReader reader = new(serializedData))
             {
-                XmlSerializer serializer = new XmlSerializer(typeof(Dictionary<Type, DataTable>));
+                XmlSerializer serializer = new(typeof(Dictionary<Type, DataTable>));
                 return (Dictionary<Type, DataTable>)serializer.Deserialize(reader);
             }
         }
 
         public string Serialize(Dictionary<Type, DataTable> dataTable)
         {
-            using (StringWriter writer = new StringWriter())
+            using (StringWriter writer = new())
             {
-                XmlSerializer serializer = new XmlSerializer(typeof(Dictionary<Type, DataTable>));
+                XmlSerializer serializer = new(typeof(Dictionary<Type, DataTable>));
                 serializer.Serialize(writer, dataTable);
                 return writer.ToString();
             }

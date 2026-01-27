@@ -8,9 +8,9 @@ namespace LegendaryTools.Persistence
     {
         public static byte[] Compress(byte[] data)
         {
-            using (MemoryStream compressedStream = new MemoryStream())
+            using (MemoryStream compressedStream = new())
             {
-                using (GZipStream gzipStream = new GZipStream(compressedStream, CompressionMode.Compress))
+                using (GZipStream gzipStream = new(compressedStream, CompressionMode.Compress))
                 {
                     gzipStream.Write(data, 0, data.Length);
                 }
@@ -21,11 +21,11 @@ namespace LegendaryTools.Persistence
 
         public static byte[] Decompress(byte[] compressedData)
         {
-            using (MemoryStream compressedStream = new MemoryStream(compressedData))
+            using (MemoryStream compressedStream = new(compressedData))
             {
-                using (GZipStream gzipStream = new GZipStream(compressedStream, CompressionMode.Decompress))
+                using (GZipStream gzipStream = new(compressedStream, CompressionMode.Decompress))
                 {
-                    using (MemoryStream resultStream = new MemoryStream())
+                    using (MemoryStream resultStream = new())
                     {
                         gzipStream.CopyTo(resultStream);
                         return resultStream.ToArray();

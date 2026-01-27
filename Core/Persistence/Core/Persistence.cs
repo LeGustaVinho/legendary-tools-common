@@ -11,14 +11,14 @@ namespace LegendaryTools.Persistence
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
 #endif
-        public Dictionary<Type, DataTable> DataTables = new Dictionary<Type, DataTable>();
+        public Dictionary<Type, DataTable> DataTables = new();
         public PersistenceSettings Settings;
-        
+
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
 #endif
         public bool IsBusy { get; private set; }
-            
+
         public const string EMPTY_ID = "";
 
         private readonly IStorable storable;
@@ -28,10 +28,26 @@ namespace LegendaryTools.Persistence
         private bool CanEncrypt => Settings.Encryptation && encryptionProvider != null;
 
         private readonly Dictionary<Type, List<Action<IPersistence, PersistenceAction, string, object>>> listeners =
-            new Dictionary<Type, List<Action<IPersistence, PersistenceAction, string, object>>>();
+            new();
 
-        public Persistence(IStorable storable, ISerializationProvider serializationProvider, 
-            IEncryptionProvider encryptionProvider = null, PersistenceSettings settings = new PersistenceSettings())
+        /// <summary>
+        /// Creates a default Persistence instance with runtime-created ScriptableObjects and settings.
+        /// Uses DiskStorage + JsonProvider by default. Encryption/GZip are disabled by default.
+        /// </summary>
+        public Persistence()
+        {
+            PersistenceDefaultFactory.CreateDefault(
+                out storable,
+                out serializationProvider,
+                out encryptionProvider,
+                out PersistenceSettings defaultSettings);
+
+            Settings = defaultSettings;
+            Load();
+        }
+
+        public Persistence(IStorable storable, ISerializationProvider serializationProvider,
+            IEncryptionProvider encryptionProvider = null, PersistenceSettings settings = new())
         {
             this.storable = storable;
             this.serializationProvider = serializationProvider;
@@ -63,7 +79,8 @@ namespace LegendaryTools.Persistence
             {
                 if (version < dataTable.Version)
                 {
-                    Debug.LogError($"[Persistence:Set({dataToSave.GetType()}, {id}, {version})] Downgrade DataTable version is not supported, current version {dataTable.Version}");
+                    Debug.LogError(
+                        $"[Persistence:Set({dataToSave.GetType()}, {id}, {version})] Downgrade DataTable version is not supported, current version {dataTable.Version}");
                     return currentId;
                 }
             }
@@ -82,8 +99,8 @@ namespace LegendaryTools.Persistence
             dataTable.Revision++;
             dataTable.Timestamp = DateTime.UtcNow;
             dataTable.Version = version;
-            
-            if(autoSave) Save();
+
+            if (autoSave) Save();
             return currentId;
         }
 
@@ -92,10 +109,8 @@ namespace LegendaryTools.Persistence
             if (id == null) return defaultValue;
             Type dataType = typeof(T);
             if (DataTables.TryGetValue(dataType, out DataTable dataTable))
-            {
                 if (dataTable.IdentifiedEntries.TryGetValue(id.ToString(), out object data))
                     return (T)data;
-            }
 
             return defaultValue;
         }
@@ -104,9 +119,7 @@ namespace LegendaryTools.Persistence
         {
             Type dataType = typeof(T);
             if (DataTables.TryGetValue(dataType, out DataTable dataTable))
-            {
                 return (dataTable.Version, dataTable.Revision, dataTable.Timestamp);
-            }
 
             return (-1, -1, default);
         }
@@ -114,16 +127,14 @@ namespace LegendaryTools.Persistence
         public Dictionary<string, T> GetCollection<T>()
         {
             Type dataType = typeof(T);
-            Dictionary<string, T> data = new Dictionary<string, T>();
+            Dictionary<string, T> data = new();
 
             if (DataTables.TryGetValue(dataType, out DataTable dataTable))
-            {
                 foreach (KeyValuePair<string, object> pair in dataTable.IdentifiedEntries)
                 {
                     data.Add(pair.Key, (T)pair.Value);
                 }
-            }
-            
+
             return data;
         }
 
@@ -133,16 +144,14 @@ namespace LegendaryTools.Persistence
             Type dataType = typeof(T);
             string currentId = id.ToString();
             if (DataTables.TryGetValue(dataType, out DataTable dataTable))
-            {
                 if (dataTable.IdentifiedEntries.ContainsKey(currentId))
                 {
                     RaiseEvent<T>(PersistenceAction.Delete, currentId, dataTable.IdentifiedEntries[currentId]);
                     dataTable.IdentifiedEntries.Remove(currentId);
                     return true;
                 }
-            }
-            
-            if(autoSave)
+
+            if (autoSave)
                 Save();
 
             return false;
@@ -152,10 +161,8 @@ namespace LegendaryTools.Persistence
         {
             Type dataType = typeof(T);
             if (DataTables.TryGetValue(dataType, out DataTable dataTable))
-            {
                 return dataTable.IdentifiedEntries.ContainsKey(id.ToString());
-            }
-            
+
             return false;
         }
 
@@ -169,7 +176,8 @@ namespace LegendaryTools.Persistence
             IsBusy = true;
             switch (serializationProvider)
             {
-                case IStringSerializationProvider stringSerializationProvider when storable is IStringStorable stringStorable:
+                case IStringSerializationProvider stringSerializationProvider
+                    when storable is IStringStorable stringStorable:
                 {
                     OnBeforeSerialize();
                     string stringSerializedData = stringSerializationProvider.Serialize(DataTables);
@@ -178,7 +186,8 @@ namespace LegendaryTools.Persistence
                     stringStorable.Save(stringSerializedData);
                     break;
                 }
-                case IBinarySerializationProvider binarySerializationProvider when storable is IBinaryStorable binaryStorable:
+                case IBinarySerializationProvider binarySerializationProvider
+                    when storable is IBinaryStorable binaryStorable:
                 {
                     OnBeforeSerialize();
                     byte[] binarySerializationData = binarySerializationProvider.Serialize(DataTables);
@@ -188,6 +197,7 @@ namespace LegendaryTools.Persistence
                     break;
                 }
             }
+
             IsBusy = false;
         }
 
@@ -199,7 +209,8 @@ namespace LegendaryTools.Persistence
         {
             switch (serializationProvider)
             {
-                case IStringSerializationProvider stringSerializationProvider when storable is IStringStorable stringStorable:
+                case IStringSerializationProvider stringSerializationProvider
+                    when storable is IStringStorable stringStorable:
                 {
                     string deserializedStringData = stringStorable.Load();
                     deserializedStringData = LoadPostProcessString(deserializedStringData);
@@ -208,7 +219,8 @@ namespace LegendaryTools.Persistence
                     OnAfterDeserialize();
                     break;
                 }
-                case IBinarySerializationProvider binarySerializationProvider when storable is IBinaryStorable binaryStorable:
+                case IBinarySerializationProvider binarySerializationProvider
+                    when storable is IBinaryStorable binaryStorable:
                 {
                     byte[] deserializedBinaryData = binaryStorable.Load();
                     deserializedBinaryData = LoadPostProcessBinary(deserializedBinaryData);
@@ -230,7 +242,8 @@ namespace LegendaryTools.Persistence
             IsBusy = true;
             switch (serializationProvider)
             {
-                case IStringSerializationProvider stringSerializationProvider when storable is IStringStorable stringStorable:
+                case IStringSerializationProvider stringSerializationProvider
+                    when storable is IStringStorable stringStorable:
                 {
                     OnBeforeSerialize();
                     string stringSerializedData = stringSerializationProvider.Serialize(DataTables);
@@ -239,7 +252,8 @@ namespace LegendaryTools.Persistence
                     await stringStorable.SaveAsync(stringSerializedData);
                     break;
                 }
-                case IBinarySerializationProvider binarySerializationProvider when storable is IBinaryStorable binaryStorable:
+                case IBinarySerializationProvider binarySerializationProvider
+                    when storable is IBinaryStorable binaryStorable:
                 {
                     OnBeforeSerialize();
                     byte[] binarySerializationData = binarySerializationProvider.Serialize(DataTables);
@@ -249,9 +263,10 @@ namespace LegendaryTools.Persistence
                     break;
                 }
             }
+
             IsBusy = false;
         }
-        
+
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.Button]
         [Sirenix.OdinInspector.HideInEditorMode]
@@ -262,7 +277,8 @@ namespace LegendaryTools.Persistence
             IsBusy = true;
             switch (serializationProvider)
             {
-                case IStringSerializationProvider stringSerializationProvider when storable is IStringStorable stringStorable:
+                case IStringSerializationProvider stringSerializationProvider
+                    when storable is IStringStorable stringStorable:
                 {
                     string deserializedStringData = await stringStorable.LoadAsync();
                     deserializedStringData = LoadPostProcessString(deserializedStringData);
@@ -271,7 +287,8 @@ namespace LegendaryTools.Persistence
                     OnAfterDeserialize();
                     break;
                 }
-                case IBinarySerializationProvider binarySerializationProvider when storable is IBinaryStorable binaryStorable:
+                case IBinarySerializationProvider binarySerializationProvider
+                    when storable is IBinaryStorable binaryStorable:
                 {
                     byte[] deserializedBinaryData = await binaryStorable.LoadAsync();
                     deserializedBinaryData = LoadPostProcessBinary(deserializedBinaryData);
@@ -281,6 +298,7 @@ namespace LegendaryTools.Persistence
                     break;
                 }
             }
+
             IsBusy = false;
         }
 
@@ -288,20 +306,16 @@ namespace LegendaryTools.Persistence
         {
             Type dataType = typeof(T);
             if (!listeners.ContainsKey(dataType))
-            {
                 listeners.Add(dataType, new List<Action<IPersistence, PersistenceAction, string, object>>());
-            }
             listeners[dataType].Add(callback);
         }
-        
+
         public void RemoveListener<T>(Action<IPersistence, PersistenceAction, string, object> callback)
         {
             Type dataType = typeof(T);
             if (listeners.TryGetValue(dataType,
                     out List<Action<IPersistence, PersistenceAction, string, object>> callbackCollection))
-            {
                 callbackCollection.Remove(callback);
-            }
         }
 
         private void RaiseEvent<T>(PersistenceAction action, string id, object data)
@@ -309,30 +323,28 @@ namespace LegendaryTools.Persistence
             Type dataType = typeof(T);
             if (listeners.TryGetValue(dataType,
                     out List<Action<IPersistence, PersistenceAction, string, object>> callbackCollection))
-            {
                 foreach (Action<IPersistence, PersistenceAction, string, object> callback in callbackCollection)
                 {
                     callback?.Invoke(this, action, id, data);
                 }
-            }
         }
-        
+
         private byte[] SavePostProcessBinary(byte[] binarySerializationData)
         {
             if (CanEncrypt)
                 binarySerializationData = encryptionProvider.Encrypt(binarySerializationData);
-            
+
             if (Settings.Gzip)
                 binarySerializationData = GZipUtility.Compress(binarySerializationData);
 
             return binarySerializationData;
         }
-        
+
         private byte[] LoadPostProcessBinary(byte[] deserializedBinaryData)
         {
             if (Settings.Gzip)
                 deserializedBinaryData = GZipUtility.Decompress(deserializedBinaryData);
-            
+
             if (CanEncrypt)
                 deserializedBinaryData = encryptionProvider.Decrypt(deserializedBinaryData);
 
@@ -342,35 +354,35 @@ namespace LegendaryTools.Persistence
         private string SavePostProcessString(string stringSerializedData)
         {
             byte[] stringSerializedDataBytes = Array.Empty<byte>();
-            
-            if(CanEncrypt || Settings.Gzip)
+
+            if (CanEncrypt || Settings.Gzip)
                 stringSerializedDataBytes = Encoding.UTF8.GetBytes(stringSerializedData);
-            
+
             if (CanEncrypt)
                 stringSerializedDataBytes = encryptionProvider.Encrypt(stringSerializedDataBytes);
-            
+
             if (Settings.Gzip)
                 stringSerializedDataBytes = GZipUtility.Compress(stringSerializedDataBytes);
-            
-            if(CanEncrypt || Settings.Gzip)
+
+            if (CanEncrypt || Settings.Gzip)
                 stringSerializedData = Base64Utility.BytesToBase64(stringSerializedDataBytes);
 
             return stringSerializedData;
         }
-        
+
         private string LoadPostProcessString(string deserializedStringData)
         {
             byte[] stringDeserializedDataBytes = Array.Empty<byte>();
-            
+
             if (CanEncrypt || Settings.Gzip)
                 stringDeserializedDataBytes = Base64Utility.Base64ToBytes(deserializedStringData);
-            
+
             if (Settings.Gzip)
                 stringDeserializedDataBytes = GZipUtility.Decompress(stringDeserializedDataBytes);
 
             if (CanEncrypt)
                 stringDeserializedDataBytes = encryptionProvider.Decrypt(stringDeserializedDataBytes);
-            
+
             if (CanEncrypt || Settings.Gzip)
                 deserializedStringData = Encoding.UTF8.GetString(stringDeserializedDataBytes);
 

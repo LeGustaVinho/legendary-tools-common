@@ -7,7 +7,7 @@ namespace LegendaryTools.Persistence
         public void Write(BinaryWriter writer, object value);
         public object Read(BinaryReader reader);
     }
-    
+
     public interface IBinaryConverter<T> : IBinaryConverter
     {
         public void Write(BinaryWriter writer, T value);
