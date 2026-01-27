@@ -321,7 +321,6 @@ namespace LegendaryTools.Chronos
             if (!IsInitialized)
                 return;
 
-            // Save the monotonic estimate while app is running.
             SerializedDateTime now = NowUtc;
             lastRecordedUtc = now;
             lastUnscaledAnchor = Time.unscaledTimeAsDouble;
@@ -366,5 +365,31 @@ namespace LegendaryTools.Chronos
         {
             Synced?.Invoke(result);
         }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// Editor-only: persists the monotonic anchor immediately.
+        /// </summary>
+        public void EditorPersistRuntimeAnchor()
+        {
+            PersistRuntimeAnchor();
+        }
+
+        /// <summary>
+        /// Editor-only: simulates an app resume from pause (bypasses cooldown).
+        /// </summary>
+        public Task<ChronosSyncResult> EditorSimulateResumeFromPauseAsync()
+        {
+            return SyncInternalAsync(ChronosSyncReason.ResumedFromPause, true);
+        }
+
+        /// <summary>
+        /// Editor-only: simulates app focus gained (bypasses cooldown).
+        /// </summary>
+        public Task<ChronosSyncResult> EditorSimulateFocusGainedAsync()
+        {
+            return SyncInternalAsync(ChronosSyncReason.FocusGained, true);
+        }
+#endif
     }
 }
