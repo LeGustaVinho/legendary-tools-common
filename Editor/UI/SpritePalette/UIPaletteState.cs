@@ -12,12 +12,19 @@ namespace LegendaryTools.Editor
 
         public float ThumbnailSize = 72f;
 
-        public Tab CurrentTab = Tab.All;
+        public Tab CurrentTab = Tab.Palette;
+
+        /// <summary>
+        /// User curated palette list.
+        /// </summary>
+        public List<string> PaletteGuids = new();
 
         public List<string> FavoriteGuids = new();
         public List<string> RecentGuids = new();
 
         public int MaxRecent = 40;
+
+        public ThumbnailMode ThumbnailDrawMode = ThumbnailMode.Fit;
 
         [NonSerialized] public float LastRefreshTime;
 
@@ -25,7 +32,15 @@ namespace LegendaryTools.Editor
         {
             All = 0,
             Favorites = 1,
-            Recent = 2
+            Recent = 2,
+            Palette = 3
+        }
+
+        public enum ThumbnailMode
+        {
+            PreserveAspect = 0,
+            Fit = 1,
+            Fill = 2
         }
 
         public void Save()
