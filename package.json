@@ -1,8 +1,8 @@
 {
   "name": "com.legustavinho.legendary-tools-common",
-  "displayName": "Legendary Tools - Common",
-  "version": "1.3.9",
-  "unity": "2018.4",
+  "displayName": "Legendary Tools",
+  "version": "1.3.10",
+  "unity": "2022.3",
   "type": "library",
   "keywords": [],
   "category": "Extensions",
