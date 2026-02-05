@@ -17,7 +17,7 @@ namespace LegendaryTools.Reactive.Editor
         private double _nextRefreshTime;
         private const double AutoRefreshInterval = 0.5;
 
-        [MenuItem("Tools/LegendaryTools/Bindings Debugger")]
+        [MenuItem("Tools/LegendaryTools/UI/Reactive Bindings Debugger")]
         public static void ShowWindow()
         {
             BindingsDebuggerWindow wnd = GetWindow<BindingsDebuggerWindow>("Bindings Debugger");

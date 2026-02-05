@@ -78,14 +78,14 @@ namespace LegendaryTools
         private void OnDisable()
         {
 #if !UNITY_EDITOR
-            Debug.LogError($"{nameof(MonoBehaviourFacade)} should not be disabled.");
+            Debug.LogError($"{nameof(UnityHub)} should not be disabled.");
 #endif
         }
 
         private void OnDestroy()
         {
 #if !UNITY_EDITOR
-            Debug.LogError($"{nameof(MonoBehaviourFacade)} should not be destroyed.");
+            Debug.LogError($"{nameof(UnityHub)} should not be destroyed.");
 #endif
         }
     }
