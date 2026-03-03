@@ -318,7 +318,7 @@ namespace LegendaryTools.Editor
             return string.IsNullOrEmpty(relativePath) ? root : root.Find(relativePath);
         }
 
-        private static Type ResolveComponentType(string componentTypeName)
+        public static Type ResolveComponentType(string componentTypeName)
         {
             if (string.IsNullOrWhiteSpace(componentTypeName))
                 return null;

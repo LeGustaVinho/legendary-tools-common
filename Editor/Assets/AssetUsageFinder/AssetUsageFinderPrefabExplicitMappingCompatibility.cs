@@ -31,10 +31,19 @@ namespace LegendaryTools.Editor
             if (IsNodeDescriptor(toDescriptor))
                 return false;
 
-            return string.Equals(
-                fromDescriptor.ComponentTypeName ?? string.Empty,
-                toDescriptor.ComponentTypeName ?? string.Empty,
-                StringComparison.Ordinal);
+            Type fromType =
+                AssetUsageFinderPrefabExplicitMappingStore.ResolveComponentType(fromDescriptor.ComponentTypeName);
+            Type toType = AssetUsageFinderPrefabExplicitMappingStore.ResolveComponentType(toDescriptor.ComponentTypeName);
+
+            if (fromType == null || toType == null)
+            {
+                return string.Equals(
+                    fromDescriptor.ComponentTypeName ?? string.Empty,
+                    toDescriptor.ComponentTypeName ?? string.Empty,
+                    StringComparison.Ordinal);
+            }
+
+            return fromType.IsAssignableFrom(toType) || toType.IsAssignableFrom(fromType);
         }
 
         public static bool IsNodeDescriptor(AssetUsageFinderPrefabSubobjectDescriptor descriptor)
