@@ -291,7 +291,7 @@ namespace LegendaryTools.Editor
                 {
                     EditorGUILayout.LabelField(WindowTitle, _headerTitle);
                     EditorGUILayout.LabelField(
-                        "Browse and open prefabs containing uGUI. Arrow navigation opens immediately; switching discards current Prefab Mode changes. Listing shows detected components.",
+                        "Browse and open prefabs and prefab variants containing uGUI. Arrow navigation opens immediately; switching discards current Prefab Mode changes. Listing shows detected components.",
                         _headerSubtitle);
                 }
 
@@ -735,25 +735,22 @@ namespace LegendaryTools.Editor
         private static List<PrefabInfo> ScanPrefabsWithUGUIAndMasks()
         {
             List<PrefabInfo> results = new(512);
-
-            string[] guids = AssetDatabase.FindAssets("t:Prefab");
-            int total = guids.Length;
+            List<string> prefabPaths = CollectPrefabPathsIncludingVariants();
+            int total = prefabPaths.Count;
 
             try
             {
                 for (int i = 0; i < total; i++)
                 {
-                    string guid = guids[i];
-                    string path = AssetDatabase.GUIDToAssetPath(guid);
-
-                    if (string.IsNullOrEmpty(path) || !path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase))
-                        continue;
+                    string path = prefabPaths[i];
+                    string guid = AssetDatabase.AssetPathToGUID(path);
+                    bool isVariant = IsPrefabVariant(path);
 
                     EvaluatePrefab(path, out bool hasAnyUGUI, out ComponentFilterMask presentMask);
 
                     if (hasAnyUGUI)
                     {
-                        string components = BuildComponentsText(presentMask);
+                        string components = BuildComponentsSummary(presentMask, isVariant);
 
                         results.Add(new PrefabInfo
                         {
@@ -762,7 +759,7 @@ namespace LegendaryTools.Editor
                             Name = Path.GetFileNameWithoutExtension(path),
                             HasAnyUGUI = true,
                             PresentMask = presentMask,
-                            ComponentsText = string.IsNullOrEmpty(components) ? "uGUI" : components,
+                            ComponentsText = components,
                             Tooltip = path
                         });
                     }
@@ -779,6 +776,41 @@ namespace LegendaryTools.Editor
 
             results.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
             return results;
+        }
+
+        private static List<string> CollectPrefabPathsIncludingVariants()
+        {
+            string[] gameObjectGuids = AssetDatabase.FindAssets("t:GameObject");
+            List<string> prefabPaths = new(gameObjectGuids.Length);
+
+            for (int i = 0; i < gameObjectGuids.Length; i++)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(gameObjectGuids[i]);
+                if (string.IsNullOrEmpty(path) ||
+                    !path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
+                    !path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                prefabPaths.Add(path);
+            }
+
+            return prefabPaths;
+        }
+
+        private static bool IsPrefabVariant(string prefabPath)
+        {
+            GameObject prefabAsset = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            return prefabAsset != null && PrefabUtility.GetPrefabAssetType(prefabAsset) == PrefabAssetType.Variant;
+        }
+
+        private static string BuildComponentsSummary(ComponentFilterMask mask, bool isVariant)
+        {
+            string components = BuildComponentsText(mask);
+
+            if (string.IsNullOrEmpty(components))
+                return isVariant ? "Variant | uGUI" : "uGUI";
+
+            return isVariant ? $"Variant | {components}" : components;
         }
 
         private static string BuildComponentsText(ComponentFilterMask mask)
