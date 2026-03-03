@@ -97,8 +97,10 @@ namespace LegendaryTools.Editor
                 return false;
 
             if (target.Kind == AssetUsageFinderScopeTargetKind.OpenPrefabStage)
+            {
                 return ProcessOpenPrefabStage(target.AssetPath, request, applyChanges, items,
                     ref replacedComponentCount);
+            }
 
             if (target.Kind == AssetUsageFinderScopeTargetKind.OpenScene)
                 return ProcessOpenScene(target.AssetPath, request, applyChanges, items, ref replacedComponentCount);

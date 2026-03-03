@@ -680,6 +680,18 @@ namespace LegendaryTools.Editor
                 new GUIContent("Copy Common Root Component Values"),
                 _replaceCopyCommonRootComponentValues);
 
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("Explicit Mapping...", GUILayout.Height(24)))
+                    AssetUsageFinderPrefabExplicitMappingPresenter.OpenEditor(_replaceFromPrefab, _replaceToPrefab);
+
+                GUILayout.FlexibleSpace();
+            }
+
+            EditorGUILayout.HelpBox(
+                AssetUsageFinderPrefabExplicitMappingPresenter.BuildSummary(_replaceFromPrefab, _replaceToPrefab),
+                MessageType.None);
+
             EditorGUILayout.Space(6);
             DrawReplacePrefabActionRow(state);
 

@@ -82,8 +82,10 @@ namespace LegendaryTools.Editor
                 return false;
 
             if (target.Kind == AssetUsageFinderScopeTargetKind.OpenPrefabStage)
+            {
                 return ProcessOpenPrefabStage(target.AssetPath, request, applyChanges, items,
                     ref replacedInstanceCount);
+            }
 
             if (target.Kind == AssetUsageFinderScopeTargetKind.OpenScene)
                 return ProcessOpenScene(target.AssetPath, request, applyChanges, items, ref replacedInstanceCount);
@@ -488,7 +490,7 @@ namespace LegendaryTools.Editor
 
             try
             {
-                Dictionary<Object, Object> referenceMap = BuildReferenceMap(
+                Dictionary<Object, Object> referenceMap = AssetUsageFinderPrefabReferenceMapBuilder.Build(
                     sourceRoot,
                     targetRoot,
                     fromPrefabAsset,
@@ -508,72 +510,6 @@ namespace LegendaryTools.Editor
             catch
             {
                 // ignored
-            }
-        }
-
-        private static Dictionary<Object, Object> BuildReferenceMap(
-            GameObject sourceRoot,
-            GameObject targetRoot,
-            GameObject fromPrefabAsset,
-            GameObject toPrefabAsset)
-        {
-            Dictionary<Object, Object> referenceMap = new();
-            if (sourceRoot == null || targetRoot == null)
-                return referenceMap;
-
-            if (fromPrefabAsset != null && toPrefabAsset != null && fromPrefabAsset != toPrefabAsset)
-                referenceMap[fromPrefabAsset] = toPrefabAsset;
-
-            foreach (Transform sourceTransform in sourceRoot.GetComponentsInChildren<Transform>(true))
-            {
-                if (sourceTransform == null)
-                    continue;
-
-                if (!TryGetRelativeTransformPath(sourceTransform, sourceRoot.transform, out string path))
-                    continue;
-
-                Transform targetTransform = FindTargetTransform(targetRoot.transform, path);
-                if (targetTransform == null)
-                    continue;
-
-                referenceMap[sourceTransform] = targetTransform;
-                referenceMap[sourceTransform.gameObject] = targetTransform.gameObject;
-
-                AddComponentMappings(sourceTransform.gameObject, targetTransform.gameObject, referenceMap);
-            }
-
-            return referenceMap;
-        }
-
-        private static void AddComponentMappings(
-            GameObject sourceGameObject,
-            GameObject targetGameObject,
-            Dictionary<Object, Object> referenceMap)
-        {
-            if (sourceGameObject == null || targetGameObject == null || referenceMap == null)
-                return;
-
-            Component[] sourceComponents = sourceGameObject.GetComponents<Component>();
-            Dictionary<Type, int> componentTypeIndices = new();
-
-            foreach (Component sourceComponent in sourceComponents)
-            {
-                if (sourceComponent == null)
-                    continue;
-
-                Type componentType = sourceComponent.GetType();
-                if (!componentTypeIndices.TryGetValue(componentType, out int componentIndex))
-                    componentIndex = 0;
-
-                componentTypeIndices[componentType] = componentIndex + 1;
-
-                Component[] targetComponents = targetGameObject.GetComponents(componentType);
-                if (componentIndex >= targetComponents.Length)
-                    continue;
-
-                Component targetComponent = targetComponents[componentIndex];
-                if (targetComponent != null)
-                    referenceMap[sourceComponent] = targetComponent;
             }
         }
 
@@ -647,47 +583,6 @@ namespace LegendaryTools.Editor
             {
                 // ignored
             }
-        }
-
-        private static bool TryGetRelativeTransformPath(
-            Transform candidate,
-            Transform root,
-            out string path)
-        {
-            path = string.Empty;
-
-            if (candidate == null || root == null)
-                return false;
-
-            if (candidate == root)
-                return true;
-
-            List<string> segments = new();
-            Transform current = candidate;
-
-            while (current != null && current != root)
-            {
-                segments.Add(current.name);
-                current = current.parent;
-            }
-
-            if (current != root)
-                return false;
-
-            segments.Reverse();
-            path = string.Join("/", segments);
-            return true;
-        }
-
-        private static Transform FindTargetTransform(Transform root, string relativePath)
-        {
-            if (root == null)
-                return null;
-
-            if (string.IsNullOrEmpty(relativePath))
-                return root;
-
-            return root.Find(relativePath);
         }
 
         private static PropertyModification[] SafeGetPropertyModifications(GameObject instanceRoot)
