@@ -20,12 +20,12 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Dictionary mapping file paths to lists of GUIDs found in those files.
         /// </summary>
-        private ConcurrentDictionary<string, List<string>> guidMap = new ConcurrentDictionary<string, List<string>>();
+        private ConcurrentDictionary<string, List<string>> guidMap = new();
 
         /// <summary>
         /// Inverted index mapping GUIDs to lists of file paths containing those GUIDs.
         /// </summary>
-        private ConcurrentDictionary<string, List<string>> guidToFilesMap = new ConcurrentDictionary<string, List<string>>();
+        private ConcurrentDictionary<string, List<string>> guidToFilesMap = new();
 
         /// <summary>
         /// The root path of the Unity project (Assets folder).
@@ -45,7 +45,8 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// File extensions to consider for GUID mapping.
         /// </summary>
-        private readonly string[] relevantExtensions = { ".prefab", ".asset", ".unity", ".mat", ".anim", ".controller", ".shader", ".meta" };
+        private readonly string[] relevantExtensions =
+            { ".prefab", ".asset", ".unity", ".mat", ".anim", ".controller", ".shader", ".meta" };
 
         /// <summary>
         /// Tracks progress of the mapping process (0 to 1).
@@ -60,7 +61,7 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Queue for dispatching actions to the main thread for Editor UI updates.
         /// </summary>
-        private static readonly ConcurrentQueue<Action> mainThreadActions = new ConcurrentQueue<Action>();
+        private static readonly ConcurrentQueue<Action> mainThreadActions = new();
 
         /// <summary>
         /// Flag indicating if the main thread update callback is registered.
@@ -93,7 +94,7 @@ namespace LegendaryTools.Editor
         /// </summary>
         private static void ProcessMainThreadActions()
         {
-            while (mainThreadActions.TryDequeue(out var action))
+            while (mainThreadActions.TryDequeue(out Action action))
             {
                 action?.Invoke();
             }
@@ -106,7 +107,8 @@ namespace LegendaryTools.Editor
         /// <param name="progressCallback">Callback for reporting progress.</param>
         /// <param name="cancellationToken">Token to cancel the operation.</param>
         /// <returns>A task representing the asynchronous operation.</returns>
-        public async Task MapProjectGUIDsAsync(string[] fileExtensions, Action<float, string> progressCallback = null, CancellationToken cancellationToken = default)
+        public async Task MapProjectGUIDsAsync(string[] fileExtensions, Action<float, string> progressCallback = null,
+            CancellationToken cancellationToken = default)
         {
             guidMap.Clear();
             guidToFilesMap.Clear();
@@ -134,7 +136,10 @@ namespace LegendaryTools.Editor
             // Process batches in parallel
             try
             {
-                await Task.WhenAll(batches.Select(batch => Task.Run(async () => await ProcessBatchAsync(batch, allFiles.Count, progressCallback, cancellationToken), cancellationToken)));
+                await Task.WhenAll(batches.Select(batch =>
+                    Task.Run(
+                        async () => await ProcessBatchAsync(batch, allFiles.Count, progressCallback, cancellationToken),
+                        cancellationToken)));
             }
             catch (OperationCanceledException)
             {
@@ -156,7 +161,8 @@ namespace LegendaryTools.Editor
         /// <param name="progressCallback">Callback for reporting progress.</param>
         /// <param name="cancellationToken">Token to cancel the operation.</param>
         /// <returns>A task representing the asynchronous operation.</returns>
-        private async Task ProcessBatchAsync(List<string> filePaths, int totalFiles, Action<float, string> progressCallback, CancellationToken cancellationToken)
+        private async Task ProcessBatchAsync(List<string> filePaths, int totalFiles,
+            Action<float, string> progressCallback, CancellationToken cancellationToken)
         {
             int filesProcessedInBatch = 0;
             foreach (string filePath in filePaths)
@@ -202,9 +208,7 @@ namespace LegendaryTools.Editor
                         mainThreadActions.Enqueue(() =>
                         {
                             if (EditorUtility.DisplayCancelableProgressBar("Mapping GUIDs", message, progress))
-                            {
                                 cancellationToken.ThrowIfCancellationRequested();
-                            }
                         });
                     }
                 }
@@ -223,13 +227,14 @@ namespace LegendaryTools.Editor
         {
             try
             {
-                using (var stream = new FileStream(outputPath, FileMode.Create))
-                using (var writer = new StreamWriter(stream))
-                using (var jsonWriter = new JsonTextWriter(writer))
+                using (FileStream stream = new(outputPath, FileMode.Create))
+                using (StreamWriter writer = new(stream))
+                using (JsonTextWriter jsonWriter = new(writer))
                 {
-                    JsonSerializer serializer = new JsonSerializer { Formatting = Formatting.Indented };
+                    JsonSerializer serializer = new() { Formatting = Formatting.Indented };
                     serializer.Serialize(jsonWriter, guidMap);
                 }
+
                 Debug.Log($"Mapping saved to: {outputPath}");
             }
             catch (Exception ex)
@@ -247,22 +252,20 @@ namespace LegendaryTools.Editor
         {
             try
             {
-                if (!File.Exists(inputPath))
-                {
-                    return false;
-                }
+                if (!File.Exists(inputPath)) return false;
 
-                using (var stream = new FileStream(inputPath, FileMode.Open))
-                using (var reader = new StreamReader(stream))
-                using (var jsonReader = new JsonTextReader(reader))
+                using (FileStream stream = new(inputPath, FileMode.Open))
+                using (StreamReader reader = new(stream))
+                using (JsonTextReader jsonReader = new(reader))
                 {
-                    JsonSerializer serializer = new JsonSerializer();
-                    var loadedMap = serializer.Deserialize<Dictionary<string, List<string>>>(jsonReader);
+                    JsonSerializer serializer = new();
+                    Dictionary<string, List<string>> loadedMap =
+                        serializer.Deserialize<Dictionary<string, List<string>>>(jsonReader);
                     guidMap = new ConcurrentDictionary<string, List<string>>(loadedMap);
 
                     // Rebuild inverted index
                     guidToFilesMap.Clear();
-                    foreach (var entry in guidMap)
+                    foreach (KeyValuePair<string, List<string>> entry in guidMap)
                     {
                         foreach (string guid in entry.Value)
                         {
@@ -292,11 +295,12 @@ namespace LegendaryTools.Editor
         /// <returns>List of file path batches.</returns>
         private List<List<string>> SplitIntoBatches(List<string> files, int batchSize)
         {
-            List<List<string>> batches = new List<List<string>>();
+            List<List<string>> batches = new();
             for (int i = 0; i < files.Count; i += batchSize)
             {
                 batches.Add(files.GetRange(i, Math.Min(batchSize, files.Count - i)));
             }
+
             return batches;
         }
 
@@ -322,21 +326,12 @@ namespace LegendaryTools.Editor
 
             // Normalize path
             filePath = filePath.Replace("\\", "/");
-            if (!filePath.StartsWith("Assets"))
-            {
-                filePath = Path.Combine("Assets", filePath).Replace("\\", "/");
-            }
+            if (!filePath.StartsWith("Assets")) filePath = Path.Combine("Assets", filePath).Replace("\\", "/");
 
             // Check if file is mapped
-            if (!guidMap.ContainsKey(filePath))
-            {
-                await MapSingleFileAsync(filePath);
-            }
+            if (!guidMap.ContainsKey(filePath)) await MapSingleFileAsync(filePath);
 
-            if (guidMap.TryGetValue(filePath, out var guids))
-            {
-                return guids.Contains(searchGuid);
-            }
+            if (guidMap.TryGetValue(filePath, out List<string> guids)) return guids.Contains(searchGuid);
 
             Debug.LogWarning($"File not found in mapping: {filePath}");
             return false;
@@ -350,15 +345,13 @@ namespace LegendaryTools.Editor
         public async Task<List<string>> FindFilesContainingGuidAsync(string searchGuid)
         {
             // Check inverted index
-            if (guidToFilesMap.TryGetValue(searchGuid, out var files))
-            {
-                return files.ToList();
-            }
+            if (guidToFilesMap.TryGetValue(searchGuid, out List<string> files)) return files.ToList();
 
             // Map unmapped files with relevant extensions
             List<string> unmappedFiles = Directory.GetFiles(projectPath, "*", SearchOption.AllDirectories)
                 .Select(f => "Assets" + f.Substring(projectPath.Length).Replace("\\", "/"))
-                .Where(f => !guidMap.ContainsKey(f) && relevantExtensions.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+                .Where(f => !guidMap.ContainsKey(f) &&
+                            relevantExtensions.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
 
             foreach (string file in unmappedFiles)

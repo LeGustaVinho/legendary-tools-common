@@ -95,9 +95,7 @@ namespace LegendaryTools.Editor
                             gameObjectHistory.RemoveAt(gameObjectHistory.Count - 1);
                     }
                     else
-                    {
                         currentGameObjectHistoryIndex = 0;
-                    }
                 }
                 else
                 {
@@ -111,9 +109,7 @@ namespace LegendaryTools.Editor
                             assetHistory.RemoveAt(assetHistory.Count - 1);
                     }
                     else
-                    {
                         currentAssetHistoryIndex = 0;
-                    }
                 }
             }
 
@@ -237,12 +233,14 @@ namespace LegendaryTools.Editor
             GUILayout.BeginHorizontal();
             // Back button for Asset history
             if (GUILayout.Button("Back (Assets)"))
+            {
                 if (currentAssetHistoryIndex < assetHistory.Count - 1)
                 {
                     ignoreNextSelectionChange = true;
                     currentAssetHistoryIndex++;
                     Selection.activeObject = assetHistory[currentAssetHistoryIndex];
                 }
+            }
 
             // Clear Asset History button
             if (GUILayout.Button("Clear Asset History"))
@@ -293,12 +291,14 @@ namespace LegendaryTools.Editor
             GUILayout.BeginHorizontal();
             // Back button for GameObject history
             if (GUILayout.Button("Back (GameObjects)"))
+            {
                 if (currentGameObjectHistoryIndex < gameObjectHistory.Count - 1)
                 {
                     ignoreNextSelectionChange = true;
                     currentGameObjectHistoryIndex++;
                     Selection.activeObject = gameObjectHistory[currentGameObjectHistoryIndex];
                 }
+            }
 
             // Clear GameObject History button
             if (GUILayout.Button("Clear GameObject History"))
@@ -377,11 +377,13 @@ namespace LegendaryTools.Editor
                     {
                         if (draggedObject != null && (!(draggedObject is GameObject) ||
                                                       PrefabUtility.IsPartOfPrefabAsset(draggedObject)))
+                        {
                             if (!assetPalette.Contains(draggedObject))
                             {
                                 assetPalette.Add(draggedObject);
                                 SaveAssetPalette();
                             }
+                        }
                     }
 
                     Event.current.Use();
