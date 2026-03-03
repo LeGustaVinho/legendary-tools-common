@@ -176,9 +176,7 @@ namespace LegendaryTools.Editor
             }
 
             if (!string.IsNullOrEmpty(openScenePath))
-            {
                 targets.Add(new AssetUsageFinderScopeTarget(AssetUsageFinderScopeTargetKind.OpenScene, openScenePath));
-            }
 
             if (!string.IsNullOrEmpty(openPrefabPath))
             {

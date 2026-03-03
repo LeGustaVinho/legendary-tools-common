@@ -265,7 +265,7 @@ namespace LegendaryTools.Editor
                 state.SearchScope = scope;
 
                 bool requiresHierarchyScopes = _mainTab == MainTab.Replace &&
-                                              _replaceMode != ReplaceMode.SerializedFieldValue;
+                                               _replaceMode != ReplaceMode.SerializedFieldValue;
 
                 EditorGUILayout.HelpBox(
                     !AssetUsageFinderSearchScopeUtility.HasAnySelection(scope)
@@ -273,7 +273,9 @@ namespace LegendaryTools.Editor
                         : requiresHierarchyScopes
                             ? "This replace mode only operates on scenes and prefabs. Asset-only toggles are ignored."
                             : "This selection is shared by Find and Replace. You can enable one, many, or none.",
-                    !AssetUsageFinderSearchScopeUtility.HasAnySelection(scope) ? MessageType.Warning : MessageType.None);
+                    !AssetUsageFinderSearchScopeUtility.HasAnySelection(scope)
+                        ? MessageType.Warning
+                        : MessageType.None);
             }
         }
 
@@ -361,8 +363,10 @@ namespace LegendaryTools.Editor
                     EditorGUILayout.HelpBox(state.StatusMessage, MessageType.Info);
 
                 if (state.TargetAsset == null)
+                {
                     EditorGUILayout.HelpBox("Select an asset to find references across the selected scope.",
                         MessageType.None);
+                }
             }
         }
 
@@ -912,6 +916,7 @@ namespace LegendaryTools.Editor
                     if (EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
                         EditorSceneManager.OpenScene(entry.AssetPath);
                 }
+
                 EditorGUI.EndDisabledGroup();
 
                 EditorGUI.BeginDisabledGroup(fileAsset == null);
@@ -967,7 +972,7 @@ namespace LegendaryTools.Editor
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
                 EditorGUILayout.LabelField("In File", EditorStyles.miniBoldLabel);
-                
+
                 if (GUILayout.Button(
                         new GUIContent("Scan Usages", EditorGUIUtility.IconContent("d_Search Icon").image),
                         GUILayout.Height(24), GUILayout.Width(140)))

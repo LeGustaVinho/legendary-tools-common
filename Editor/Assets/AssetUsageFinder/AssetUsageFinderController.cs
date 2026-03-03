@@ -126,7 +126,8 @@ namespace LegendaryTools.Editor
 
             if (scopeTargets.Count == 0)
             {
-                State.StatusMessage = "The selected scope did not resolve to any saved assets or currently open contexts.";
+                State.StatusMessage =
+                    "The selected scope did not resolve to any saved assets or currently open contexts.";
                 NotifyChanged();
                 return;
             }
