@@ -24,6 +24,7 @@ namespace LegendaryTools.Editor
 
         private readonly AssetGuidMapper _guidMapper;
         private readonly AssetUsageFinderUsageScanner _usageScanner;
+        private readonly AssetUsageFinderContextualBackend _contextualBackend;
         private readonly string _jsonPath;
 
         private readonly AssetUsageFinderSerializedFieldFinderBackend _serializedFieldBackend;
@@ -31,6 +32,7 @@ namespace LegendaryTools.Editor
         private readonly AssetUsageFinderPrefabOrVariantReplaceBackend _prefabOrVariantReplaceBackend;
         private readonly AssetUsageFinderComponentReplaceBackend _componentReplaceBackend;
         private CancellationTokenSource _serializedFieldCts;
+        private CancellationTokenSource _contextualFinderCts;
 
         public AssetUsageFinderState State { get; } = new();
 
@@ -39,6 +41,7 @@ namespace LegendaryTools.Editor
         public AssetUsageFinderController(
             AssetGuidMapper guidMapper,
             AssetUsageFinderUsageScanner usageScanner,
+            AssetUsageFinderContextualBackend contextualBackend,
             string jsonPath,
             AssetUsageFinderSerializedFieldFinderBackend serializedFieldBackend,
             AssetUsageFinderSerializedFieldValueReplaceBackend serializedFieldValueReplaceBackend,
@@ -47,6 +50,7 @@ namespace LegendaryTools.Editor
         {
             _guidMapper = guidMapper ?? throw new ArgumentNullException(nameof(guidMapper));
             _usageScanner = usageScanner ?? throw new ArgumentNullException(nameof(usageScanner));
+            _contextualBackend = contextualBackend ?? throw new ArgumentNullException(nameof(contextualBackend));
             _jsonPath = jsonPath ?? throw new ArgumentNullException(nameof(jsonPath));
             _serializedFieldBackend =
                 serializedFieldBackend ?? throw new ArgumentNullException(nameof(serializedFieldBackend));
@@ -85,6 +89,12 @@ namespace LegendaryTools.Editor
             State.SerializedFieldFinderResults.Clear();
             State.SerializedFieldFinderStatus = "Serialized Field Finder results cleared.";
             State.SerializedFieldFinderIsBusy = false;
+
+            CancelContextualFinder();
+            State.ContextualRequest = null;
+            State.ContextualResults.Clear();
+            State.ContextualFinderStatus = string.Empty;
+            State.ContextualFinderIsBusy = false;
 
             State.SerializedFieldValueReplacePreview.Clear();
             State.SerializedFieldValueReplaceStatus = string.Empty;
@@ -155,6 +165,112 @@ namespace LegendaryTools.Editor
                 State.IsBusy = false;
                 NotifyChanged();
             }
+        }
+
+        public void SetContextualRequest(AssetUsageFinderContextualRequest request, bool applySuggestedScope)
+        {
+            CancelContextualFinder();
+
+            State.ContextualRequest = request;
+            State.ContextualResults.Clear();
+            State.ContextualFinderStatus = request?.Description ?? string.Empty;
+            State.ContextualFinderIsBusy = false;
+
+            if (applySuggestedScope && request != null && request.SuggestedScope != AssetUsageFinderSearchScope.None)
+                State.SearchScope = request.SuggestedScope;
+
+            NotifyChanged();
+        }
+
+        public void CancelContextualFinder()
+        {
+            try
+            {
+                _contextualFinderCts?.Cancel();
+            }
+            catch
+            {
+                // ignored
+            }
+
+            _contextualBackend.CancelScan();
+        }
+
+        public void FindContextualUsages(AssetUsageFinderContextualRequest request = null)
+        {
+            request ??= State.ContextualRequest;
+
+            if (State.ContextualFinderIsBusy)
+            {
+                Debug.LogWarning("Contextual Find Usages is already running.");
+                return;
+            }
+
+            State.ContextualResults.Clear();
+            State.ContextualRequest = request;
+
+            if (request == null)
+            {
+                State.ContextualFinderStatus =
+                    "Use a GameObject, Component, or SerializedProperty context menu to start a contextual search.";
+                NotifyChanged();
+                return;
+            }
+
+            if (!AssetUsageFinderSearchScopeUtility.HasAnySelection(State.SearchScope))
+            {
+                State.ContextualFinderStatus = "Select at least one scope before scanning.";
+                NotifyChanged();
+                return;
+            }
+
+            _contextualFinderCts?.Dispose();
+            _contextualFinderCts = new CancellationTokenSource();
+
+            State.ContextualFinderIsBusy = true;
+            State.ContextualFinderStatus = $"Scanning {request.DisplayName}...";
+            NotifyChanged();
+
+            EditorUtility.DisplayCancelableProgressBar("Find Usages", "Starting...", 0f);
+
+            _contextualBackend.StartScan(
+                request,
+                State.SearchScope,
+                (progress, message) =>
+                {
+                    if (EditorUtility.DisplayCancelableProgressBar("Find Usages", message, progress))
+                        _contextualFinderCts.Cancel();
+
+                    State.ContextualFinderStatus = message;
+                    NotifyChanged();
+                },
+                results =>
+                {
+                    State.ContextualResults = results;
+                    State.ContextualFinderStatus = $"Found {results.Count} usage(s) for {request.DisplayName}.";
+                    State.ContextualFinderIsBusy = false;
+
+                    EditorUtility.ClearProgressBar();
+                    NotifyChanged();
+                },
+                () =>
+                {
+                    State.ContextualFinderStatus = "Find Usages canceled.";
+                    State.ContextualFinderIsBusy = false;
+
+                    EditorUtility.ClearProgressBar();
+                    NotifyChanged();
+                },
+                ex =>
+                {
+                    Debug.LogException(ex);
+                    State.ContextualFinderStatus = "An error occurred. Check Console.";
+                    State.ContextualFinderIsBusy = false;
+
+                    EditorUtility.ClearProgressBar();
+                    NotifyChanged();
+                },
+                _contextualFinderCts.Token);
         }
 
         private async Task<List<AssetUsageFinderEntry>> BuildEntriesForScopeAsync(
@@ -675,6 +791,34 @@ namespace LegendaryTools.Editor
             return false;
         }
 
+        public bool IsContextualResultActive(AssetUsageFinderContextualResult result)
+        {
+            if (result == null)
+                return false;
+
+            if (result.UsageType == AssetUsageFinderUsageType.Scene ||
+                result.UsageType == AssetUsageFinderUsageType.SceneWithPrefabInstance)
+            {
+                if (AssetUsageFinderSearchScopeUtility.IsUnsavedOpenSceneKey(result.FileAssetPath))
+                {
+                    Scene activeScene = EditorSceneManager.GetActiveScene();
+                    return activeScene.IsValid() && activeScene.isLoaded && string.IsNullOrEmpty(activeScene.path);
+                }
+
+                Scene scene = SceneManager.GetSceneByPath(result.FileAssetPath);
+                return scene.IsValid() && scene.isLoaded;
+            }
+
+            if (result.UsageType == AssetUsageFinderUsageType.Prefab)
+            {
+                PrefabStage stage = PrefabStageUtility.GetCurrentPrefabStage();
+                return stage != null &&
+                       string.Equals(stage.assetPath, result.FileAssetPath, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return false;
+        }
+
         public void FindUsagesInActiveContext(string fileAssetPath)
         {
             if (State.TargetAsset == null)
@@ -703,6 +847,24 @@ namespace LegendaryTools.Editor
         public Object ResolveUsageReference(AssetUsageFinderCachedUsage usage)
         {
             return _usageScanner.ResolveUsageReference(usage);
+        }
+
+        public bool TryPingContextualResultObject(AssetUsageFinderContextualResult result)
+        {
+            if (result == null || !IsContextualResultActive(result))
+                return false;
+
+            Object resolved = _usageScanner.ResolveContextualResultReference(
+                result.FileAssetPath,
+                result.UsageType,
+                result.ObjectPath,
+                result.ObjectTypeName);
+            if (resolved == null)
+                return false;
+
+            Selection.activeObject = resolved;
+            EditorGUIUtility.PingObject(resolved);
+            return true;
         }
 
         public void SelectResolvedUsage(AssetUsageFinderCachedUsage usage, Object resolvedRef)

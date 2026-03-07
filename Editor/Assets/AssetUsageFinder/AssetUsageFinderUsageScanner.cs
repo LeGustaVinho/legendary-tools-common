@@ -176,6 +176,51 @@ namespace LegendaryTools.Editor
             return null;
         }
 
+        public Object ResolveContextualResultReference(
+            string fileAssetPath,
+            AssetUsageFinderUsageType usageType,
+            string objectPath,
+            string objectTypeName)
+        {
+            if (string.IsNullOrEmpty(objectPath))
+                return null;
+
+            string hierarchyPath = ExtractHierarchyPath(objectPath);
+            IEnumerable<GameObject> roots = GetOpenContextRoots(fileAssetPath, usageType);
+            if (roots == null)
+                return null;
+
+            GameObject go = FindGameObjectByHierarchyPath(hierarchyPath, roots);
+            if (go == null)
+                return null;
+
+            if (string.Equals(objectTypeName, typeof(GameObject).FullName, StringComparison.Ordinal) ||
+                string.Equals(objectTypeName, typeof(GameObject).Name, StringComparison.Ordinal))
+                return go;
+
+            Type componentType = ResolveComponentType(objectTypeName);
+            if (componentType != null)
+            {
+                Component component = go.GetComponents<Component>()
+                    .FirstOrDefault(candidate => candidate != null && componentType.IsAssignableFrom(candidate.GetType()));
+                if (component != null)
+                    return component;
+            }
+
+            string componentTypeName = ExtractComponentTypeName(objectPath);
+            if (!string.IsNullOrEmpty(componentTypeName))
+            {
+                Component component = go.GetComponents<Component>()
+                    .FirstOrDefault(candidate => candidate != null &&
+                                                 string.Equals(candidate.GetType().Name, componentTypeName,
+                                                     StringComparison.Ordinal));
+                if (component != null)
+                    return component;
+            }
+
+            return go;
+        }
+
         public void RemoveUsage(Object targetAsset, AssetUsageFinderCachedUsage usage)
         {
             if (targetAsset == null || usage == null)
@@ -436,17 +481,22 @@ namespace LegendaryTools.Editor
 
         private static GameObject FindGameObjectByHierarchyPath(string path)
         {
-            if (string.IsNullOrEmpty(path)) return null;
-
-            string[] parts = path.Split('/');
-            if (parts.Length == 0) return null;
-
             IEnumerable<GameObject> roots;
             PrefabStage stage = PrefabStageUtility.GetCurrentPrefabStage();
             if (stage != null && stage.prefabContentsRoot != null)
                 roots = new[] { stage.prefabContentsRoot };
             else
                 roots = EditorSceneManager.GetActiveScene().GetRootGameObjects();
+
+            return FindGameObjectByHierarchyPath(path, roots);
+        }
+
+        private static GameObject FindGameObjectByHierarchyPath(string path, IEnumerable<GameObject> roots)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+
+            string[] parts = path.Split('/');
+            if (parts.Length == 0) return null;
 
             GameObject current = roots.FirstOrDefault(r => r.name == parts[0]);
             if (current == null) return null;
@@ -468,6 +518,78 @@ namespace LegendaryTools.Editor
             }
 
             return current;
+        }
+
+        private static IEnumerable<GameObject> GetOpenContextRoots(string fileAssetPath, AssetUsageFinderUsageType usageType)
+        {
+            if (usageType == AssetUsageFinderUsageType.Prefab)
+            {
+                PrefabStage stage = PrefabStageUtility.GetCurrentPrefabStage();
+                if (stage == null ||
+                    stage.prefabContentsRoot == null ||
+                    !string.Equals(stage.assetPath, fileAssetPath, StringComparison.OrdinalIgnoreCase))
+                    return null;
+
+                return new[] { stage.prefabContentsRoot };
+            }
+
+            if (usageType != AssetUsageFinderUsageType.Scene &&
+                usageType != AssetUsageFinderUsageType.SceneWithPrefabInstance)
+                return null;
+
+            if (AssetUsageFinderSearchScopeUtility.IsUnsavedOpenSceneKey(fileAssetPath))
+            {
+                Scene activeScene = EditorSceneManager.GetActiveScene();
+                if (!activeScene.IsValid() || !activeScene.isLoaded || !string.IsNullOrEmpty(activeScene.path))
+                    return null;
+
+                return activeScene.GetRootGameObjects();
+            }
+
+            Scene scene = SceneManager.GetSceneByPath(fileAssetPath);
+            return scene.IsValid() && scene.isLoaded
+                ? scene.GetRootGameObjects()
+                : null;
+        }
+
+        private static string ExtractHierarchyPath(string objectPath)
+        {
+            if (string.IsNullOrEmpty(objectPath))
+                return string.Empty;
+
+            int suffixIndex = objectPath.LastIndexOf(" (", StringComparison.Ordinal);
+            return suffixIndex > 0 && objectPath.EndsWith(")", StringComparison.Ordinal)
+                ? objectPath.Substring(0, suffixIndex)
+                : objectPath;
+        }
+
+        private static string ExtractComponentTypeName(string objectPath)
+        {
+            if (string.IsNullOrEmpty(objectPath) || !objectPath.EndsWith(")", StringComparison.Ordinal))
+                return string.Empty;
+
+            int suffixIndex = objectPath.LastIndexOf(" (", StringComparison.Ordinal);
+            if (suffixIndex < 0 || suffixIndex + 3 >= objectPath.Length)
+                return string.Empty;
+
+            return objectPath.Substring(suffixIndex + 2, objectPath.Length - suffixIndex - 3);
+        }
+
+        private static Type ResolveComponentType(string objectTypeName)
+        {
+            if (string.IsNullOrWhiteSpace(objectTypeName))
+                return null;
+
+            Type type = Type.GetType(objectTypeName, false);
+            if (type != null && typeof(Component).IsAssignableFrom(type))
+                return type;
+
+            string shortName = objectTypeName.Trim();
+            return TypeCache.GetTypesDerivedFrom<Component>()
+                .FirstOrDefault(candidate =>
+                    candidate != null &&
+                    (string.Equals(candidate.FullName, shortName, StringComparison.Ordinal) ||
+                     string.Equals(candidate.Name, shortName, StringComparison.Ordinal)));
         }
 
         private static string GetPrefabAssetPath(Object obj)

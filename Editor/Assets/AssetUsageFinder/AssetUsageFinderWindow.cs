@@ -25,7 +25,8 @@ namespace LegendaryTools.Editor
         private enum FinderMode
         {
             ByAsset = 0,
-            BySerializedField = 1
+            BySerializedField = 1,
+            Contextual = 2
         }
 
         private enum ReplaceMode
@@ -77,21 +78,33 @@ namespace LegendaryTools.Editor
         [MenuItem("Tools/LegendaryTools/Assets/Asset Usage Finder")]
         public static void ShowWindow()
         {
+            ShowWindowInstance();
+        }
+
+        public static void ShowWindowForAsset(Object asset)
+        {
+            AssetUsageFinderWindow window = ShowWindowInstance();
+            window.OpenAssetSearch(asset);
+        }
+
+        public static void ShowWindowForContextual(AssetUsageFinderContextualRequest request)
+        {
+            AssetUsageFinderWindow window = ShowWindowInstance();
+            window.OpenContextualSearch(request);
+        }
+
+        private static AssetUsageFinderWindow ShowWindowInstance()
+        {
             AssetUsageFinderWindow window = GetWindow<AssetUsageFinderWindow>("Asset Usage Finder");
             window.minSize = new Vector2(940, 560);
             window.Show();
+            window.Focus();
+            return window;
         }
 
         private void OnEnable()
         {
-            _controller ??= CreateController();
-            _controller.StateChanged -= OnStateChanged;
-            _controller.StateChanged += OnStateChanged;
-
-            _controller.Initialize();
-
-            EnsureFilterListHasOneRow(_finderFilters);
-            EnsureFilterListHasOneRow(_replaceFilters);
+            EnsureInitialized();
         }
 
         private void OnDisable()
@@ -100,6 +113,7 @@ namespace LegendaryTools.Editor
             {
                 _controller.StateChanged -= OnStateChanged;
                 _controller.CancelSerializedFieldFinder();
+                _controller.CancelContextualFinder();
             }
         }
 
@@ -115,6 +129,7 @@ namespace LegendaryTools.Editor
             AssetUsageFinderUsageScanner usageScanner = new(cache);
 
             AssetGuidMapper guidMapper = new();
+            AssetUsageFinderContextualBackend contextualBackend = new();
             AssetUsageFinderSerializedFieldFinderBackend serializedFieldBackend = new();
             AssetUsageFinderSerializedFieldValueReplaceBackend serializedFieldValueReplaceBackend = new();
             AssetUsageFinderPrefabOrVariantReplaceBackend prefabOrVariantReplaceBackend = new();
@@ -123,11 +138,46 @@ namespace LegendaryTools.Editor
             return new AssetUsageFinderController(
                 guidMapper,
                 usageScanner,
+                contextualBackend,
                 jsonPath,
                 serializedFieldBackend,
                 serializedFieldValueReplaceBackend,
                 prefabOrVariantReplaceBackend,
                 componentReplaceBackend);
+        }
+
+        private void EnsureInitialized()
+        {
+            _controller ??= CreateController();
+            _controller.StateChanged -= OnStateChanged;
+            _controller.StateChanged += OnStateChanged;
+
+            _controller.Initialize();
+
+            EnsureFilterListHasOneRow(_finderFilters);
+            EnsureFilterListHasOneRow(_replaceFilters);
+        }
+
+        private void OpenAssetSearch(Object asset)
+        {
+            EnsureInitialized();
+
+            _mainTab = MainTab.Finder;
+            _finderMode = FinderMode.ByAsset;
+
+            _controller.SetTarget(asset);
+            _controller.FindUsagesAsync();
+        }
+
+        private void OpenContextualSearch(AssetUsageFinderContextualRequest request)
+        {
+            EnsureInitialized();
+
+            _mainTab = MainTab.Finder;
+            _finderMode = FinderMode.Contextual;
+
+            _controller.SetContextualRequest(request, true);
+            _controller.FindContextualUsages(request);
         }
 
         // -------- GUI --------
@@ -187,7 +237,7 @@ namespace LegendaryTools.Editor
                 {
                     if (_finderMode == FinderMode.ByAsset)
                         DrawFinderByAssetCard(state);
-                    else
+                    else if (_finderMode == FinderMode.BySerializedField)
                     {
                         DrawSerializedFieldQueryCard(
                             "Finder • By Serialized Field",
@@ -198,6 +248,8 @@ namespace LegendaryTools.Editor
 
                         DrawSerializedFieldFinderActions(state);
                     }
+                    else
+                        DrawContextualFinderCard(state);
                 }
                 else
                     DrawReplaceCard(state);
@@ -223,8 +275,10 @@ namespace LegendaryTools.Editor
                 {
                     if (_finderMode == FinderMode.ByAsset)
                         DrawFinderResults(state);
-                    else
+                    else if (_finderMode == FinderMode.BySerializedField)
                         DrawSerializedFieldFinderResults(state);
+                    else
+                        DrawContextualFinderResults(state);
                 }
                 else
                     DrawReplacePreview(state);
@@ -367,6 +421,75 @@ namespace LegendaryTools.Editor
                     EditorGUILayout.HelpBox("Select an asset to find references across the selected scope.",
                         MessageType.None);
                 }
+            }
+        }
+
+        private void DrawContextualFinderCard(AssetUsageFinderState state)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("Finder • Contextual", EditorStyles.boldLabel);
+
+                AssetUsageFinderContextualRequest request = state.ContextualRequest;
+                if (request == null)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Use right click > Find Usages on a GameObject, Component, or serialized field to seed a contextual search.",
+                        MessageType.None);
+                    return;
+                }
+
+                EditorGUILayout.LabelField(request.DisplayName, EditorStyles.miniBoldLabel);
+                EditorGUILayout.LabelField(request.Description, EditorStyles.wordWrappedMiniLabel);
+
+                if (request.TargetObject != null)
+                {
+                    EditorGUI.BeginDisabledGroup(true);
+                    EditorGUILayout.ObjectField("Target", request.TargetObject, typeof(Object), true);
+                    EditorGUI.EndDisabledGroup();
+                }
+
+                if (request.TargetKind == AssetUsageFinderContextualTargetKind.SerializedProperty)
+                {
+                    EditorGUILayout.LabelField($"Owner Type: {request.OwnerType?.FullName ?? "<Unknown>"}",
+                        EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"Property Path: {request.PropertyPath}", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField(
+                        request.MatchValue
+                            ? "Value Match: On"
+                            : "Value Match: Off (property path only)",
+                        EditorStyles.miniLabel);
+                }
+
+                EditorGUILayout.Space(6);
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUI.BeginDisabledGroup(state.ContextualFinderIsBusy);
+                    if (GUILayout.Button(
+                            new GUIContent("Find Usages", EditorGUIUtility.IconContent("d_Search Icon").image),
+                            GUILayout.Height(28)))
+                        _controller.FindContextualUsages();
+                    EditorGUI.EndDisabledGroup();
+
+                    EditorGUI.BeginDisabledGroup(request.TargetObject == null);
+                    if (GUILayout.Button(new GUIContent("Ping", EditorGUIUtility.IconContent("d_Ping").image),
+                            GUILayout.Height(28), GUILayout.Width(90)))
+                    {
+                        if (request.TargetObject != null)
+                            EditorGUIUtility.PingObject(request.TargetObject);
+                    }
+
+                    EditorGUI.EndDisabledGroup();
+
+                    EditorGUI.BeginDisabledGroup(!state.ContextualFinderIsBusy);
+                    if (GUILayout.Button("Cancel", GUILayout.Height(28), GUILayout.Width(90)))
+                        _controller.CancelContextualFinder();
+                    EditorGUI.EndDisabledGroup();
+                }
+
+                if (!string.IsNullOrEmpty(state.ContextualFinderStatus))
+                    EditorGUILayout.HelpBox(state.ContextualFinderStatus, MessageType.Info);
             }
         }
 
@@ -1100,6 +1223,284 @@ namespace LegendaryTools.Editor
             }
 
             EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawContextualFinderResults(AssetUsageFinderState state)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("Results", EditorStyles.boldLabel);
+
+                int count = state.ContextualResults != null ? state.ContextualResults.Count : 0;
+                EditorGUILayout.LabelField($"{count} usage(s)", EditorStyles.miniLabel);
+
+                if (!string.IsNullOrEmpty(state.ContextualFinderStatus))
+                    EditorGUILayout.HelpBox(state.ContextualFinderStatus, MessageType.None);
+            }
+
+            if (state.ContextualResults == null || state.ContextualResults.Count == 0)
+            {
+                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                {
+                    EditorGUILayout.HelpBox(
+                        "No contextual results yet. Trigger Find Usages from a context menu or rerun the search from the left panel.",
+                        MessageType.None);
+                }
+
+                return;
+            }
+
+            _resultsScroll = EditorGUILayout.BeginScrollView(_resultsScroll, GUILayout.ExpandHeight(true));
+
+            foreach (AssetUsageFinderContextualResult result in state.ContextualResults)
+            {
+                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                {
+                    DrawContextualResultCard(result);
+
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        DrawContextualResultActionButton(result);
+                        GUILayout.FlexibleSpace();
+
+                        if (GUILayout.Button("Ping File", GUILayout.Width(90)))
+                        {
+                            Object fileObject = AssetDatabase.LoadAssetAtPath<Object>(result.FileAssetPath);
+                            if (fileObject != null)
+                                EditorGUIUtility.PingObject(fileObject);
+                        }
+
+                        if (GUILayout.Button("Select File", GUILayout.Width(90)))
+                        {
+                            Object fileObject = AssetDatabase.LoadAssetAtPath<Object>(result.FileAssetPath);
+                            if (fileObject != null)
+                                Selection.activeObject = fileObject;
+                        }
+                    }
+                }
+
+                GUILayout.Space(4);
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawContextualResultActionButton(AssetUsageFinderContextualResult result)
+        {
+            if (result == null)
+                return;
+
+            bool isScene = result.UsageType == AssetUsageFinderUsageType.Scene ||
+                           result.UsageType == AssetUsageFinderUsageType.SceneWithPrefabInstance;
+            bool isPrefab = result.UsageType == AssetUsageFinderUsageType.Prefab;
+
+            if (!isScene && !isPrefab)
+                return;
+
+            bool isActive = _controller.IsContextualResultActive(result);
+            if (isActive)
+            {
+                if (GUILayout.Button("Ping Object", GUILayout.Width(90)))
+                    _controller.TryPingContextualResultObject(result);
+
+                return;
+            }
+
+            bool disabled = isScene && AssetUsageFinderSearchScopeUtility.IsUnsavedOpenSceneKey(result.FileAssetPath);
+            EditorGUI.BeginDisabledGroup(disabled);
+
+            if (GUILayout.Button("Open", GUILayout.Width(70)))
+            {
+                if (isScene)
+                {
+                    if (EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                        EditorSceneManager.OpenScene(result.FileAssetPath);
+                }
+                else
+                {
+                    PrefabStageUtility.OpenPrefab(result.FileAssetPath);
+                }
+            }
+
+            EditorGUI.EndDisabledGroup();
+        }
+
+        private void DrawContextualResultCard(AssetUsageFinderContextualResult result)
+        {
+            if (result == null)
+                return;
+
+            Texture icon = GetUsageTypeIcon(result.UsageType);
+            string fileName = Path.GetFileName(result.FileAssetPath);
+            string ownerHeadline = GetContextualResultHeadline(result.ObjectPath);
+            string hierarchyPath = GetContextualResultHierarchyPath(result.ObjectPath);
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField(new GUIContent(fileName, icon), EditorStyles.boldLabel);
+                GUILayout.FlexibleSpace();
+                DrawContextualResultBadge(GetUsageTypeDisplayName(result.UsageType), GetUsageBadgeColor(result.UsageType));
+            }
+
+            EditorGUILayout.LabelField(result.FileAssetPath, EditorStyles.miniLabel);
+            EditorGUILayout.Space(4);
+
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("Owner", EditorStyles.miniBoldLabel);
+                EditorGUILayout.LabelField(ownerHeadline, EditorStyles.boldLabel);
+
+                if (!string.IsNullOrEmpty(hierarchyPath))
+                    EditorGUILayout.LabelField(hierarchyPath, EditorStyles.wordWrappedMiniLabel);
+
+                EditorGUILayout.LabelField(result.ObjectTypeName, EditorStyles.miniLabel);
+            }
+
+            EditorGUILayout.Space(2);
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                DrawContextualResultBadge(
+                    string.IsNullOrEmpty(result.ReferenceLabel) ? "Reference" : result.ReferenceLabel,
+                    GetReferenceBadgeColor(result.ReferenceKind));
+
+                if (!string.IsNullOrEmpty(result.PrefabProvenanceLabel))
+                    DrawContextualResultBadge(
+                        result.PrefabProvenanceLabel,
+                        GetProvenanceBadgeColor(result.PrefabProvenanceKind));
+            }
+
+            DrawContextualResultDetailRow("Property", result.PropertyPath);
+            DrawContextualResultDetailRow("Value", result.CurrentValue, true);
+            DrawContextualResultDetailRow("Match", result.MatchDescription);
+
+            if (!string.IsNullOrEmpty(result.ReferenceDetails))
+                DrawContextualResultDetailRow("Reference Detail", result.ReferenceDetails);
+
+            if (!string.IsNullOrEmpty(result.PrefabProvenanceDetails))
+                DrawContextualResultDetailRow("Prefab Provenance", result.PrefabProvenanceDetails);
+
+            if (!string.IsNullOrEmpty(result.PrefabSourceAssetPath))
+                DrawContextualResultDetailRow("Source Prefab", result.PrefabSourceAssetPath);
+        }
+
+        private static void DrawContextualResultDetailRow(string label, string value, bool emphasizeValue = false)
+        {
+            if (string.IsNullOrEmpty(value))
+                value = "<Empty>";
+
+            using (new EditorGUILayout.VerticalScope())
+            {
+                EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel);
+
+                GUIStyle style = emphasizeValue
+                    ? new GUIStyle(EditorStyles.wordWrappedMiniLabel)
+                    {
+                        fontStyle = FontStyle.Bold
+                    }
+                    : EditorStyles.wordWrappedMiniLabel;
+
+                EditorGUILayout.LabelField(value, style);
+            }
+        }
+
+        private static void DrawContextualResultBadge(string text, Color backgroundColor)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            GUIContent content = new(text.Trim());
+            GUIStyle style = new(EditorStyles.miniBoldLabel)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                padding = new RectOffset(8, 8, 3, 3),
+                normal = { textColor = Color.white }
+            };
+
+            Vector2 size = style.CalcSize(content);
+            Rect rect = GUILayoutUtility.GetRect(size.x + 12f, 20f, GUILayout.ExpandWidth(false));
+            EditorGUI.DrawRect(rect, backgroundColor);
+            GUI.Label(rect, content, style);
+            GUILayout.Space(4);
+        }
+
+        private static string GetContextualResultHeadline(string objectPath)
+        {
+            if (string.IsNullOrEmpty(objectPath))
+                return "<Unknown Object>";
+
+            int separatorIndex = objectPath.LastIndexOf('/');
+            return separatorIndex >= 0 && separatorIndex + 1 < objectPath.Length
+                ? objectPath.Substring(separatorIndex + 1)
+                : objectPath;
+        }
+
+        private static string GetContextualResultHierarchyPath(string objectPath)
+        {
+            if (string.IsNullOrEmpty(objectPath))
+                return string.Empty;
+
+            int separatorIndex = objectPath.LastIndexOf('/');
+            return separatorIndex > 0
+                ? objectPath.Substring(0, separatorIndex)
+                : string.Empty;
+        }
+
+        private static string GetUsageTypeDisplayName(AssetUsageFinderUsageType usageType)
+        {
+            return usageType switch
+            {
+                AssetUsageFinderUsageType.Scene => "Scene",
+                AssetUsageFinderUsageType.SceneWithPrefabInstance => "Scene + Prefab",
+                AssetUsageFinderUsageType.Prefab => "Prefab",
+                AssetUsageFinderUsageType.Material => "Material",
+                AssetUsageFinderUsageType.ScriptableObject => "ScriptableObject",
+                _ => "Asset"
+            };
+        }
+
+        private static Color GetUsageBadgeColor(AssetUsageFinderUsageType usageType)
+        {
+            return usageType switch
+            {
+                AssetUsageFinderUsageType.Scene => new Color(0.23f, 0.45f, 0.76f),
+                AssetUsageFinderUsageType.SceneWithPrefabInstance => new Color(0.18f, 0.56f, 0.68f),
+                AssetUsageFinderUsageType.Prefab => new Color(0.16f, 0.62f, 0.39f),
+                AssetUsageFinderUsageType.Material => new Color(0.73f, 0.45f, 0.15f),
+                AssetUsageFinderUsageType.ScriptableObject => new Color(0.56f, 0.31f, 0.67f),
+                _ => new Color(0.35f, 0.35f, 0.35f)
+            };
+        }
+
+        private static Color GetReferenceBadgeColor(AssetUsageFinderContextualReferenceKind referenceKind)
+        {
+            return referenceKind switch
+            {
+                AssetUsageFinderContextualReferenceKind.GameObjectReference => new Color(0.22f, 0.49f, 0.80f),
+                AssetUsageFinderContextualReferenceKind.ComponentReference => new Color(0.18f, 0.60f, 0.44f),
+                AssetUsageFinderContextualReferenceKind.AttachedComponentReference => new Color(0.15f, 0.58f, 0.58f),
+                AssetUsageFinderContextualReferenceKind.UnityEventTarget => new Color(0.80f, 0.36f, 0.18f),
+                AssetUsageFinderContextualReferenceKind.SerializedPropertyPathMatch => new Color(0.50f, 0.47f, 0.17f),
+                AssetUsageFinderContextualReferenceKind.SerializedPropertyValueMatch => new Color(0.57f, 0.25f, 0.65f),
+                _ => new Color(0.35f, 0.35f, 0.35f)
+            };
+        }
+
+        private static Color GetProvenanceBadgeColor(AssetUsageFinderPrefabProvenanceKind provenanceKind)
+        {
+            return provenanceKind switch
+            {
+                AssetUsageFinderPrefabProvenanceKind.SceneObject => new Color(0.25f, 0.44f, 0.75f),
+                AssetUsageFinderPrefabProvenanceKind.PrefabAssetDefinition => new Color(0.15f, 0.58f, 0.35f),
+                AssetUsageFinderPrefabProvenanceKind.PrefabVariantDefinition => new Color(0.24f, 0.56f, 0.30f),
+                AssetUsageFinderPrefabProvenanceKind.PrefabInstanceRoot => new Color(0.50f, 0.36f, 0.77f),
+                AssetUsageFinderPrefabProvenanceKind.PrefabInstanceChild => new Color(0.42f, 0.38f, 0.70f),
+                AssetUsageFinderPrefabProvenanceKind.NestedPrefabInstanceRoot => new Color(0.38f, 0.29f, 0.74f),
+                AssetUsageFinderPrefabProvenanceKind.AddedGameObjectOverride => new Color(0.76f, 0.36f, 0.21f),
+                AssetUsageFinderPrefabProvenanceKind.AddedComponentOverride => new Color(0.77f, 0.30f, 0.27f),
+                AssetUsageFinderPrefabProvenanceKind.AssetObject => new Color(0.42f, 0.42f, 0.42f),
+                _ => new Color(0.35f, 0.35f, 0.35f)
+            };
         }
 
         // -------- Placeholders --------

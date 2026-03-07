@@ -117,7 +117,7 @@ namespace LegendaryTools.Editor
             private bool _cancelRequested;
 
             // Remember active scene to restore best-effort.
-            private readonly string _activeScenePath;
+            private readonly Scene _activeScene;
 
             public ScanSession(
                 List<SerializedFieldFilterRow> filters,
@@ -136,7 +136,7 @@ namespace LegendaryTools.Editor
                 _error = error;
                 _token = token;
 
-                _activeScenePath = EditorSceneManager.GetActiveScene().path;
+                _activeScene = EditorSceneManager.GetActiveScene();
             }
 
             public void RequestCancel()
@@ -213,24 +213,20 @@ namespace LegendaryTools.Editor
 
             private void RestoreActiveSceneBestEffort()
             {
-                if (string.IsNullOrEmpty(_activeScenePath))
+                if (!_activeScene.IsValid() || !_activeScene.isLoaded)
                     return;
 
-                // If current active scene differs, restore it best-effort.
                 Scene current = EditorSceneManager.GetActiveScene();
-                if (!string.Equals(current.path, _activeScenePath, StringComparison.OrdinalIgnoreCase))
+                if (current == _activeScene)
+                    return;
+
+                try
                 {
-                    if (File.Exists(_activeScenePath))
-                    {
-                        try
-                        {
-                            EditorSceneManager.OpenScene(_activeScenePath, OpenSceneMode.Single);
-                        }
-                        catch
-                        {
-                            // ignore
-                        }
-                    }
+                    EditorSceneManager.SetActiveScene(_activeScene);
+                }
+                catch
+                {
+                    // ignore
                 }
             }
 
@@ -368,19 +364,21 @@ namespace LegendaryTools.Editor
                 ScanGameObjectHierarchy(prefabPath, stage.prefabContentsRoot);
             }
 
-            private void ScanGameObjectHierarchy(string fileAssetPath, GameObject root)
+        private void ScanGameObjectHierarchy(string fileAssetPath, GameObject root)
+        {
+            if (root == null) return;
+
+            string goPath = GetHierarchyPath(root);
+            ScanSerializedObject(fileAssetPath, root, goPath);
+
+            Component[] comps = root.GetComponents<Component>();
+            foreach (Component comp in comps)
             {
-                if (root == null) return;
+                if (comp == null) continue;
 
-                Component[] comps = root.GetComponents<Component>();
-                foreach (Component comp in comps)
-                {
-                    if (comp == null) continue;
-
-                    string goPath = GetHierarchyPath(root);
-                    string objPath = $"{goPath} ({comp.GetType().Name})";
-                    ScanSerializedObject(fileAssetPath, comp, objPath);
-                }
+                string objPath = $"{goPath} ({comp.GetType().Name})";
+                ScanSerializedObject(fileAssetPath, comp, objPath);
+            }
 
                 foreach (Transform child in root.transform)
                 {

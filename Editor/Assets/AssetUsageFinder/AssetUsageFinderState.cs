@@ -11,6 +11,11 @@ namespace LegendaryTools.Editor
         public string SerializedFieldFinderStatus { get; set; }
         public List<AssetUsageFinderSerializedFieldResult> SerializedFieldFinderResults { get; set; } = new();
 
+        public bool ContextualFinderIsBusy { get; set; }
+        public string ContextualFinderStatus { get; set; }
+        public AssetUsageFinderContextualRequest ContextualRequest { get; set; }
+        public List<AssetUsageFinderContextualResult> ContextualResults { get; set; } = new();
+
         public UnityEngine.Object TargetAsset { get; set; }
 
         public bool IsBusy { get; set; }
