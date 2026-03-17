@@ -76,6 +76,14 @@ namespace LegendaryTools.Editor
         Component = 1
     }
 
+    public enum ReferenceTransferScanScope
+    {
+        AllLoadedScenes = 0,
+        SourceAndTargetScenes = 1,
+        SourceSceneOnly = 2,
+        TargetSceneOnly = 3
+    }
+
     public sealed class ReferenceTransferToolWindow : EditorWindow
     {
         private const string TemplateAssetDefaultName = "ReferenceTransferTemplate";
@@ -86,6 +94,7 @@ namespace LegendaryTools.Editor
         [SerializeField] private GameObject sourceRoot;
         [SerializeField] private GameObject targetRoot;
         [SerializeField] private ReferenceTransferTemplate templateAsset;
+        [SerializeField] private ReferenceTransferScanScope scanScope = ReferenceTransferScanScope.AllLoadedScenes;
 
         [SerializeField] private Vector2 leftScrollPosition;
         [SerializeField] private Vector2 rightScrollPosition;
@@ -99,8 +108,24 @@ namespace LegendaryTools.Editor
         private readonly Dictionary<string, UnityEngine.Object> currentSourceObjectsByKey = new();
 
         private readonly Dictionary<string, UnityEngine.Object> currentTargetObjectsByKey = new();
+        private readonly List<UnityEngine.Object> currentTargetObjects = new();
+
+        private readonly Dictionary<UnityEngine.Object, ReferenceTransferObjectDescriptor> currentTargetDescriptors =
+            new();
 
         private readonly List<Component> availableSourceComponentsForSelection = new();
+        private readonly Dictionary<Component, string> sourceComponentLabels = new();
+        private readonly Dictionary<UnityEngine.Object, string> targetObjectLabels = new();
+
+        private readonly Dictionary<UnityEngine.Object, List<UnityEngine.Object>> compatibleReferenceTargetsCache =
+            new();
+
+        private readonly Dictionary<UnityEngine.Object, string[]> compatibleReferenceTargetOptionsCache = new();
+        private readonly Dictionary<Type, List<Component>> compatibleCopyTargetsCache = new();
+        private readonly Dictionary<Type, string[]> compatibleCopyTargetOptionsCache = new();
+
+        private string[] availableSourceComponentOptions = Array.Empty<string>();
+        private bool isAvailableSourceComponentsCacheDirty = true;
 
         [MenuItem("Tools/LegendaryTools/Automation/Reference Transfer Tool")]
         public static void Open()
@@ -122,6 +147,7 @@ namespace LegendaryTools.Editor
                     (GameObject)EditorGUILayout.ObjectField("GameObject B", targetRoot, typeof(GameObject), true);
                 templateAsset = (ReferenceTransferTemplate)EditorGUILayout.ObjectField("Template", templateAsset,
                     typeof(ReferenceTransferTemplate), false);
+                DrawScanScopeSelector();
 
                 EditorGUILayout.Space();
 
@@ -176,9 +202,30 @@ namespace LegendaryTools.Editor
             PrefabStage prefabStage = PrefabStageUtility.GetCurrentPrefabStage();
             string scopeText = prefabStage != null
                 ? $"Scan Scope: Current Prefab Mode ({prefabStage.prefabContentsRoot.name})"
-                : "Scan Scope: Current Open Scene(s)";
+                : $"Scan Scope: {GetScanScopeDisplayName()}";
 
             EditorGUILayout.HelpBox(scopeText, MessageType.None);
+        }
+
+        private void DrawScanScopeSelector()
+        {
+            PrefabStage prefabStage = PrefabStageUtility.GetCurrentPrefabStage();
+
+            using (new EditorGUI.DisabledScope(prefabStage != null))
+            {
+                scanScope = (ReferenceTransferScanScope)EditorGUILayout.EnumPopup("Scan Scope", scanScope);
+            }
+        }
+
+        private string GetScanScopeDisplayName()
+        {
+            return scanScope switch
+            {
+                ReferenceTransferScanScope.SourceAndTargetScenes => "Source and Target Scene(s)",
+                ReferenceTransferScanScope.SourceSceneOnly => "Source Scene Only",
+                ReferenceTransferScanScope.TargetSceneOnly => "Target Scene Only",
+                _ => "All Loaded Scene(s)"
+            };
         }
 
         private void DrawSummary()
@@ -267,7 +314,7 @@ namespace LegendaryTools.Editor
 
         private void DrawAddCopySourceControls()
         {
-            RefreshAvailableSourceComponentsForSelection();
+            EnsureAvailableSourceComponentsForSelection();
 
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -281,12 +328,13 @@ namespace LegendaryTools.Editor
                     return;
                 }
 
-                string[] options = BuildAvailableSourceComponentOptions();
-                addCopySourceSelectionIndex = Mathf.Clamp(addCopySourceSelectionIndex, 0, options.Length - 1);
+                addCopySourceSelectionIndex = Mathf.Clamp(addCopySourceSelectionIndex, 0,
+                    availableSourceComponentOptions.Length - 1);
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    addCopySourceSelectionIndex = EditorGUILayout.Popup(addCopySourceSelectionIndex, options);
+                    addCopySourceSelectionIndex =
+                        EditorGUILayout.Popup(addCopySourceSelectionIndex, availableSourceComponentOptions);
 
                     if (GUILayout.Button("Add", GUILayout.Width(70f))) AddSelectedCopySource();
                 }
@@ -301,7 +349,7 @@ namespace LegendaryTools.Editor
                 EditorGUILayout.ObjectField("Source Object", item.sourceObject, typeof(UnityEngine.Object), true);
 
                 List<UnityEngine.Object> compatibleTargets = GetCompatibleTargetsForReference(item);
-                string[] options = BuildReferenceTargetOptions(compatibleTargets);
+                string[] options = GetReferenceTargetOptions(item, compatibleTargets);
 
                 int currentIndex = 0;
                 if (item.mappedTarget != null)
@@ -317,7 +365,10 @@ namespace LegendaryTools.Editor
                     EditorGUILayout.ObjectField("Mapped Target", item.mappedTarget, typeof(UnityEngine.Object), true);
 
                 EditorGUILayout.Space();
-                EditorGUILayout.LabelField($"Usages ({item.usages.Count})", EditorStyles.miniBoldLabel);
+                item.isUsagesExpanded =
+                    EditorGUILayout.Foldout(item.isUsagesExpanded, $"Usages ({item.usages.Count})", true);
+
+                if (!item.isUsagesExpanded) return;
 
                 foreach (ReferenceUsage usage in item.usages)
                 {
@@ -342,7 +393,7 @@ namespace LegendaryTools.Editor
                     if (GUILayout.Button("Remove", GUILayout.Width(70f)))
                     {
                         componentCopyMappingItems.RemoveAt(index);
-                        RefreshAvailableSourceComponentsForSelection();
+                        InvalidateAvailableSourceComponentsCache();
                         return;
                     }
                 }
@@ -350,7 +401,7 @@ namespace LegendaryTools.Editor
                 EditorGUILayout.ObjectField("Source Component", item.sourceComponent, typeof(Component), true);
 
                 List<Component> compatibleTargets = GetCompatibleTargetComponentsForCopy(item.sourceComponent);
-                string[] options = BuildComponentTargetOptions(compatibleTargets);
+                string[] options = GetComponentTargetOptions(item.sourceComponent, compatibleTargets);
 
                 int currentIndex = 0;
                 if (item.mappedTarget != null)
@@ -394,15 +445,38 @@ namespace LegendaryTools.Editor
                 .ThenBy(x => x.sourceDescriptor.componentIndex)
                 .ToList();
 
-            RefreshAvailableSourceComponentsForSelection();
+            InvalidateAvailableSourceComponentsCache();
             addCopySourceSelectionIndex = 0;
 
             if (templateAsset != null) ApplyTemplateToComponentCopyItem(newItem);
         }
 
+        private void EnsureAvailableSourceComponentsForSelection()
+        {
+            if (!isAvailableSourceComponentsCacheDirty) return;
+
+            RefreshAvailableSourceComponentsForSelection();
+        }
+
+        private void InvalidateAvailableSourceComponentsCache()
+        {
+            isAvailableSourceComponentsCacheDirty = true;
+        }
+
+        private void InvalidateTargetCompatibilityCaches()
+        {
+            targetObjectLabels.Clear();
+            compatibleReferenceTargetsCache.Clear();
+            compatibleReferenceTargetOptionsCache.Clear();
+            compatibleCopyTargetsCache.Clear();
+            compatibleCopyTargetOptionsCache.Clear();
+        }
+
         private void RefreshAvailableSourceComponentsForSelection()
         {
             availableSourceComponentsForSelection.Clear();
+            availableSourceComponentOptions = Array.Empty<string>();
+            isAvailableSourceComponentsCacheDirty = false;
 
             if (sourceRoot == null) return;
 
@@ -434,12 +508,14 @@ namespace LegendaryTools.Editor
             });
 
             if (availableSourceComponentsForSelection.Count == 0)
-                addCopySourceSelectionIndex = 0;
-            else
             {
-                addCopySourceSelectionIndex = Mathf.Clamp(addCopySourceSelectionIndex, 0,
-                    availableSourceComponentsForSelection.Count - 1);
+                addCopySourceSelectionIndex = 0;
+                return;
             }
+
+            availableSourceComponentOptions = BuildAvailableSourceComponentOptions();
+            addCopySourceSelectionIndex = Mathf.Clamp(addCopySourceSelectionIndex, 0,
+                availableSourceComponentsForSelection.Count - 1);
         }
 
         private string[] BuildAvailableSourceComponentOptions()
@@ -456,11 +532,17 @@ namespace LegendaryTools.Editor
 
         private string BuildSourceComponentLabel(Component component)
         {
+            if (component == null) return "<null>";
+
+            if (sourceComponentLabels.TryGetValue(component, out string cachedLabel)) return cachedLabel;
+
             string path = GetRelativePath(sourceRoot.transform, component.transform);
             if (string.IsNullOrEmpty(path)) path = "<Root>";
 
             int index = GetComponentIndex(component);
-            return $"{path} [{component.GetType().Name} #{index}]";
+            string label = $"{path} [{component.GetType().Name} #{index}]";
+            sourceComponentLabels[component] = label;
+            return label;
         }
 
         private void RebuildScan()
@@ -468,22 +550,30 @@ namespace LegendaryTools.Editor
             referenceMappingItems.Clear();
             currentSourceObjectsByKey.Clear();
             currentTargetObjectsByKey.Clear();
+            currentTargetObjects.Clear();
+            currentTargetDescriptors.Clear();
+            sourceComponentLabels.Clear();
+            InvalidateTargetCompatibilityCaches();
+            InvalidateAvailableSourceComponentsCache();
 
             if (sourceRoot == null || targetRoot == null)
             {
                 componentCopyMappingItems.Clear();
                 availableSourceComponentsForSelection.Clear();
+                availableSourceComponentOptions = Array.Empty<string>();
                 return;
             }
 
             Dictionary<UnityEngine.Object, ReferenceTransferObjectDescriptor> sourceObjects =
                 CollectObjectsUnderRoot(sourceRoot, currentSourceObjectsByKey);
 
-            CollectObjectsUnderRoot(targetRoot, currentTargetObjectsByKey);
+            CollectObjectsUnderRoot(targetRoot, currentTargetObjectsByKey, currentTargetObjects,
+                currentTargetDescriptors);
 
             BuildReferenceUsageMappings(sourceObjects);
+            AutoPopulateReferenceMappingsFromHierarchy();
             SanitizeComponentCopyMappings();
-            RefreshAvailableSourceComponentsForSelection();
+            EnsureAvailableSourceComponentsForSelection();
 
             if (templateAsset != null) ApplyTemplateToCurrentMappings();
         }
@@ -492,12 +582,13 @@ namespace LegendaryTools.Editor
             Dictionary<UnityEngine.Object, ReferenceTransferObjectDescriptor> sourceObjects)
         {
             Dictionary<UnityEngine.Object, ReferenceUsageMappingItem> groupedItems = new();
+            Dictionary<GameObject, string> hierarchyPathCache = new();
 
             foreach (Component component in EnumerateScopeComponents())
             {
                 if (component == null) continue;
 
-                ScanComponentForReferenceUsages(component, sourceObjects, groupedItems);
+                ScanComponentForReferenceUsages(component, sourceObjects, groupedItems, hierarchyPathCache);
             }
 
             referenceMappingItems = groupedItems.Values
@@ -506,6 +597,119 @@ namespace LegendaryTools.Editor
                 .ThenBy(x => x.sourceDescriptor.componentTypeName, StringComparer.Ordinal)
                 .ThenBy(x => x.sourceDescriptor.componentIndex)
                 .ToList();
+        }
+
+        private void AutoPopulateReferenceMappingsFromHierarchy(bool onlyUnmapped = false)
+        {
+            foreach (ReferenceUsageMappingItem item in referenceMappingItems)
+            {
+                if (item == null || item.sourceDescriptor == null || item.sourceObject == null) continue;
+
+                if (onlyUnmapped && item.mappedTarget != null) continue;
+
+                if (!TryResolveAutomaticReferenceTarget(item, out UnityEngine.Object target)) continue;
+
+                item.mappedTarget = target;
+            }
+        }
+
+        private bool TryResolveAutomaticReferenceTarget(
+            ReferenceUsageMappingItem item,
+            out UnityEngine.Object target)
+        {
+            target = null;
+
+            if (item?.sourceDescriptor == null || item.sourceObject == null) return false;
+
+            if (TryGetExactReferenceMatch(item.sourceDescriptor, item.sourceObject, out target)) return true;
+
+            List<UnityEngine.Object> compatibleTargets = GetCompatibleTargetsForReference(item);
+            if (compatibleTargets.Count == 0) return false;
+
+            int bestScore = 0;
+            bool hasTie = false;
+
+            foreach (UnityEngine.Object candidate in compatibleTargets)
+            {
+                if (!currentTargetDescriptors.TryGetValue(candidate, out ReferenceTransferObjectDescriptor descriptor))
+                    continue;
+
+                int score = ScoreAutomaticReferenceMatch(item.sourceDescriptor, descriptor, item.sourceObject,
+                    candidate);
+                if (score <= 0) continue;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    target = candidate;
+                    hasTie = false;
+                    continue;
+                }
+
+                if (score == bestScore) hasTie = true;
+            }
+
+            return !hasTie && bestScore > 0 && target != null;
+        }
+
+        private bool TryGetExactReferenceMatch(
+            ReferenceTransferObjectDescriptor sourceDescriptor,
+            UnityEngine.Object sourceObject,
+            out UnityEngine.Object target)
+        {
+            target = null;
+
+            if (sourceDescriptor == null || sourceObject == null) return false;
+
+            if (currentTargetObjectsByKey.TryGetValue(sourceDescriptor.ToStableKey(), out target) &&
+                IsCompatibleReferenceTarget(sourceObject, target))
+                return true;
+
+            if (currentTargetObjectsByKey.TryGetValue(sourceDescriptor.ToLegacyKey(), out target) &&
+                IsCompatibleReferenceTarget(sourceObject, target))
+                return true;
+
+            target = null;
+            return false;
+        }
+
+        private static int ScoreAutomaticReferenceMatch(
+            ReferenceTransferObjectDescriptor sourceDescriptor,
+            ReferenceTransferObjectDescriptor targetDescriptor,
+            UnityEngine.Object sourceObject,
+            UnityEngine.Object targetObject)
+        {
+            if (sourceDescriptor == null || targetDescriptor == null) return 0;
+
+            int relativePathMatches = CountMatchingPathSegmentsFromEnd(
+                sourceDescriptor.relativePath,
+                targetDescriptor.relativePath);
+            int stablePathMatches = CountMatchingPathSegmentsFromEnd(
+                sourceDescriptor.stablePath,
+                targetDescriptor.stablePath);
+
+            if (relativePathMatches == 0 && stablePathMatches == 0) return 0;
+
+            int score = stablePathMatches * 12 + relativePathMatches * 10;
+
+            if (!string.IsNullOrEmpty(sourceDescriptor.stablePath) &&
+                sourceDescriptor.stablePath == targetDescriptor.stablePath)
+                score += 60;
+
+            if (sourceDescriptor.relativePath == targetDescriptor.relativePath)
+                score += 50;
+
+            if (sourceDescriptor.kind == ReferenceTransferObjectKind.Component &&
+                targetDescriptor.kind == ReferenceTransferObjectKind.Component)
+            {
+                if (sourceObject.GetType() == targetObject.GetType()) score += 25;
+
+                if (sourceDescriptor.componentTypeName == targetDescriptor.componentTypeName) score += 20;
+
+                if (sourceDescriptor.componentIndex == targetDescriptor.componentIndex) score += 15;
+            }
+
+            return score;
         }
 
         private void SanitizeComponentCopyMappings()
@@ -578,7 +782,8 @@ namespace LegendaryTools.Editor
         private void ScanComponentForReferenceUsages(
             Component component,
             Dictionary<UnityEngine.Object, ReferenceTransferObjectDescriptor> sourceObjects,
-            Dictionary<UnityEngine.Object, ReferenceUsageMappingItem> groupedItems)
+            Dictionary<UnityEngine.Object, ReferenceUsageMappingItem> groupedItems,
+            Dictionary<GameObject, string> hierarchyPathCache)
         {
             SerializedObject serializedObject;
 
@@ -613,17 +818,24 @@ namespace LegendaryTools.Editor
                         sourceObject = referencedObject,
                         sourceDescriptor = descriptor,
                         mappedTarget = null,
-                        usages = new List<ReferenceUsage>()
+                        usages = new List<ReferenceUsage>(),
+                        isUsagesExpanded = false
                     };
 
                     groupedItems.Add(referencedObject, item);
+                }
+
+                if (!hierarchyPathCache.TryGetValue(component.gameObject, out string ownerHierarchyPath))
+                {
+                    ownerHierarchyPath = GetHierarchyPath(component.gameObject);
+                    hierarchyPathCache[component.gameObject] = ownerHierarchyPath;
                 }
 
                 item.usages.Add(new ReferenceUsage
                 {
                     ownerComponent = component,
                     propertyPath = iterator.propertyPath,
-                    ownerHierarchyPath = GetHierarchyPath(component.gameObject)
+                    ownerHierarchyPath = ownerHierarchyPath
                 });
             }
         }
@@ -632,31 +844,100 @@ namespace LegendaryTools.Editor
         {
             PrefabStage prefabStage = PrefabStageUtility.GetCurrentPrefabStage();
             if (prefabStage != null && prefabStage.prefabContentsRoot != null)
-                return prefabStage.prefabContentsRoot.GetComponentsInChildren<Component>(true);
-
-            List<Component> components = new();
-
-            for (int i = 0; i < SceneManager.sceneCount; i++)
             {
-                Scene scene = SceneManager.GetSceneAt(i);
+                foreach (Component component in prefabStage.prefabContentsRoot.GetComponentsInChildren<Component>(true))
+                {
+                    yield return component;
+                }
+
+                yield break;
+            }
+
+            foreach (Scene scene in EnumerateScenesForScan())
+            {
                 if (!scene.isLoaded) continue;
 
                 foreach (GameObject root in scene.GetRootGameObjects())
                 {
-                    components.AddRange(root.GetComponentsInChildren<Component>(true));
+                    foreach (Component component in root.GetComponentsInChildren<Component>(true))
+                    {
+                        yield return component;
+                    }
                 }
             }
+        }
 
-            return components;
+        private IEnumerable<Scene> EnumerateScenesForScan()
+        {
+            HashSet<int> yieldedSceneHandles = new();
+
+            switch (scanScope)
+            {
+                case ReferenceTransferScanScope.SourceAndTargetScenes:
+                    foreach (Scene scene in EnumerateSelectedScenes(yieldedSceneHandles, sourceRoot, targetRoot))
+                    {
+                        yield return scene;
+                    }
+
+                    yield break;
+
+                case ReferenceTransferScanScope.SourceSceneOnly:
+                    foreach (Scene scene in EnumerateSelectedScenes(yieldedSceneHandles, sourceRoot))
+                    {
+                        yield return scene;
+                    }
+
+                    yield break;
+
+                case ReferenceTransferScanScope.TargetSceneOnly:
+                    foreach (Scene scene in EnumerateSelectedScenes(yieldedSceneHandles, targetRoot))
+                    {
+                        yield return scene;
+                    }
+
+                    yield break;
+
+                default:
+                    for (int i = 0; i < SceneManager.sceneCount; i++)
+                    {
+                        Scene scene = SceneManager.GetSceneAt(i);
+                        if (!scene.isLoaded) continue;
+
+                        yield return scene;
+                    }
+
+                    yield break;
+            }
+        }
+
+        private static IEnumerable<Scene> EnumerateSelectedScenes(
+            HashSet<int> yieldedSceneHandles,
+            params GameObject[] roots)
+        {
+            foreach (GameObject root in roots)
+            {
+                if (root == null) continue;
+
+                Scene scene = root.scene;
+                if (!scene.IsValid() || !scene.isLoaded) continue;
+
+                if (!yieldedSceneHandles.Add(scene.handle)) continue;
+
+                yield return scene;
+            }
         }
 
         private Dictionary<UnityEngine.Object, ReferenceTransferObjectDescriptor> CollectObjectsUnderRoot(
             GameObject root,
-            Dictionary<string, UnityEngine.Object> byKey)
+            Dictionary<string, UnityEngine.Object> byKey,
+            List<UnityEngine.Object> uniqueObjects = null,
+            Dictionary<UnityEngine.Object, ReferenceTransferObjectDescriptor> descriptorsByObject = null)
         {
             Dictionary<UnityEngine.Object, ReferenceTransferObjectDescriptor> result = new();
 
             byKey.Clear();
+            uniqueObjects?.Clear();
+            descriptorsByObject?.Clear();
 
             foreach (Transform transform in root.GetComponentsInChildren<Transform>(true))
             {
@@ -676,6 +957,8 @@ namespace LegendaryTools.Editor
                 result[gameObject] = gameObjectDescriptor;
                 byKey[gameObjectDescriptor.ToStableKey()] = gameObject;
                 byKey[gameObjectDescriptor.ToLegacyKey()] = gameObject;
+                uniqueObjects?.Add(gameObject);
+                if (descriptorsByObject != null) descriptorsByObject[gameObject] = gameObjectDescriptor;
 
                 Component[] components = transform.GetComponents<Component>();
                 Dictionary<Type, int> indicesByType = new();
@@ -699,6 +982,8 @@ namespace LegendaryTools.Editor
                     result[component] = componentDescriptor;
                     byKey[componentDescriptor.ToStableKey()] = component;
                     byKey[componentDescriptor.ToLegacyKey()] = component;
+                    uniqueObjects?.Add(component);
+                    if (descriptorsByObject != null) descriptorsByObject[component] = componentDescriptor;
 
                     indicesByType[type] = currentIndex + 1;
                 }
@@ -709,9 +994,14 @@ namespace LegendaryTools.Editor
 
         private List<UnityEngine.Object> GetCompatibleTargetsForReference(ReferenceUsageMappingItem item)
         {
+            if (item?.sourceObject == null) return new List<UnityEngine.Object>();
+
+            if (compatibleReferenceTargetsCache.TryGetValue(item.sourceObject, out List<UnityEngine.Object> cached))
+                return cached;
+
             List<UnityEngine.Object> targets = new();
 
-            foreach (UnityEngine.Object candidate in currentTargetObjectsByKey.Values)
+            foreach (UnityEngine.Object candidate in currentTargetObjects)
             {
                 if (candidate == null) continue;
 
@@ -725,14 +1015,20 @@ namespace LegendaryTools.Editor
                 return string.CompareOrdinal(aLabel, bLabel);
             });
 
+            compatibleReferenceTargetsCache[item.sourceObject] = targets;
             return targets;
         }
 
         private List<Component> GetCompatibleTargetComponentsForCopy(Component sourceComponent)
         {
+            if (sourceComponent == null) return new List<Component>();
+
+            Type sourceType = sourceComponent.GetType();
+            if (compatibleCopyTargetsCache.TryGetValue(sourceType, out List<Component> cached)) return cached;
+
             List<Component> targets = new();
 
-            foreach (UnityEngine.Object value in currentTargetObjectsByKey.Values)
+            foreach (UnityEngine.Object value in currentTargetObjects)
             {
                 if (value is not Component targetComponent) continue;
 
@@ -748,6 +1044,7 @@ namespace LegendaryTools.Editor
                 return string.CompareOrdinal(aLabel, bLabel);
             });
 
+            compatibleCopyTargetsCache[sourceType] = targets;
             return targets;
         }
 
@@ -794,8 +1091,14 @@ namespace LegendaryTools.Editor
             return sourceType.IsAssignableFrom(targetType) || targetType.IsAssignableFrom(sourceType);
         }
 
-        private string[] BuildReferenceTargetOptions(List<UnityEngine.Object> compatibleTargets)
+        private string[] GetReferenceTargetOptions(
+            ReferenceUsageMappingItem item,
+            List<UnityEngine.Object> compatibleTargets)
         {
+            if (item?.sourceObject != null &&
+                compatibleReferenceTargetOptionsCache.TryGetValue(item.sourceObject, out string[] cached))
+                return cached;
+
             string[] options = new string[compatibleTargets.Count + 1];
             options[0] = "<Keep unchanged>";
 
@@ -804,11 +1107,16 @@ namespace LegendaryTools.Editor
                 options[i + 1] = BuildTargetObjectLabel(compatibleTargets[i]);
             }
 
+            if (item?.sourceObject != null) compatibleReferenceTargetOptionsCache[item.sourceObject] = options;
             return options;
         }
 
-        private string[] BuildComponentTargetOptions(List<Component> compatibleTargets)
+        private string[] GetComponentTargetOptions(Component sourceComponent, List<Component> compatibleTargets)
         {
+            if (sourceComponent != null &&
+                compatibleCopyTargetOptionsCache.TryGetValue(sourceComponent.GetType(), out string[] cached))
+                return cached;
+
             string[] options = new string[compatibleTargets.Count + 1];
             options[0] = "<Do not copy>";
 
@@ -817,6 +1125,7 @@ namespace LegendaryTools.Editor
                 options[i + 1] = BuildTargetObjectLabel(compatibleTargets[i]);
             }
 
+            if (sourceComponent != null) compatibleCopyTargetOptionsCache[sourceComponent.GetType()] = options;
             return options;
         }
 
@@ -824,7 +1133,17 @@ namespace LegendaryTools.Editor
         {
             if (obj == null) return "<null>";
 
-            if (obj is GameObject go) return $"{GetRelativePath(targetRoot.transform, go.transform)} [GameObject]";
+            if (targetObjectLabels.TryGetValue(obj, out string cachedLabel)) return cachedLabel;
+
+            if (obj is GameObject go)
+            {
+                string gameObjectPath = GetRelativePath(targetRoot.transform, go.transform);
+                if (string.IsNullOrEmpty(gameObjectPath)) gameObjectPath = "<Root>";
+
+                string gameObjectLabel = $"{gameObjectPath} [GameObject]";
+                targetObjectLabels[obj] = gameObjectLabel;
+                return gameObjectLabel;
+            }
 
             if (obj is Component component)
             {
@@ -832,9 +1151,12 @@ namespace LegendaryTools.Editor
                 if (string.IsNullOrEmpty(path)) path = "<Root>";
 
                 int index = GetComponentIndex(component);
-                return $"{path} [{component.GetType().Name} #{index}]";
+                string componentLabel = $"{path} [{component.GetType().Name} #{index}]";
+                targetObjectLabels[obj] = componentLabel;
+                return componentLabel;
             }
 
+            targetObjectLabels[obj] = obj.name;
             return obj.name;
         }
 
@@ -843,8 +1165,9 @@ namespace LegendaryTools.Editor
             if (templateAsset == null || targetRoot == null || sourceRoot == null) return;
 
             ApplyReferenceTemplate();
+            AutoPopulateReferenceMappingsFromHierarchy(true);
             ApplyComponentCopyTemplate();
-            RefreshAvailableSourceComponentsForSelection();
+            InvalidateAvailableSourceComponentsCache();
             Repaint();
         }
 
@@ -1117,8 +1440,10 @@ namespace LegendaryTools.Editor
             }
 
             if (copiedComponentCount > 0 || changedReferenceCount > 0)
+            {
                 if (PrefabStageUtility.GetCurrentPrefabStage() == null)
                     EditorSceneManager.MarkAllScenesDirty();
+            }
 
             Debug.Log(
                 $"Reference Transfer complete. Copied {copiedComponentCount} component mapping(s). Changed {changedReferenceCount} serialized reference(s).");
@@ -1615,6 +1940,29 @@ namespace LegendaryTools.Editor
             return string.Join("/", parts);
         }
 
+        private static int CountMatchingPathSegmentsFromEnd(string left, string right)
+        {
+            if (string.IsNullOrEmpty(left) || string.IsNullOrEmpty(right)) return 0;
+
+            string[] leftParts = left.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] rightParts = right.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            int leftIndex = leftParts.Length - 1;
+            int rightIndex = rightParts.Length - 1;
+            int matches = 0;
+
+            while (leftIndex >= 0 && rightIndex >= 0)
+            {
+                if (!string.Equals(leftParts[leftIndex], rightParts[rightIndex], StringComparison.Ordinal)) break;
+
+                matches++;
+                leftIndex--;
+                rightIndex--;
+            }
+
+            return matches;
+        }
+
         private static int GetSiblingNameIndex(Transform transform)
         {
             int index = 0;
@@ -1649,6 +1997,7 @@ namespace LegendaryTools.Editor
             public ReferenceTransferObjectDescriptor sourceDescriptor;
             public UnityEngine.Object mappedTarget;
             public List<ReferenceUsage> usages;
+            public bool isUsagesExpanded;
         }
 
         [Serializable]
