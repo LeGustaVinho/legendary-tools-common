@@ -12,7 +12,6 @@ using Microsoft.Win32;
 #endif
 
 #if UNITY_EDITOR_OSX
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 #endif
 
@@ -384,8 +383,8 @@ namespace LegendaryTools.Editor
         {
             try
             {
-                using Process p = new Process();
-                p.StartInfo = new ProcessStartInfo
+                using System.Diagnostics.Process p = new System.Diagnostics.Process();
+                p.StartInfo = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = fileName,
                     Arguments = arguments,
