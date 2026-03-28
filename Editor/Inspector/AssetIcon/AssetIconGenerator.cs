@@ -21,6 +21,8 @@ namespace LegendaryTools.Editor
         private const float UiFillPercent = 0.92f;
         private const float NonUiPadding = 1.08f;
         private const float MaxParticleWarmUpSeconds = 5.0f;
+        private const int RenderIsolationLayer = 30;
+        private const int RenderIsolationLayerMask = 1 << RenderIsolationLayer;
 
         public static ExecutionMode CurrentExecutionMode = ExecutionMode.TemporaryScene;
 
@@ -150,10 +152,17 @@ namespace LegendaryTools.Editor
 
         internal sealed class BatchSession : IDisposable
         {
+            private struct CameraMaskState
+            {
+                public Camera camera;
+                public int cullingMask;
+            }
+
             private readonly bool _closeWorkingSceneOnDispose;
             private readonly ExecutionMode _mode;
             private readonly Scene _workingScene;
             private readonly List<Object> _temporaryObjects = new(8);
+            private readonly List<CameraMaskState> _sceneCameraMaskStates = new();
 
             private Camera _captureCamera;
             private RenderTexture _renderTexture;
@@ -193,6 +202,8 @@ namespace LegendaryTools.Editor
                     if (instanceRoot == null)
                         throw new InvalidOperationException($"Failed to instantiate prefab '{prefabAsset.name}'.");
 
+                    ApplyLayerRecursively(instanceRoot, RenderIsolationLayer);
+                    ExcludeIsolationLayerFromPrefabCameras(instanceRoot);
                     RegisterTemporaryObject(instanceRoot);
 
                     ConfigureCaptureCamera(_captureCamera, isUiPrefab);
@@ -225,12 +236,14 @@ namespace LegendaryTools.Editor
                 {
                     CleanupTemporaryObjects();
                     FinishGeneration(isUiPrefab);
+                    RestoreSceneCameraMasks();
                 }
             }
 
             public void Dispose()
             {
                 CleanupTemporaryObjects();
+                RestoreSceneCameraMasks();
                 DestroyCaptureResources();
 
                 if (_lightRig != null) Object.DestroyImmediate(_lightRig);
@@ -253,6 +266,52 @@ namespace LegendaryTools.Editor
                 if (_readbackTexture == null) _readbackTexture = CreateReadbackTexture();
 
                 _captureCamera.targetTexture = _renderTexture;
+            }
+
+            private void ApplyRenderIsolationToSceneCameras()
+            {
+                RestoreSceneCameraMasks();
+
+                if (!_workingScene.IsValid())
+                {
+                    return;
+                }
+
+                GameObject[] roots = _workingScene.GetRootGameObjects();
+                for (int i = 0; i < roots.Length; i++)
+                {
+                    Camera[] cameras = roots[i].GetComponentsInChildren<Camera>(true);
+                    for (int j = 0; j < cameras.Length; j++)
+                    {
+                        Camera camera = cameras[j];
+                        if (camera == null || camera == _captureCamera)
+                        {
+                            continue;
+                        }
+
+                        _sceneCameraMaskStates.Add(new CameraMaskState
+                        {
+                            camera = camera,
+                            cullingMask = camera.cullingMask
+                        });
+
+                        camera.cullingMask &= ~RenderIsolationLayerMask;
+                    }
+                }
+            }
+
+            private void RestoreSceneCameraMasks()
+            {
+                for (int i = _sceneCameraMaskStates.Count - 1; i >= 0; i--)
+                {
+                    CameraMaskState state = _sceneCameraMaskStates[i];
+                    if (state.camera != null)
+                    {
+                        state.camera.cullingMask = state.cullingMask;
+                    }
+                }
+
+                _sceneCameraMaskStates.Clear();
             }
 
             private void DestroyCaptureResources()
@@ -295,6 +354,7 @@ namespace LegendaryTools.Editor
             private void PrepareForGeneration(bool isUiPrefab)
             {
                 EnsureCaptureResources();
+                ApplyRenderIsolationToSceneCameras();
 
                 if (!isUiPrefab) return;
 
@@ -352,12 +412,16 @@ namespace LegendaryTools.Editor
 
             CenterHierarchyBoundsAtWorldOrigin(frameRoot.transform, instanceRoot);
 
+            bool hasSpriteRenderer = instanceRoot.GetComponentInChildren<SpriteRenderer>(true) != null;
+            float orbitYaw = hasSpriteRenderer ? 0.0f : 45.0f;
+            float orbitPitch = hasSpriteRenderer ? 0.0f : 45.0f;
+
             bool framed = CameraUtil.FrameGameObject(
                 captureCamera,
                 instanceRoot,
                 NonUiPadding,
-                45.0f,
-                45.0f,
+                orbitYaw,
+                orbitPitch,
                 default,
                 true);
 
@@ -385,6 +449,7 @@ namespace LegendaryTools.Editor
                 bool previousAutoRandomSeed = particleSystem.useAutoRandomSeed;
                 uint previousRandomSeed = particleSystem.randomSeed;
 
+                particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 particleSystem.useAutoRandomSeed = false;
                 particleSystem.randomSeed = (uint)(i + 1);
 
@@ -620,6 +685,7 @@ namespace LegendaryTools.Editor
             GameObject wrapperObject = new("__ThumbnailUiWrapper", typeof(RectTransform));
             RectTransform wrapper = wrapperObject.GetComponent<RectTransform>();
 
+            wrapper.gameObject.layer = parent != null ? parent.gameObject.layer : RenderIsolationLayer;
             wrapper.SetParent(parent, false);
             wrapper.anchorMin = Vector2.zero;
             wrapper.anchorMax = Vector2.one;
@@ -669,7 +735,7 @@ namespace LegendaryTools.Editor
             camera.allowMSAA = true;
             camera.useOcclusionCulling = false;
             camera.renderingPath = RenderingPath.UsePlayerSettings;
-            camera.cullingMask = ~0;
+            camera.cullingMask = RenderIsolationLayerMask;
             camera.nearClipPlane = 0.01f;
             camera.farClipPlane = 1000.0f;
             camera.aspect = (float)ThumbnailWidth / ThumbnailHeight;
@@ -680,6 +746,7 @@ namespace LegendaryTools.Editor
             camera.overrideSceneCullingMask = scene.IsValid()
                 ? EditorSceneManager.GetSceneCullingMask(scene)
                 : 0UL;
+            cameraObject.layer = RenderIsolationLayer;
 
             ConfigureCaptureCamera(camera, false);
             return camera;
@@ -845,7 +912,11 @@ namespace LegendaryTools.Editor
         private static Scene GetWorkingScene(ExecutionMode mode)
         {
             if (mode == ExecutionMode.TemporaryScene)
-                return EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
+            {
+                Scene temporaryScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
+                HideWorkingScene(temporaryScene);
+                return temporaryScene;
+            }
 
             Scene activeScene = SceneManager.GetActiveScene();
             if (!activeScene.IsValid()) throw new InvalidOperationException("There is no valid active scene.");
@@ -886,10 +957,55 @@ namespace LegendaryTools.Editor
         private static GameObject CreateGameObjectInScene(Scene scene, string name, params Type[] components)
         {
             GameObject gameObject = new(name, components);
+            gameObject.layer = RenderIsolationLayer;
 
             if (scene.IsValid()) SceneManager.MoveGameObjectToScene(gameObject, scene);
 
             return gameObject;
+        }
+
+        private static void HideWorkingScene(Scene scene)
+        {
+            if (!scene.IsValid())
+            {
+                return;
+            }
+
+            SceneVisibilityManager visibilityManager = SceneVisibilityManager.instance;
+            visibilityManager.Hide(scene);
+            visibilityManager.DisablePicking(scene);
+        }
+
+        private static void ApplyLayerRecursively(GameObject root, int layer)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            Transform[] transforms = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < transforms.Length; i++)
+            {
+                transforms[i].gameObject.layer = layer;
+            }
+        }
+
+        private static void ExcludeIsolationLayerFromPrefabCameras(GameObject root)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            Camera[] cameras = root.GetComponentsInChildren<Camera>(true);
+            for (int i = 0; i < cameras.Length; i++)
+            {
+                Camera camera = cameras[i];
+                if (camera != null)
+                {
+                    camera.cullingMask &= ~RenderIsolationLayerMask;
+                }
+            }
         }
 
         private static bool TryGetPrefabInfo(GameObject prefabAsset, out string assetGuid, out string prefabHash)
