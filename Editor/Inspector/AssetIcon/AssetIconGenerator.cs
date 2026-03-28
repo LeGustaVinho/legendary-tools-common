@@ -159,6 +159,7 @@ namespace LegendaryTools.Editor
             }
 
             private readonly bool _closeWorkingSceneOnDispose;
+            private readonly bool _isPreviewWorkingScene;
             private readonly ExecutionMode _mode;
             private readonly Scene _workingScene;
             private readonly List<Object> _temporaryObjects = new(8);
@@ -174,6 +175,7 @@ namespace LegendaryTools.Editor
                 _mode = mode;
                 _workingScene = GetWorkingScene(mode);
                 _closeWorkingSceneOnDispose = mode == ExecutionMode.TemporaryScene;
+                _isPreviewWorkingScene = _closeWorkingSceneOnDispose && EditorSceneManager.IsPreviewScene(_workingScene);
                 EnsureCaptureResources();
             }
 
@@ -249,7 +251,12 @@ namespace LegendaryTools.Editor
                 if (_lightRig != null) Object.DestroyImmediate(_lightRig);
 
                 if (_closeWorkingSceneOnDispose && _workingScene.IsValid())
-                    EditorSceneManager.CloseScene(_workingScene, true);
+                {
+                    if (_isPreviewWorkingScene)
+                        EditorSceneManager.ClosePreviewScene(_workingScene);
+                    else
+                        EditorSceneManager.CloseScene(_workingScene, true);
+                }
             }
 
             private void RegisterTemporaryObject(Object temporaryObject)
@@ -446,8 +453,6 @@ namespace LegendaryTools.Editor
                     HasParticleSystemAncestor(particleSystem.transform, root.transform)) continue;
 
                 ParticleSystem.MainModule main = particleSystem.main;
-                bool previousAutoRandomSeed = particleSystem.useAutoRandomSeed;
-                uint previousRandomSeed = particleSystem.randomSeed;
 
                 particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 particleSystem.useAutoRandomSeed = false;
@@ -461,9 +466,6 @@ namespace LegendaryTools.Editor
                 particleSystem.Play(true);
                 particleSystem.Simulate(0.0f, true, false, true);
                 particleSystem.Pause(true);
-
-                particleSystem.useAutoRandomSeed = previousAutoRandomSeed;
-                particleSystem.randomSeed = previousRandomSeed;
             }
         }
 
@@ -912,11 +914,7 @@ namespace LegendaryTools.Editor
         private static Scene GetWorkingScene(ExecutionMode mode)
         {
             if (mode == ExecutionMode.TemporaryScene)
-            {
-                Scene temporaryScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
-                HideWorkingScene(temporaryScene);
-                return temporaryScene;
-            }
+                return EditorSceneManager.NewPreviewScene();
 
             Scene activeScene = SceneManager.GetActiveScene();
             if (!activeScene.IsValid()) throw new InvalidOperationException("There is no valid active scene.");
@@ -962,18 +960,6 @@ namespace LegendaryTools.Editor
             if (scene.IsValid()) SceneManager.MoveGameObjectToScene(gameObject, scene);
 
             return gameObject;
-        }
-
-        private static void HideWorkingScene(Scene scene)
-        {
-            if (!scene.IsValid())
-            {
-                return;
-            }
-
-            SceneVisibilityManager visibilityManager = SceneVisibilityManager.instance;
-            visibilityManager.Hide(scene);
-            visibilityManager.DisablePicking(scene);
         }
 
         private static void ApplyLayerRecursively(GameObject root, int layer)
