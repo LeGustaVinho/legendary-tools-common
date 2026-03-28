@@ -35,7 +35,7 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
             public bool NeedsComponent; // Indicates if a concrete component needs to be added
         }
 
-        [MenuItem("Assets/Create/ScreenFlow/Create Screen or Popup Config", false, 80)]
+        [MenuItem("Assets/Create/Tools/ScreenFlow/Create Screen or Popup Config", false, 80)]
         private static void CreateScreenOrPopupConfig()
         {
             Object[] selectedObjects = Selection.GetFiltered(typeof(GameObject), SelectionMode.Assets);
@@ -137,7 +137,7 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
             AssetDatabase.Refresh();
         }
 
-        [MenuItem("Assets/Create/ScreenFlow/Create Screen or Popup Config", true)]
+        [MenuItem("Assets/Create/Tools/ScreenFlow/Create Screen or Popup Config", true)]
         private static bool CreateScreenOrPopupConfigValidation()
         {
             // Only show menu item if at least one prefab is selected

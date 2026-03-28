@@ -7,7 +7,7 @@ namespace LegendaryTools.SOAP
     /// Variant asset that references a base ScriptableObject and stores overridden values in a hidden payload
     /// of the same concrete type. At runtime you can resolve to a concrete instance (base + overrides).
     /// </summary>
-    [CreateAssetMenu(menuName = "Variants/ScriptableObject Variant", fileName = "NewScriptableObjectVariant")]
+    [CreateAssetMenu(menuName = "Tools/Variants/ScriptableObject Variant", fileName = "NewScriptableObjectVariant")]
     public sealed class ScriptableObjectVariant : ScriptableObject
     {
         [Tooltip("Reference ScriptableObject this variant is based on.")]

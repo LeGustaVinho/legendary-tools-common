@@ -7,7 +7,7 @@ namespace LegendaryTools.AttributeSystemV2
     /// <summary>
     /// ScriptableObject describing a type of entity (template/config).
     /// </summary>
-    [CreateAssetMenu(menuName = "RPG/Entity Definition", fileName = "NewEntityDefinition")]
+    [CreateAssetMenu(menuName = "Tools/AttributeSystem/Entity Definition", fileName = "NewEntityDefinition")]
     public class EntityDefinition : ScriptableObject
     {
         [SerializeField]

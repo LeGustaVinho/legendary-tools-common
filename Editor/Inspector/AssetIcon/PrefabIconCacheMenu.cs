@@ -4,9 +4,9 @@ namespace LegendaryTools.Editor
 {
     internal static class PrefabThumbnailCacheMenu
     {
-        private const string StartMenuPath = "Tools/Start Prefab Thumbnail Generation";
-        private const string StopMenuPath = "Tools/Stop Prefab Thumbnail Generation";
-        private const string ClearMenuPath = "Tools/Clear Generated Prefab Thumbnails";
+        private const string StartMenuPath = "Tools/LegendaryTools/AssetIcons/Start Prefab Thumbnail Generation";
+        private const string StopMenuPath = "Tools/LegendaryTools/AssetIcons/Stop Prefab Thumbnail Generation";
+        private const string ClearMenuPath = "Tools/LegendaryTools/AssetIcons/Clear Generated Prefab Thumbnails";
 
         [MenuItem(StartMenuPath)]
         private static void StartGeneratedPrefabThumbnails()
@@ -41,10 +41,7 @@ namespace LegendaryTools.Editor
                 "Delete",
                 "Cancel");
 
-            if (!confirmed)
-            {
-                return;
-            }
+            if (!confirmed) return;
 
             PrefabThumbnailOrchestrator.ClearPendingWork();
             PrefabThumbnailCache.ClearAll();

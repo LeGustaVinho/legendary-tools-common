@@ -10,7 +10,7 @@ using Object = UnityEngine.Object;
 
 namespace LegendaryTools.Editor
 {
-    public static class PrefabThumbnailGenerator
+    public static class PrefabIconGenerator
     {
         private const string GenerateMenuPath = "Assets/Generate Thumbnail";
 
@@ -20,13 +20,14 @@ namespace LegendaryTools.Editor
         private const float UiPlaneDistance = 10.0f;
         private const float UiFillPercent = 0.92f;
         private const float NonUiPadding = 1.08f;
+        private const float MaxParticleWarmUpSeconds = 5.0f;
 
         public static ExecutionMode CurrentExecutionMode = ExecutionMode.TemporaryScene;
 
         public enum ExecutionMode
         {
             Scene = 0,
-            TemporaryScene = 1,
+            TemporaryScene = 1
         }
 
         private struct BatchGenerationStats
@@ -70,10 +71,7 @@ namespace LegendaryTools.Editor
             GameObject[] selectedAssets = Selection.GetFiltered<GameObject>(SelectionMode.Assets);
             for (int i = 0; i < selectedAssets.Length; i++)
             {
-                if (IsPrefabAsset(selectedAssets[i]))
-                {
-                    return true;
-                }
+                if (IsPrefabAsset(selectedAssets[i])) return true;
             }
 
             return false;
@@ -81,7 +79,7 @@ namespace LegendaryTools.Editor
 
         public static bool GenerateThumbnail(GameObject prefabAsset, bool forceRegenerate = false)
         {
-            using (BatchSession batch = new BatchSession(CurrentExecutionMode))
+            using (BatchSession batch = new(CurrentExecutionMode))
             {
                 return batch.Generate(prefabAsset, forceRegenerate, out _);
             }
@@ -93,7 +91,7 @@ namespace LegendaryTools.Editor
             bool forceRegenerate,
             out bool skipped)
         {
-            using (BatchSession batch = new BatchSession(mode))
+            using (BatchSession batch = new(mode))
             {
                 return batch.Generate(prefabAsset, forceRegenerate, out skipped);
             }
@@ -111,12 +109,9 @@ namespace LegendaryTools.Editor
             bool forceRegenerate)
         {
             BatchGenerationStats stats = default;
-            if (prefabAssets == null || prefabAssets.Count == 0)
-            {
-                return stats;
-            }
+            if (prefabAssets == null || prefabAssets.Count == 0) return stats;
 
-            using (BatchSession batch = new BatchSession(mode))
+            using (BatchSession batch = new(mode))
             {
                 for (int i = 0; i < prefabAssets.Count; i++)
                 {
@@ -136,9 +131,7 @@ namespace LegendaryTools.Editor
                     }
 
                     bool skipped;
-                    bool succeeded = IsUiPrefabAsset(prefabAsset)
-                        ? GenerateThumbnail(prefabAsset, mode, forceRegenerate, out skipped)
-                        : batch.Generate(prefabAsset, forceRegenerate, out skipped);
+                    bool succeeded = batch.Generate(prefabAsset, forceRegenerate, out skipped);
                     if (!succeeded)
                     {
                         stats.failedCount++;
@@ -146,13 +139,9 @@ namespace LegendaryTools.Editor
                     }
 
                     if (skipped)
-                    {
                         stats.skippedCount++;
-                    }
                     else
-                    {
                         stats.generatedCount++;
-                    }
                 }
             }
 
@@ -162,37 +151,34 @@ namespace LegendaryTools.Editor
         internal sealed class BatchSession : IDisposable
         {
             private readonly bool _closeWorkingSceneOnDispose;
+            private readonly ExecutionMode _mode;
             private readonly Scene _workingScene;
-            private readonly Camera _captureCamera;
-            private readonly RenderTexture _renderTexture;
-            private readonly Texture2D _readbackTexture;
-            private readonly List<Object> _temporaryObjects = new List<Object>(8);
+            private readonly List<Object> _temporaryObjects = new(8);
 
+            private Camera _captureCamera;
+            private RenderTexture _renderTexture;
+            private Texture2D _readbackTexture;
             private GameObject _lightRig;
 
             internal BatchSession(ExecutionMode mode)
             {
+                _mode = mode;
                 _workingScene = GetWorkingScene(mode);
                 _closeWorkingSceneOnDispose = mode == ExecutionMode.TemporaryScene;
-                _captureCamera = CreateCaptureCamera(_workingScene, mode);
-                _renderTexture = CreateRenderTexture();
-                _captureCamera.targetTexture = _renderTexture;
-                _readbackTexture = CreateReadbackTexture();
+                EnsureCaptureResources();
             }
 
             public bool Generate(GameObject prefabAsset, bool forceRegenerate, out bool skipped)
             {
                 skipped = false;
                 _temporaryObjects.Clear();
+                bool isUiPrefab = false;
 
                 try
                 {
                     string assetGuid;
                     string prefabHash;
-                    if (!TryGetPrefabInfo(prefabAsset, out assetGuid, out prefabHash))
-                    {
-                        return false;
-                    }
+                    if (!TryGetPrefabInfo(prefabAsset, out assetGuid, out prefabHash)) return false;
 
                     if (!forceRegenerate && PrefabThumbnailCache.IsUpToDate(assetGuid, prefabHash))
                     {
@@ -200,24 +186,23 @@ namespace LegendaryTools.Editor
                         return true;
                     }
 
+                    isUiPrefab = IsUiPrefabAsset(prefabAsset);
+                    PrepareForGeneration(isUiPrefab);
+
                     GameObject instanceRoot = InstantiatePrefabInScene(prefabAsset, _workingScene);
                     if (instanceRoot == null)
-                    {
                         throw new InvalidOperationException($"Failed to instantiate prefab '{prefabAsset.name}'.");
-                    }
 
                     RegisterTemporaryObject(instanceRoot);
 
-                    bool isUiPrefab = instanceRoot.transform is RectTransform;
                     ConfigureCaptureCamera(_captureCamera, isUiPrefab);
                     SetLightRigActive(!isUiPrefab);
 
                     if (isUiPrefab)
-                    {
                         PrepareUiCapture(instanceRoot, _captureCamera, _workingScene, RegisterTemporaryObject);
-                    }
                     else
                     {
+                        PreWarmParticleSystems(instanceRoot);
                         PrepareNonUiCapture(instanceRoot, _captureCamera, _workingScene, RegisterTemporaryObject);
                     }
 
@@ -239,47 +224,88 @@ namespace LegendaryTools.Editor
                 finally
                 {
                     CleanupTemporaryObjects();
+                    FinishGeneration(isUiPrefab);
                 }
             }
 
             public void Dispose()
             {
                 CleanupTemporaryObjects();
+                DestroyCaptureResources();
 
+                if (_lightRig != null) Object.DestroyImmediate(_lightRig);
+
+                if (_closeWorkingSceneOnDispose && _workingScene.IsValid())
+                    EditorSceneManager.CloseScene(_workingScene, true);
+            }
+
+            private void RegisterTemporaryObject(Object temporaryObject)
+            {
+                if (temporaryObject != null) _temporaryObjects.Add(temporaryObject);
+            }
+
+            private void EnsureCaptureResources()
+            {
+                if (_captureCamera == null) _captureCamera = CreateCaptureCamera(_workingScene, _mode);
+
+                if (_renderTexture == null) _renderTexture = CreateRenderTexture();
+
+                if (_readbackTexture == null) _readbackTexture = CreateReadbackTexture();
+
+                _captureCamera.targetTexture = _renderTexture;
+            }
+
+            private void DestroyCaptureResources()
+            {
                 if (_captureCamera != null)
                 {
                     _captureCamera.targetTexture = null;
                     Object.DestroyImmediate(_captureCamera.gameObject);
+                    _captureCamera = null;
                 }
 
                 if (_renderTexture != null)
                 {
                     _renderTexture.Release();
                     Object.DestroyImmediate(_renderTexture);
+                    _renderTexture = null;
                 }
 
                 if (_readbackTexture != null)
                 {
                     Object.DestroyImmediate(_readbackTexture);
+                    _readbackTexture = null;
                 }
+            }
+
+            private void ResetCaptureResources()
+            {
+                DestroyCaptureResources();
 
                 if (_lightRig != null)
                 {
                     Object.DestroyImmediate(_lightRig);
+                    _lightRig = null;
                 }
 
-                if (_closeWorkingSceneOnDispose && _workingScene.IsValid())
-                {
-                    EditorSceneManager.CloseScene(_workingScene, true);
-                }
+                EnsureCaptureResources();
+                Canvas.ForceUpdateCanvases();
             }
 
-            private void RegisterTemporaryObject(Object temporaryObject)
+            private void PrepareForGeneration(bool isUiPrefab)
             {
-                if (temporaryObject != null)
-                {
-                    _temporaryObjects.Add(temporaryObject);
-                }
+                EnsureCaptureResources();
+
+                if (!isUiPrefab) return;
+
+                // UI capture relies on global canvas rebuild state. Recreate the capture rig
+                // so each UI render starts from the same state as an isolated BatchSession.
+                ResetCaptureResources();
+            }
+
+            private void FinishGeneration(bool isUiPrefab)
+            {
+                if (isUiPrefab) Canvas.ForceUpdateCanvases();
             }
 
             private void CleanupTemporaryObjects()
@@ -287,10 +313,7 @@ namespace LegendaryTools.Editor
                 for (int i = _temporaryObjects.Count - 1; i >= 0; i--)
                 {
                     Object temporaryObject = _temporaryObjects[i];
-                    if (temporaryObject != null)
-                    {
-                        Object.DestroyImmediate(temporaryObject);
-                    }
+                    if (temporaryObject != null) Object.DestroyImmediate(temporaryObject);
                 }
 
                 _temporaryObjects.Clear();
@@ -300,21 +323,13 @@ namespace LegendaryTools.Editor
             private void SetLightRigActive(bool active)
             {
                 if (active)
-                {
                     EnsureLightRig().SetActive(true);
-                }
-                else if (_lightRig != null)
-                {
-                    _lightRig.SetActive(false);
-                }
+                else if (_lightRig != null) _lightRig.SetActive(false);
             }
 
             private GameObject EnsureLightRig()
             {
-                if (_lightRig == null)
-                {
-                    _lightRig = CreateDefaultLights(_workingScene);
-                }
+                if (_lightRig == null) _lightRig = CreateDefaultLights(_workingScene);
 
                 return _lightRig;
             }
@@ -340,17 +355,106 @@ namespace LegendaryTools.Editor
             bool framed = CameraUtil.FrameGameObject(
                 captureCamera,
                 instanceRoot,
-                padding: NonUiPadding,
-                orbitYaw: 45.0f,
-                orbitPitch: 45.0f,
-                focusOffsetLocal: default,
-                orbitRelativeToTarget: true);
+                NonUiPadding,
+                45.0f,
+                45.0f,
+                default,
+                true);
 
             if (!framed)
             {
                 Debug.LogWarning(
                     $"Could not frame prefab '{instanceRoot.name}' because no renderer or collider bounds were found.");
             }
+        }
+
+        private static void PreWarmParticleSystems(GameObject root)
+        {
+            if (root == null) return;
+
+            ParticleSystem[] particleSystems = root.GetComponentsInChildren<ParticleSystem>(true);
+            if (particleSystems.Length == 0) return;
+
+            for (int i = 0; i < particleSystems.Length; i++)
+            {
+                ParticleSystem particleSystem = particleSystems[i];
+                if (particleSystem == null ||
+                    HasParticleSystemAncestor(particleSystem.transform, root.transform)) continue;
+
+                ParticleSystem.MainModule main = particleSystem.main;
+                bool previousAutoRandomSeed = particleSystem.useAutoRandomSeed;
+                uint previousRandomSeed = particleSystem.randomSeed;
+
+                particleSystem.useAutoRandomSeed = false;
+                particleSystem.randomSeed = (uint)(i + 1);
+
+                particleSystem.Simulate(0.0f, true, true, true);
+
+                float warmUpTime = GetParticleWarmUpTime(main);
+                if (warmUpTime > 0.0f) particleSystem.Simulate(warmUpTime, true, true, true);
+
+                particleSystem.Play(true);
+                particleSystem.Simulate(0.0f, true, false, true);
+                particleSystem.Pause(true);
+
+                particleSystem.useAutoRandomSeed = previousAutoRandomSeed;
+                particleSystem.randomSeed = previousRandomSeed;
+            }
+        }
+
+        private static bool HasParticleSystemAncestor(Transform transform, Transform root)
+        {
+            if (transform == null || root == null) return false;
+
+            Transform current = transform.parent;
+            while (current != null)
+            {
+                if (current.GetComponent<ParticleSystem>() != null) return true;
+
+                if (current == root) break;
+
+                current = current.parent;
+            }
+
+            return false;
+        }
+
+        private static float GetParticleWarmUpTime(ParticleSystem.MainModule main)
+        {
+            float duration = Mathf.Max(0.0f, main.duration);
+            float lifetime = GetParticleMax(main.startLifetime);
+
+            if (main.loop && main.prewarm) return Mathf.Min(duration, MaxParticleWarmUpSeconds);
+
+            return Mathf.Min(duration + lifetime, MaxParticleWarmUpSeconds);
+        }
+
+        private static float GetParticleMax(ParticleSystem.MinMaxCurve curve)
+        {
+            switch (curve.mode)
+            {
+                case ParticleSystemCurveMode.Constant:
+                    return Mathf.Max(0.0f, curve.constant);
+                case ParticleSystemCurveMode.TwoConstants:
+                    return Mathf.Max(0.0f, curve.constantMax);
+                case ParticleSystemCurveMode.Curve:
+                    return Mathf.Max(0.0f, GetLastCurveKeyValue(curve.curveMax)) *
+                           curve.curveMultiplier;
+                case ParticleSystemCurveMode.TwoCurves:
+                    float maxA = GetLastCurveKeyValue(curve.curveMax);
+                    float maxB = GetLastCurveKeyValue(curve.curveMin);
+                    return Mathf.Max(0.0f, Mathf.Max(maxA, maxB) * curve.curveMultiplier);
+                default:
+                    return 0.0f;
+            }
+        }
+
+        private static float GetLastCurveKeyValue(AnimationCurve curve)
+        {
+            if (curve == null) return 0.0f;
+
+            Keyframe[] keys = curve.keys;
+            return keys != null && keys.Length > 0 ? keys[keys.Length - 1].value : 0.0f;
         }
 
         private static void PrepareUiCapture(
@@ -390,27 +494,19 @@ namespace LegendaryTools.Editor
                 ConfigureCanvasForCamera(rootCanvas, captureCamera);
 
                 CanvasScaler scaler = rootCanvas.GetComponent<CanvasScaler>();
-                if (scaler != null)
-                {
-                    ConfigureCanvasScaler(scaler);
-                }
+                if (scaler != null) ConfigureCanvasScaler(scaler);
 
                 captureCanvasRect = rootCanvas.transform as RectTransform;
                 if (captureCanvasRect == null)
-                {
                     throw new InvalidOperationException("Canvas root does not have a RectTransform.");
-                }
 
                 RectTransform wrapper = CreateUiContentWrapper(captureCanvasRect);
 
-                List<Transform> childrenToMove = new List<Transform>();
+                List<Transform> childrenToMove = new();
                 for (int i = 0; i < captureCanvasRect.childCount; i++)
                 {
                     Transform child = captureCanvasRect.GetChild(i);
-                    if (child != wrapper)
-                    {
-                        childrenToMove.Add(child);
-                    }
+                    if (child != wrapper) childrenToMove.Add(child);
                 }
 
                 for (int i = 0; i < childrenToMove.Count; i++)
@@ -431,10 +527,7 @@ namespace LegendaryTools.Editor
         private static void FitUiTargetIntoCanvas(RectTransform canvasRect, RectTransform wrapper,
             RectTransform boundsTarget)
         {
-            if (canvasRect == null || wrapper == null || boundsTarget == null)
-            {
-                return;
-            }
+            if (canvasRect == null || wrapper == null || boundsTarget == null) return;
 
             wrapper.anchorMin = Vector2.zero;
             wrapper.anchorMax = Vector2.one;
@@ -450,10 +543,7 @@ namespace LegendaryTools.Editor
                 ForceRebuildUi();
 
                 Bounds bounds = RectTransformUtility.CalculateRelativeRectTransformBounds(canvasRect, boundsTarget);
-                if (bounds.size.sqrMagnitude < 0.000001f)
-                {
-                    return;
-                }
+                if (bounds.size.sqrMagnitude < 0.000001f) return;
 
                 Vector2 availableSize = canvasRect.rect.size * UiFillPercent;
 
@@ -462,9 +552,7 @@ namespace LegendaryTools.Editor
                 float uniformScale = Mathf.Min(scaleX, scaleY);
 
                 if (!float.IsNaN(uniformScale) && !float.IsInfinity(uniformScale) && uniformScale > 0.0f)
-                {
                     wrapper.localScale *= uniformScale;
-                }
 
                 ForceRebuildUi();
 
@@ -480,10 +568,7 @@ namespace LegendaryTools.Editor
 
         private static void WarmUpUiCanvas(Camera captureCamera)
         {
-            if (captureCamera == null || captureCamera.targetTexture == null)
-            {
-                return;
-            }
+            if (captureCamera == null || captureCamera.targetTexture == null) return;
 
             ForceRebuildUi();
             captureCamera.Render();
@@ -521,10 +606,7 @@ namespace LegendaryTools.Editor
 
         private static void ConfigureCanvasScaler(CanvasScaler scaler)
         {
-            if (scaler == null)
-            {
-                return;
-            }
+            if (scaler == null) return;
 
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(ThumbnailWidth, ThumbnailHeight);
@@ -535,7 +617,7 @@ namespace LegendaryTools.Editor
 
         private static RectTransform CreateUiContentWrapper(RectTransform parent)
         {
-            GameObject wrapperObject = new GameObject("__ThumbnailUiWrapper", typeof(RectTransform));
+            GameObject wrapperObject = new("__ThumbnailUiWrapper", typeof(RectTransform));
             RectTransform wrapper = wrapperObject.GetComponent<RectTransform>();
 
             wrapper.SetParent(parent, false);
@@ -562,20 +644,11 @@ namespace LegendaryTools.Editor
 
         private static void ConfigureCanvasForCamera(Canvas canvas, Camera captureCamera)
         {
-            if (canvas == null)
-            {
-                return;
-            }
+            if (canvas == null) return;
 
-            if (canvas.renderMode == RenderMode.ScreenSpaceOverlay)
-            {
-                canvas.renderMode = RenderMode.ScreenSpaceCamera;
-            }
+            if (canvas.renderMode == RenderMode.ScreenSpaceOverlay) canvas.renderMode = RenderMode.ScreenSpaceCamera;
 
-            if (canvas.renderMode == RenderMode.WorldSpace)
-            {
-                canvas.renderMode = RenderMode.ScreenSpaceCamera;
-            }
+            if (canvas.renderMode == RenderMode.WorldSpace) canvas.renderMode = RenderMode.ScreenSpaceCamera;
 
             canvas.worldCamera = captureCamera;
             canvas.planeDistance = UiPlaneDistance;
@@ -633,12 +706,12 @@ namespace LegendaryTools.Editor
         private static RenderTexture CreateRenderTexture()
         {
             RenderTexture renderTexture =
-                new RenderTexture(ThumbnailWidth, ThumbnailHeight, 24, RenderTextureFormat.ARGB32)
+                new(ThumbnailWidth, ThumbnailHeight, 24, RenderTextureFormat.ARGB32)
                 {
                     name = "__PrefabThumbnailRT",
                     antiAliasing = 1,
                     useMipMap = false,
-                    autoGenerateMips = false,
+                    autoGenerateMips = false
                 };
 
             renderTexture.Create();
@@ -681,15 +754,9 @@ namespace LegendaryTools.Editor
 
         private static void CenterHierarchyBoundsAtWorldOrigin(Transform frameRoot, GameObject target)
         {
-            if (frameRoot == null || target == null)
-            {
-                return;
-            }
+            if (frameRoot == null || target == null) return;
 
-            if (!TryGetHierarchyBounds(target, out Bounds bounds))
-            {
-                return;
-            }
+            if (!TryGetHierarchyBounds(target, out Bounds bounds)) return;
 
             frameRoot.position -= bounds.center;
         }
@@ -708,15 +775,10 @@ namespace LegendaryTools.Editor
                     hasBounds = true;
                 }
                 else
-                {
                     bounds.Encapsulate(renderers[i].bounds);
-                }
             }
 
-            if (hasBounds)
-            {
-                return true;
-            }
+            if (hasBounds) return true;
 
             Collider[] colliders = target.GetComponentsInChildren<Collider>(true);
             for (int i = 0; i < colliders.Length; i++)
@@ -727,9 +789,7 @@ namespace LegendaryTools.Editor
                     hasBounds = true;
                 }
                 else
-                {
                     bounds.Encapsulate(colliders[i].bounds);
-                }
             }
 
             return hasBounds;
@@ -751,13 +811,9 @@ namespace LegendaryTools.Editor
                 GL.Clear(true, true, Color.clear);
 
                 if (isUi)
-                {
                     RenderUiCameraWithWarmUp(camera);
-                }
                 else
-                {
                     camera.Render();
-                }
 
                 RenderTexture.active = renderTexture;
 
@@ -766,9 +822,7 @@ namespace LegendaryTools.Editor
 
                 string outputDirectory = Path.GetDirectoryName(outputPath);
                 if (!string.IsNullOrEmpty(outputDirectory) && !Directory.Exists(outputDirectory))
-                {
                     Directory.CreateDirectory(outputDirectory);
-                }
 
                 byte[] pngBytes = readbackTexture.EncodeToPNG();
                 File.WriteAllBytes(outputPath, pngBytes);
@@ -791,15 +845,10 @@ namespace LegendaryTools.Editor
         private static Scene GetWorkingScene(ExecutionMode mode)
         {
             if (mode == ExecutionMode.TemporaryScene)
-            {
                 return EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
-            }
 
             Scene activeScene = SceneManager.GetActiveScene();
-            if (!activeScene.IsValid())
-            {
-                throw new InvalidOperationException("There is no valid active scene.");
-            }
+            if (!activeScene.IsValid()) throw new InvalidOperationException("There is no valid active scene.");
 
             return activeScene;
         }
@@ -812,14 +861,11 @@ namespace LegendaryTools.Editor
         private static GameObject[] GetSelectedPrefabAssets()
         {
             GameObject[] selectedAssets = Selection.GetFiltered<GameObject>(SelectionMode.Assets);
-            List<GameObject> prefabAssets = new List<GameObject>();
+            List<GameObject> prefabAssets = new();
 
             for (int i = 0; i < selectedAssets.Length; i++)
             {
-                if (IsPrefabAsset(selectedAssets[i]))
-                {
-                    prefabAssets.Add(selectedAssets[i]);
-                }
+                if (IsPrefabAsset(selectedAssets[i])) prefabAssets.Add(selectedAssets[i]);
             }
 
             return prefabAssets.ToArray();
@@ -827,10 +873,7 @@ namespace LegendaryTools.Editor
 
         private static bool IsPrefabAsset(GameObject gameObject)
         {
-            if (gameObject == null)
-            {
-                return false;
-            }
+            if (gameObject == null) return false;
 
             return PrefabUtility.GetPrefabAssetType(gameObject) != PrefabAssetType.NotAPrefab;
         }
@@ -842,12 +885,9 @@ namespace LegendaryTools.Editor
 
         private static GameObject CreateGameObjectInScene(Scene scene, string name, params Type[] components)
         {
-            GameObject gameObject = new GameObject(name, components);
+            GameObject gameObject = new(name, components);
 
-            if (scene.IsValid())
-            {
-                SceneManager.MoveGameObjectToScene(gameObject, scene);
-            }
+            if (scene.IsValid()) SceneManager.MoveGameObjectToScene(gameObject, scene);
 
             return gameObject;
         }
@@ -870,22 +910,13 @@ namespace LegendaryTools.Editor
             assetGuid = string.Empty;
             prefabHash = string.Empty;
 
-            if (string.IsNullOrEmpty(assetPath))
-            {
-                return false;
-            }
+            if (string.IsNullOrEmpty(assetPath)) return false;
 
             assetGuid = AssetDatabase.AssetPathToGUID(assetPath);
-            if (string.IsNullOrEmpty(assetGuid))
-            {
-                return false;
-            }
+            if (string.IsNullOrEmpty(assetGuid)) return false;
 
             Hash128 dependencyHash = AssetDatabase.GetAssetDependencyHash(assetPath);
-            if (!dependencyHash.isValid)
-            {
-                return false;
-            }
+            if (!dependencyHash.isValid) return false;
 
             prefabHash = dependencyHash.ToString();
             return !string.IsNullOrEmpty(prefabHash);

@@ -17,7 +17,7 @@ namespace LegendaryTools.Editor
     /// ScriptableObject that holds the configuration for importing a spreadsheet.
     /// </summary>
     [CreateAssetMenu(fileName = "SpreadsheetImportConfiguration",
-        menuName = "Import Configuration/Spreadsheet Import Configuration", order = 1)]
+        menuName = "Tools/SpreadSheetImporter/Import Configuration", order = 1)]
     public class SpreadsheetImportConfiguration : ScriptableObject
     {
         [Header("General Settings")] [Tooltip("CSV file path or Spreadsheet URL.")]

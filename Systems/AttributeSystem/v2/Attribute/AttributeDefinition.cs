@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools.AttributeSystemV2
 {
-    [CreateAssetMenu(menuName = "RPG/Attribute Definition", fileName = "NewAttributeDefinition")]
+    [CreateAssetMenu(menuName = "Tools/AttributeSystem/Attribute Definition", fileName = "NewAttributeDefinition")]
     public class AttributeDefinition : ScriptableObject
     {
         [SerializeField]

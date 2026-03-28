@@ -12,10 +12,10 @@ namespace LegendaryTools.Editor
         private const double ProcessingBudgetSeconds = 0.015d;
         private const int MaxPrefabsPerTick = 2;
 
-        private static readonly Queue<string> PendingAssetGuids = new Queue<string>();
-        private static readonly HashSet<string> QueuedAssetGuids = new HashSet<string>(StringComparer.Ordinal);
+        private static readonly Queue<string> PendingAssetGuids = new();
+        private static readonly HashSet<string> QueuedAssetGuids = new(StringComparer.Ordinal);
 
-        private static PrefabThumbnailGenerator.BatchSession _batchSession;
+        private static PrefabIconGenerator.BatchSession _batchSession;
         private static bool _startupScanPending = true;
         private static bool _projectWindowDirty;
         private static bool _isEnabled = EditorPrefs.GetBool(EnabledEditorPrefKey, true);
@@ -48,22 +48,15 @@ namespace LegendaryTools.Editor
 
         internal static void SetEnabled(bool enabled)
         {
-            if (_isEnabled == enabled)
-            {
-                return;
-            }
+            if (_isEnabled == enabled) return;
 
             _isEnabled = enabled;
             EditorPrefs.SetBool(EnabledEditorPrefKey, enabled);
 
             if (enabled)
-            {
                 _startupScanPending = true;
-            }
             else
-            {
                 DisposeBatchSession();
-            }
         }
 
         internal static void NotifyPrefabAssetsChanged(
@@ -75,28 +68,17 @@ namespace LegendaryTools.Editor
             EnqueuePrefabPaths(importedAssets);
             EnqueuePrefabPaths(movedAssets);
 
-            if (deletedAssets != null)
-            {
-                _startupScanPending = true;
-            }
+            if (deletedAssets != null) _startupScanPending = true;
 
-            if (movedFromAssetPaths != null && movedFromAssetPaths.Length > 0)
-            {
-                _startupScanPending = true;
-            }
+            if (movedFromAssetPaths != null && movedFromAssetPaths.Length > 0) _startupScanPending = true;
         }
 
         private static void Update()
         {
-            if (!_isEnabled)
-            {
-                return;
-            }
+            if (!_isEnabled) return;
 
-            if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating)
-            {
-                return;
-            }
+            if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling ||
+                EditorApplication.isUpdating) return;
 
             if (_startupScanPending)
             {
@@ -137,41 +119,23 @@ namespace LegendaryTools.Editor
                 }
 
                 GameObject prefabAsset = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
-                if (prefabAsset == null)
-                {
-                    continue;
-                }
+                if (prefabAsset == null) continue;
 
-                bool isUiPrefab = PrefabThumbnailGenerator.IsUiPrefabAsset(prefabAsset);
-                if (isUiPrefab)
-                {
-                    DisposeBatchSession();
-                }
-                else if (_batchSession == null)
-                {
-                    _batchSession = new PrefabThumbnailGenerator.BatchSession(PrefabThumbnailGenerator.CurrentExecutionMode);
-                }
+                if (_batchSession == null)
+                    _batchSession =
+                        new PrefabIconGenerator.BatchSession(PrefabIconGenerator.CurrentExecutionMode);
 
                 bool skipped;
-                bool generated = isUiPrefab
-                    ? PrefabThumbnailGenerator.GenerateThumbnail(
-                        prefabAsset,
-                        PrefabThumbnailGenerator.CurrentExecutionMode,
-                        false,
-                        out skipped)
-                    : _batchSession.Generate(prefabAsset, false, out skipped);
+                bool generated = _batchSession.Generate(prefabAsset, false, out skipped);
 
-                if (generated)
-                {
-                    _projectWindowDirty = true;
-                }
+                if (generated) _projectWindowDirty = true;
             }
         }
 
         private static void ScanProjectPrefabs()
         {
             string[] prefabGuids = AssetDatabase.FindAssets("t:Prefab");
-            HashSet<string> validPrefabGuids = new HashSet<string>(prefabGuids, StringComparer.Ordinal);
+            HashSet<string> validPrefabGuids = new(prefabGuids, StringComparer.Ordinal);
             PrefabThumbnailCache.PruneMissingEntries(validPrefabGuids);
 
             for (int i = 0; i < prefabGuids.Length; i++)
@@ -181,15 +145,9 @@ namespace LegendaryTools.Editor
 
                 string prefabHash;
                 string resolvedGuid;
-                if (!PrefabThumbnailGenerator.TryGetPrefabInfo(assetPath, out resolvedGuid, out prefabHash))
-                {
-                    continue;
-                }
+                if (!PrefabIconGenerator.TryGetPrefabInfo(assetPath, out resolvedGuid, out prefabHash)) continue;
 
-                if (PrefabThumbnailCache.IsUpToDate(resolvedGuid, prefabHash))
-                {
-                    continue;
-                }
+                if (PrefabThumbnailCache.IsUpToDate(resolvedGuid, prefabHash)) continue;
 
                 EnqueuePrefabGuid(resolvedGuid);
             }
@@ -197,31 +155,20 @@ namespace LegendaryTools.Editor
 
         private static void EnqueuePrefabPaths(string[] assetPaths)
         {
-            if (assetPaths == null)
-            {
-                return;
-            }
+            if (assetPaths == null) return;
 
             for (int i = 0; i < assetPaths.Length; i++)
             {
                 string assetPath = assetPaths[i];
                 if (string.IsNullOrEmpty(assetPath) ||
                     !assetPath.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
-                {
                     continue;
-                }
 
                 string prefabHash;
                 string assetGuid;
-                if (!PrefabThumbnailGenerator.TryGetPrefabInfo(assetPath, out assetGuid, out prefabHash))
-                {
-                    continue;
-                }
+                if (!PrefabIconGenerator.TryGetPrefabInfo(assetPath, out assetGuid, out prefabHash)) continue;
 
-                if (PrefabThumbnailCache.IsUpToDate(assetGuid, prefabHash))
-                {
-                    continue;
-                }
+                if (PrefabThumbnailCache.IsUpToDate(assetGuid, prefabHash)) continue;
 
                 EnqueuePrefabGuid(assetGuid);
             }
@@ -229,20 +176,14 @@ namespace LegendaryTools.Editor
 
         private static void EnqueuePrefabGuid(string assetGuid)
         {
-            if (string.IsNullOrEmpty(assetGuid) || !QueuedAssetGuids.Add(assetGuid))
-            {
-                return;
-            }
+            if (string.IsNullOrEmpty(assetGuid) || !QueuedAssetGuids.Add(assetGuid)) return;
 
             PendingAssetGuids.Enqueue(assetGuid);
         }
 
         private static void DisposeBatchSession()
         {
-            if (_batchSession == null)
-            {
-                return;
-            }
+            if (_batchSession == null) return;
 
             _batchSession.Dispose();
             _batchSession = null;

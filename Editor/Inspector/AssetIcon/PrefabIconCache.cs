@@ -14,7 +14,7 @@ namespace LegendaryTools.Editor
         [Serializable]
         private sealed class Manifest
         {
-            public List<Entry> entries = new List<Entry>();
+            public List<Entry> entries = new();
         }
 
         [Serializable]
@@ -24,11 +24,9 @@ namespace LegendaryTools.Editor
             public string prefabHash;
         }
 
-        private static readonly Dictionary<string, Entry> EntryByAssetGuid =
-            new Dictionary<string, Entry>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Entry> EntryByAssetGuid = new(StringComparer.Ordinal);
 
-        private static readonly Dictionary<string, Texture2D> TextureByAssetGuid =
-            new Dictionary<string, Texture2D>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Texture2D> TextureByAssetGuid = new(StringComparer.Ordinal);
 
         private static bool _isLoaded;
 
@@ -43,10 +41,7 @@ namespace LegendaryTools.Editor
             EnsureLoaded();
 
             Entry entry;
-            if (!EntryByAssetGuid.TryGetValue(assetGuid, out entry))
-            {
-                return false;
-            }
+            if (!EntryByAssetGuid.TryGetValue(assetGuid, out entry)) return false;
 
             return string.Equals(entry.prefabHash, prefabHash, StringComparison.Ordinal) &&
                    File.Exists(GetThumbnailPath(assetGuid));
@@ -57,15 +52,9 @@ namespace LegendaryTools.Editor
             EnsureLoaded();
 
             thumbnail = null;
-            if (string.IsNullOrEmpty(assetGuid) || !EntryByAssetGuid.ContainsKey(assetGuid))
-            {
-                return false;
-            }
+            if (string.IsNullOrEmpty(assetGuid) || !EntryByAssetGuid.ContainsKey(assetGuid)) return false;
 
-            if (TextureByAssetGuid.TryGetValue(assetGuid, out thumbnail) && thumbnail != null)
-            {
-                return true;
-            }
+            if (TextureByAssetGuid.TryGetValue(assetGuid, out thumbnail) && thumbnail != null) return true;
 
             string thumbnailPath = GetThumbnailPath(assetGuid);
             if (!File.Exists(thumbnailPath))
@@ -85,7 +74,7 @@ namespace LegendaryTools.Editor
                 return false;
             }
 
-            Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false, false)
+            Texture2D texture = new(2, 2, TextureFormat.RGBA32, false, false)
             {
                 name = assetGuid + "_PrefabThumbnail",
                 hideFlags = HideFlags.HideAndDontSave
@@ -106,9 +95,7 @@ namespace LegendaryTools.Editor
         public static string GetThumbnailPath(string assetGuid)
         {
             if (string.IsNullOrEmpty(assetGuid))
-            {
                 throw new ArgumentException("Asset GUID is required.", nameof(assetGuid));
-            }
 
             return Path.Combine(GetCacheDirectory(), assetGuid + ".png");
         }
@@ -117,10 +104,7 @@ namespace LegendaryTools.Editor
         {
             EnsureLoaded();
 
-            if (string.IsNullOrEmpty(assetGuid) || string.IsNullOrEmpty(prefabHash))
-            {
-                return;
-            }
+            if (string.IsNullOrEmpty(assetGuid) || string.IsNullOrEmpty(prefabHash)) return;
 
             Entry entry;
             if (!EntryByAssetGuid.TryGetValue(assetGuid, out entry))
@@ -134,9 +118,7 @@ namespace LegendaryTools.Editor
                 EntryByAssetGuid.Add(assetGuid, entry);
             }
             else
-            {
                 entry.prefabHash = prefabHash;
-            }
 
             InvalidateLoadedTexture(assetGuid);
             SaveManifest();
@@ -146,19 +128,13 @@ namespace LegendaryTools.Editor
         {
             EnsureLoaded();
 
-            if (string.IsNullOrEmpty(assetGuid))
-            {
-                return;
-            }
+            if (string.IsNullOrEmpty(assetGuid)) return;
 
             EntryByAssetGuid.Remove(assetGuid);
             InvalidateLoadedTexture(assetGuid);
 
             string thumbnailPath = GetThumbnailPath(assetGuid);
-            if (File.Exists(thumbnailPath))
-            {
-                File.Delete(thumbnailPath);
-            }
+            if (File.Exists(thumbnailPath)) File.Delete(thumbnailPath);
 
             SaveManifest();
         }
@@ -167,37 +143,25 @@ namespace LegendaryTools.Editor
         {
             EnsureLoaded();
 
-            if (validAssetGuids == null)
-            {
-                return;
-            }
+            if (validAssetGuids == null) return;
 
             bool changed = false;
-            List<string> assetGuids = new List<string>(EntryByAssetGuid.Keys);
+            List<string> assetGuids = new(EntryByAssetGuid.Keys);
             for (int i = 0; i < assetGuids.Count; i++)
             {
                 string assetGuid = assetGuids[i];
-                if (validAssetGuids.Contains(assetGuid))
-                {
-                    continue;
-                }
+                if (validAssetGuids.Contains(assetGuid)) continue;
 
                 EntryByAssetGuid.Remove(assetGuid);
                 InvalidateLoadedTexture(assetGuid);
 
                 string thumbnailPath = GetThumbnailPath(assetGuid);
-                if (File.Exists(thumbnailPath))
-                {
-                    File.Delete(thumbnailPath);
-                }
+                if (File.Exists(thumbnailPath)) File.Delete(thumbnailPath);
 
                 changed = true;
             }
 
-            if (changed)
-            {
-                SaveManifest();
-            }
+            if (changed) SaveManifest();
         }
 
         public static void ClearAll()
@@ -208,44 +172,30 @@ namespace LegendaryTools.Editor
             DestroyCachedTextures();
 
             string cacheDirectory = GetCacheDirectory();
-            if (Directory.Exists(cacheDirectory))
-            {
-                Directory.Delete(cacheDirectory, true);
-            }
+            if (Directory.Exists(cacheDirectory)) Directory.Delete(cacheDirectory, true);
         }
 
         private static void EnsureLoaded()
         {
-            if (_isLoaded)
-            {
-                return;
-            }
+            if (_isLoaded) return;
 
             _isLoaded = true;
             EntryByAssetGuid.Clear();
 
             string manifestPath = GetManifestPath();
-            if (!File.Exists(manifestPath))
-            {
-                return;
-            }
+            if (!File.Exists(manifestPath)) return;
 
             try
             {
                 string json = File.ReadAllText(manifestPath);
                 Manifest manifest = JsonUtility.FromJson<Manifest>(json);
-                if (manifest == null || manifest.entries == null)
-                {
-                    return;
-                }
+                if (manifest == null || manifest.entries == null) return;
 
                 for (int i = 0; i < manifest.entries.Count; i++)
                 {
                     Entry entry = manifest.entries[i];
-                    if (entry == null || string.IsNullOrEmpty(entry.assetGuid) || string.IsNullOrEmpty(entry.prefabHash))
-                    {
-                        continue;
-                    }
+                    if (entry == null || string.IsNullOrEmpty(entry.assetGuid) ||
+                        string.IsNullOrEmpty(entry.prefabHash)) continue;
 
                     EntryByAssetGuid[entry.assetGuid] = entry;
                 }
@@ -259,12 +209,9 @@ namespace LegendaryTools.Editor
         private static void SaveManifest()
         {
             string cacheDirectory = GetCacheDirectory();
-            if (!Directory.Exists(cacheDirectory))
-            {
-                Directory.CreateDirectory(cacheDirectory);
-            }
+            if (!Directory.Exists(cacheDirectory)) Directory.CreateDirectory(cacheDirectory);
 
-            Manifest manifest = new Manifest();
+            Manifest manifest = new();
             foreach (Entry entry in EntryByAssetGuid.Values)
             {
                 manifest.entries.Add(entry);
@@ -277,15 +224,9 @@ namespace LegendaryTools.Editor
         private static void InvalidateLoadedTexture(string assetGuid)
         {
             Texture2D cachedTexture;
-            if (!TextureByAssetGuid.TryGetValue(assetGuid, out cachedTexture))
-            {
-                return;
-            }
+            if (!TextureByAssetGuid.TryGetValue(assetGuid, out cachedTexture)) return;
 
-            if (cachedTexture != null)
-            {
-                UnityEngine.Object.DestroyImmediate(cachedTexture);
-            }
+            if (cachedTexture != null) UnityEngine.Object.DestroyImmediate(cachedTexture);
 
             TextureByAssetGuid.Remove(assetGuid);
         }
@@ -294,10 +235,7 @@ namespace LegendaryTools.Editor
         {
             foreach (Texture2D texture in TextureByAssetGuid.Values)
             {
-                if (texture != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(texture);
-                }
+                if (texture != null) UnityEngine.Object.DestroyImmediate(texture);
             }
 
             TextureByAssetGuid.Clear();
