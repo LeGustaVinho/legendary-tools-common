@@ -339,8 +339,7 @@ namespace LegendaryTools.Editor
 
             private void ScanOpenScene(string sceneLabel)
             {
-                Scene scene = EditorSceneManager.GetActiveScene();
-                if (!scene.IsValid() || !scene.isLoaded)
+                if (!AssetUsageFinderSearchScopeUtility.TryGetCurrentOpenScene(out Scene scene))
                     return;
 
                 foreach (GameObject go in scene.GetRootGameObjects())

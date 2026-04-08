@@ -88,6 +88,24 @@ namespace LegendaryTools.Editor
             return string.Equals(assetPath, UnsavedOpenSceneKey, StringComparison.Ordinal);
         }
 
+        public static bool TryGetCurrentOpenScene(out Scene scene)
+        {
+            scene = ResolveCurrentOpenScene();
+            return scene.IsValid() && scene.isLoaded;
+        }
+
+        public static bool IsCurrentOpenScene(string sceneAssetPath)
+        {
+            if (!TryGetCurrentOpenScene(out Scene scene))
+                return false;
+
+            if (IsUnsavedOpenSceneKey(sceneAssetPath))
+                return string.IsNullOrEmpty(scene.path);
+
+            return !string.IsNullOrEmpty(scene.path) &&
+                   string.Equals(scene.path, sceneAssetPath, StringComparison.OrdinalIgnoreCase);
+        }
+
         public static bool MatchesUsageType(AssetUsageFinderUsageType type, AssetUsageFinderSearchScope scope)
         {
             return type switch
@@ -205,13 +223,15 @@ namespace LegendaryTools.Editor
             if (!scope.HasFlag(AssetUsageFinderSearchScope.OpenScene) || !supportedExt.Contains(".unity"))
                 return string.Empty;
 
-            Scene scene = EditorSceneManager.GetActiveScene();
+            if (!TryGetCurrentOpenScene(out Scene scene))
+                return string.Empty;
+
             string path = scene.path;
 
             if (!string.IsNullOrEmpty(path) && File.Exists(path))
                 return path;
 
-            return scene.IsValid() && scene.isLoaded ? UnsavedOpenSceneKey : string.Empty;
+            return string.IsNullOrEmpty(path) ? UnsavedOpenSceneKey : string.Empty;
         }
 
         private static string TryGetOpenPrefabPath(
@@ -262,6 +282,32 @@ namespace LegendaryTools.Editor
 
             return (left?.Kind ?? AssetUsageFinderScopeTargetKind.AssetPath)
                 .CompareTo(right?.Kind ?? AssetUsageFinderScopeTargetKind.AssetPath);
+        }
+
+        private static Scene ResolveCurrentOpenScene()
+        {
+            Scene activeScene = EditorSceneManager.GetActiveScene();
+            PrefabStage stage = PrefabStageUtility.GetCurrentPrefabStage();
+
+            if (stage == null || !stage.scene.IsValid() || activeScene.handle != stage.scene.handle)
+                return activeScene;
+
+            Scene fallback = default;
+
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                Scene candidate = SceneManager.GetSceneAt(i);
+                if (!candidate.IsValid() || !candidate.isLoaded || candidate.handle == stage.scene.handle)
+                    continue;
+
+                if (!fallback.IsValid() ||
+                    (!string.IsNullOrEmpty(candidate.path) && string.IsNullOrEmpty(fallback.path)))
+                {
+                    fallback = candidate;
+                }
+            }
+
+            return fallback;
         }
     }
 }

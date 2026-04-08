@@ -234,8 +234,7 @@ namespace LegendaryTools.Editor
             List<AssetUsageFinderComponentReplacePreviewItem> items,
             ref int replacedComponentCount)
         {
-            Scene scene = EditorSceneManager.GetActiveScene();
-            if (!scene.IsValid() || !scene.isLoaded)
+            if (!AssetUsageFinderSearchScopeUtility.TryGetCurrentOpenScene(out Scene scene))
                 return false;
 
             bool changed = false;

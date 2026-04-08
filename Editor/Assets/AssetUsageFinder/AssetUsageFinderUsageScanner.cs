@@ -45,19 +45,10 @@ namespace LegendaryTools.Editor
                 return true;
             }
 
-            Scene activeScene = EditorSceneManager.GetActiveScene();
-            if (!activeScene.IsValid() || !activeScene.isLoaded)
+            if (!AssetUsageFinderSearchScopeUtility.TryGetCurrentOpenScene(out _))
                 return false;
 
-            bool matchesUnsavedOpenScene =
-                AssetUsageFinderSearchScopeUtility.IsUnsavedOpenSceneKey(fileAssetPath) &&
-                string.IsNullOrEmpty(activeScene.path);
-
-            bool matchesSavedOpenScene =
-                !string.IsNullOrEmpty(activeScene.path) &&
-                string.Equals(activeScene.path, fileAssetPath, StringComparison.OrdinalIgnoreCase);
-
-            if (!matchesUnsavedOpenScene && !matchesSavedOpenScene)
+            if (!AssetUsageFinderSearchScopeUtility.IsCurrentOpenScene(fileAssetPath))
                 return false;
 
             usages = FindUsagesInOpenScene(targetAsset);
@@ -66,8 +57,7 @@ namespace LegendaryTools.Editor
 
         public List<AssetUsageFinderCachedUsage> FindUsagesInOpenScene(Object targetAsset)
         {
-            Scene activeScene = EditorSceneManager.GetActiveScene();
-            return !activeScene.IsValid() || !activeScene.isLoaded
+            return !AssetUsageFinderSearchScopeUtility.TryGetCurrentOpenScene(out Scene activeScene)
                 ? new List<AssetUsageFinderCachedUsage>()
                 : FindUsagesInRoots(activeScene.GetRootGameObjects(), targetAsset);
         }
@@ -539,8 +529,8 @@ namespace LegendaryTools.Editor
 
             if (AssetUsageFinderSearchScopeUtility.IsUnsavedOpenSceneKey(fileAssetPath))
             {
-                Scene activeScene = EditorSceneManager.GetActiveScene();
-                if (!activeScene.IsValid() || !activeScene.isLoaded || !string.IsNullOrEmpty(activeScene.path))
+                if (!AssetUsageFinderSearchScopeUtility.TryGetCurrentOpenScene(out Scene activeScene) ||
+                    !string.IsNullOrEmpty(activeScene.path))
                     return null;
 
                 return activeScene.GetRootGameObjects();

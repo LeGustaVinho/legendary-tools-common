@@ -217,8 +217,7 @@ namespace LegendaryTools.Editor
             List<AssetUsageFinderPrefabOrVariantReplacePreviewItem> items,
             ref int replacedInstanceCount)
         {
-            Scene scene = EditorSceneManager.GetActiveScene();
-            if (!scene.IsValid() || !scene.isLoaded)
+            if (!AssetUsageFinderSearchScopeUtility.TryGetCurrentOpenScene(out Scene scene))
                 return false;
 
             bool changed = false;

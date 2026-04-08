@@ -773,12 +773,7 @@ namespace LegendaryTools.Editor
             if (entry.UsageType == AssetUsageFinderUsageType.Scene ||
                 entry.UsageType == AssetUsageFinderUsageType.SceneWithPrefabInstance)
             {
-                Scene activeScene = EditorSceneManager.GetActiveScene();
-                if (AssetUsageFinderSearchScopeUtility.IsUnsavedOpenSceneKey(entry.AssetPath))
-                    return activeScene.IsValid() && activeScene.isLoaded && string.IsNullOrEmpty(activeScene.path);
-
-                return !string.IsNullOrEmpty(activeScene.path) &&
-                       string.Equals(activeScene.path, entry.AssetPath, StringComparison.OrdinalIgnoreCase);
+                return AssetUsageFinderSearchScopeUtility.IsCurrentOpenScene(entry.AssetPath);
             }
 
             if (entry.UsageType == AssetUsageFinderUsageType.Prefab)
@@ -799,11 +794,8 @@ namespace LegendaryTools.Editor
             if (result.UsageType == AssetUsageFinderUsageType.Scene ||
                 result.UsageType == AssetUsageFinderUsageType.SceneWithPrefabInstance)
             {
-                if (AssetUsageFinderSearchScopeUtility.IsUnsavedOpenSceneKey(result.FileAssetPath))
-                {
-                    Scene activeScene = EditorSceneManager.GetActiveScene();
-                    return activeScene.IsValid() && activeScene.isLoaded && string.IsNullOrEmpty(activeScene.path);
-                }
+                if (AssetUsageFinderSearchScopeUtility.IsCurrentOpenScene(result.FileAssetPath))
+                    return true;
 
                 Scene scene = SceneManager.GetSceneByPath(result.FileAssetPath);
                 return scene.IsValid() && scene.isLoaded;

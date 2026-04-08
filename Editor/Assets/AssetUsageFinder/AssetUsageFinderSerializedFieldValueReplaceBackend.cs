@@ -396,8 +396,7 @@ namespace LegendaryTools.Editor
             List<AssetUsageFinderSerializedFieldValueReplacePreviewItem> items,
             ref int replacedValueCount)
         {
-            Scene scene = EditorSceneManager.GetActiveScene();
-            if (!scene.IsValid() || !scene.isLoaded)
+            if (!AssetUsageFinderSearchScopeUtility.TryGetCurrentOpenScene(out Scene scene))
                 return false;
 
             bool changed = false;
