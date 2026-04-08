@@ -854,6 +854,20 @@ namespace LegendaryTools.Editor
             if (resolved == null)
                 return false;
 
+            if (resolved is GameObject gameObject)
+            {
+                Selection.activeGameObject = gameObject;
+                EditorGUIUtility.PingObject(gameObject);
+                return true;
+            }
+
+            if (resolved is Component component)
+            {
+                Selection.activeGameObject = component.gameObject;
+                EditorGUIUtility.PingObject(component.gameObject);
+                return true;
+            }
+
             Selection.activeObject = resolved;
             EditorGUIUtility.PingObject(resolved);
             return true;

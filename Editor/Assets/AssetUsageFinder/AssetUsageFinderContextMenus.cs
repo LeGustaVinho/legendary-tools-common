@@ -29,10 +29,7 @@ namespace LegendaryTools.Editor
         private static void FindUsagesForSelectedGameObject()
         {
             if (Selection.activeGameObject != null)
-            {
-                AssetUsageFinderWindow.ShowWindowForContextual(
-                    AssetUsageFinderContextualRequest.CreateForGameObject(Selection.activeGameObject));
-            }
+                AssetUsageFinderWindow.ShowWindowForGameObject(Selection.activeGameObject);
         }
 
         [MenuItem("GameObject/Find Usages", true)]
@@ -45,10 +42,7 @@ namespace LegendaryTools.Editor
         private static void FindUsagesForComponent(MenuCommand command)
         {
             if (command.context is Component component)
-            {
-                AssetUsageFinderWindow.ShowWindowForContextual(
-                    AssetUsageFinderContextualRequest.CreateForComponent(component));
-            }
+                AssetUsageFinderWindow.ShowWindowForComponent(component);
         }
 
         private static void OnContextualPropertyMenu(GenericMenu menu, SerializedProperty property)

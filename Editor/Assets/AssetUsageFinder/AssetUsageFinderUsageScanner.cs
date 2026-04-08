@@ -180,33 +180,30 @@ namespace LegendaryTools.Editor
             if (roots == null)
                 return null;
 
-            GameObject go = FindGameObjectByHierarchyPath(hierarchyPath, roots);
-            if (go == null)
-                return null;
-
             if (string.Equals(objectTypeName, typeof(GameObject).FullName, StringComparison.Ordinal) ||
                 string.Equals(objectTypeName, typeof(GameObject).Name, StringComparison.Ordinal))
-                return go;
+                return ResolveContextualGameObjectReference(hierarchyPath, roots);
+
+            GameObject go = ResolveContextualGameObjectReference(hierarchyPath, roots);
 
             Type componentType = ResolveComponentType(objectTypeName);
-            if (componentType != null)
+            string componentTypeName = ExtractComponentTypeName(objectPath);
+
+            if (go != null)
             {
-                Component component = go.GetComponents<Component>()
-                    .FirstOrDefault(candidate => candidate != null && componentType.IsAssignableFrom(candidate.GetType()));
+                Component component = ResolveComponentOnGameObject(go, componentType, componentTypeName);
                 if (component != null)
                     return component;
             }
 
-            string componentTypeName = ExtractComponentTypeName(objectPath);
-            if (!string.IsNullOrEmpty(componentTypeName))
-            {
-                Component component = go.GetComponents<Component>()
-                    .FirstOrDefault(candidate => candidate != null &&
-                                                 string.Equals(candidate.GetType().Name, componentTypeName,
-                                                     StringComparison.Ordinal));
-                if (component != null)
-                    return component;
-            }
+            Component fallback = ResolveContextualComponentReference(
+                objectPath,
+                hierarchyPath,
+                componentType,
+                componentTypeName,
+                roots);
+            if (fallback != null)
+                return fallback;
 
             return go;
         }
@@ -510,6 +507,107 @@ namespace LegendaryTools.Editor
             return current;
         }
 
+        private static GameObject ResolveContextualGameObjectReference(
+            string hierarchyPath,
+            IEnumerable<GameObject> roots)
+        {
+            if (roots == null)
+                return null;
+
+            GameObject direct = FindGameObjectByHierarchyPath(hierarchyPath, roots);
+            if (direct != null)
+                return direct;
+
+            string leafName = ExtractLeafName(hierarchyPath);
+            foreach (GameObject candidate in EnumerateGameObjects(roots))
+            {
+                if (candidate == null)
+                    continue;
+
+                string candidatePath = GetGameObjectHierarchyPath(candidate);
+                if (string.Equals(candidatePath, hierarchyPath, StringComparison.Ordinal) ||
+                    string.Equals(candidate.name, leafName, StringComparison.Ordinal))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        private static Component ResolveContextualComponentReference(
+            string objectPath,
+            string hierarchyPath,
+            Type componentType,
+            string componentTypeName,
+            IEnumerable<GameObject> roots)
+        {
+            foreach (GameObject candidateGameObject in EnumerateGameObjects(roots))
+            {
+                if (candidateGameObject == null)
+                    continue;
+
+                string candidateHierarchyPath = GetGameObjectHierarchyPath(candidateGameObject);
+                if (!string.IsNullOrEmpty(hierarchyPath) &&
+                    !string.Equals(candidateHierarchyPath, hierarchyPath, StringComparison.Ordinal) &&
+                    !string.Equals(candidateGameObject.name, ExtractLeafName(hierarchyPath), StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                foreach (Component candidateComponent in candidateGameObject.GetComponents<Component>())
+                {
+                    if (candidateComponent == null)
+                        continue;
+
+                    if (componentType != null && componentType.IsAssignableFrom(candidateComponent.GetType()))
+                        return candidateComponent;
+
+                    if (!string.IsNullOrEmpty(componentTypeName) &&
+                        string.Equals(candidateComponent.GetType().Name, componentTypeName, StringComparison.Ordinal))
+                    {
+                        return candidateComponent;
+                    }
+
+                    string candidateObjectPath =
+                        $"{candidateHierarchyPath} ({candidateComponent.GetType().Name})";
+                    if (string.Equals(candidateObjectPath, objectPath, StringComparison.Ordinal))
+                        return candidateComponent;
+                }
+            }
+
+            return null;
+        }
+
+        private static Component ResolveComponentOnGameObject(
+            GameObject gameObject,
+            Type componentType,
+            string componentTypeName)
+        {
+            if (gameObject == null)
+                return null;
+
+            if (componentType != null)
+            {
+                Component component = gameObject.GetComponents<Component>()
+                    .FirstOrDefault(candidate => candidate != null && componentType.IsAssignableFrom(candidate.GetType()));
+                if (component != null)
+                    return component;
+            }
+
+            if (!string.IsNullOrEmpty(componentTypeName))
+            {
+                Component component = gameObject.GetComponents<Component>()
+                    .FirstOrDefault(candidate => candidate != null &&
+                                                 string.Equals(candidate.GetType().Name, componentTypeName,
+                                                     StringComparison.Ordinal));
+                if (component != null)
+                    return component;
+            }
+
+            return null;
+        }
+
         private static IEnumerable<GameObject> GetOpenContextRoots(string fileAssetPath, AssetUsageFinderUsageType usageType)
         {
             if (usageType == AssetUsageFinderUsageType.Prefab)
@@ -563,6 +661,49 @@ namespace LegendaryTools.Editor
                 return string.Empty;
 
             return objectPath.Substring(suffixIndex + 2, objectPath.Length - suffixIndex - 3);
+        }
+
+        private static string ExtractLeafName(string hierarchyPath)
+        {
+            if (string.IsNullOrEmpty(hierarchyPath))
+                return string.Empty;
+
+            int separatorIndex = hierarchyPath.LastIndexOf('/');
+            return separatorIndex >= 0 && separatorIndex + 1 < hierarchyPath.Length
+                ? hierarchyPath.Substring(separatorIndex + 1)
+                : hierarchyPath;
+        }
+
+        private static IEnumerable<GameObject> EnumerateGameObjects(IEnumerable<GameObject> roots)
+        {
+            if (roots == null)
+                yield break;
+
+            foreach (GameObject root in roots)
+            {
+                if (root == null)
+                    continue;
+
+                foreach (GameObject candidate in EnumerateGameObjectsRecursive(root))
+                    yield return candidate;
+            }
+        }
+
+        private static IEnumerable<GameObject> EnumerateGameObjectsRecursive(GameObject root)
+        {
+            if (root == null)
+                yield break;
+
+            yield return root;
+
+            foreach (Transform child in root.transform)
+            {
+                if (child == null)
+                    continue;
+
+                foreach (GameObject candidate in EnumerateGameObjectsRecursive(child.gameObject))
+                    yield return candidate;
+            }
         }
 
         private static Type ResolveComponentType(string objectTypeName)

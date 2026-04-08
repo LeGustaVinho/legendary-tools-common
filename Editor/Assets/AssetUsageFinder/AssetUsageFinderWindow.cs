@@ -25,8 +25,10 @@ namespace LegendaryTools.Editor
         private enum FinderMode
         {
             ByAsset = 0,
-            BySerializedField = 1,
-            Contextual = 2
+            ByGameObject = 1,
+            ByComponent = 2,
+            BySerializedField = 3,
+            Contextual = 4
         }
 
         private enum ReplaceMode
@@ -41,6 +43,9 @@ namespace LegendaryTools.Editor
         private ReplaceMode _replaceMode = ReplaceMode.PrefabOrVariant;
 
         // -------- Serialized Field query UX state (VIEW-ONLY) --------
+
+        private GameObject _finderGameObjectTarget;
+        private Component _finderComponentTarget;
 
         private readonly List<SerializedFieldFilterRow> _finderFilters = new();
         private Vector2 _finderFiltersScroll;
@@ -87,10 +92,22 @@ namespace LegendaryTools.Editor
             window.OpenAssetSearch(asset);
         }
 
+        public static void ShowWindowForGameObject(GameObject gameObject)
+        {
+            AssetUsageFinderWindow window = ShowWindowInstance();
+            window.OpenGameObjectSearch(gameObject);
+        }
+
+        public static void ShowWindowForComponent(Component component)
+        {
+            AssetUsageFinderWindow window = ShowWindowInstance();
+            window.OpenComponentSearch(component);
+        }
+
         public static void ShowWindowForContextual(AssetUsageFinderContextualRequest request)
         {
             AssetUsageFinderWindow window = ShowWindowInstance();
-            window.OpenContextualSearch(request);
+            window.OpenContextualSearch(request, true);
         }
 
         private static AssetUsageFinderWindow ShowWindowInstance()
@@ -169,15 +186,33 @@ namespace LegendaryTools.Editor
             _controller.FindUsagesAsync();
         }
 
-        private void OpenContextualSearch(AssetUsageFinderContextualRequest request)
+        private void OpenGameObjectSearch(GameObject gameObject)
+        {
+            EnsureInitialized();
+            _controller.State.SearchScope = GetHierarchyContextScope();
+            OpenContextualSearch(AssetUsageFinderContextualRequest.CreateForGameObject(gameObject), false);
+        }
+
+        private void OpenComponentSearch(Component component)
+        {
+            EnsureInitialized();
+            _controller.State.SearchScope = GetHierarchyContextScope();
+            OpenContextualSearch(AssetUsageFinderContextualRequest.CreateForComponent(component), false);
+        }
+
+        private void OpenContextualSearch(
+            AssetUsageFinderContextualRequest request,
+            bool applySuggestedScope)
         {
             EnsureInitialized();
 
             _mainTab = MainTab.Finder;
-            _finderMode = FinderMode.Contextual;
+            _finderMode = GetFinderModeForRequest(request);
+            SyncFinderTargetsFromRequest(request);
 
-            _controller.SetContextualRequest(request, true);
-            _controller.FindContextualUsages(request);
+            _controller.SetContextualRequest(request, applySuggestedScope);
+            if (request != null)
+                _controller.FindContextualUsages(request);
         }
 
         // -------- GUI --------
@@ -226,6 +261,7 @@ namespace LegendaryTools.Editor
         private void DrawLeftPanel()
         {
             AssetUsageFinderState state = _controller.State;
+            SyncFinderTargetsFromState(state);
 
             using (new EditorGUILayout.VerticalScope(GUILayout.Width(380)))
             {
@@ -237,6 +273,10 @@ namespace LegendaryTools.Editor
                 {
                     if (_finderMode == FinderMode.ByAsset)
                         DrawFinderByAssetCard(state);
+                    else if (_finderMode == FinderMode.ByGameObject)
+                        DrawFinderByGameObjectCard(state);
+                    else if (_finderMode == FinderMode.ByComponent)
+                        DrawFinderByComponentCard(state);
                     else if (_finderMode == FinderMode.BySerializedField)
                     {
                         DrawSerializedFieldQueryCard(
@@ -294,7 +334,17 @@ namespace LegendaryTools.Editor
                 EditorGUILayout.LabelField("Mode", EditorStyles.boldLabel);
 
                 if (_mainTab == MainTab.Finder)
-                    _finderMode = (FinderMode)EditorGUILayout.EnumPopup("Finder", _finderMode);
+                {
+                    using (EditorGUI.ChangeCheckScope change = new())
+                    {
+                        FinderMode nextMode = (FinderMode)EditorGUILayout.EnumPopup("Finder", _finderMode);
+                        if (change.changed)
+                        {
+                            _finderMode = nextMode;
+                            SyncContextualRequestForFinderMode();
+                        }
+                    }
+                }
                 else
                     _replaceMode = (ReplaceMode)EditorGUILayout.EnumPopup("Replace", _replaceMode);
             }
@@ -491,6 +541,127 @@ namespace LegendaryTools.Editor
                 if (!string.IsNullOrEmpty(state.ContextualFinderStatus))
                     EditorGUILayout.HelpBox(state.ContextualFinderStatus, MessageType.Info);
             }
+        }
+
+        private void DrawFinderByGameObjectCard(AssetUsageFinderState state)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("Finder - By GameObject", EditorStyles.boldLabel);
+
+                using (EditorGUI.ChangeCheckScope change = new())
+                {
+                    GameObject newTarget = (GameObject)EditorGUILayout.ObjectField(
+                        "Target GameObject",
+                        _finderGameObjectTarget,
+                        typeof(GameObject),
+                        true);
+                    if (change.changed)
+                    {
+                        _finderGameObjectTarget = newTarget;
+                        _controller.SetContextualRequest(BuildGameObjectRequest(newTarget), false);
+                    }
+                }
+
+                AssetUsageFinderContextualRequest request =
+                    BuildGameObjectRequest(_finderGameObjectTarget) ?? state.ContextualRequest;
+
+                if (request?.TargetKind == AssetUsageFinderContextualTargetKind.GameObject)
+                {
+                    EditorGUILayout.LabelField(request.DisplayName, EditorStyles.miniBoldLabel);
+                    EditorGUILayout.LabelField(request.Description, EditorStyles.wordWrappedMiniLabel);
+                }
+                else
+                {
+                    EditorGUILayout.HelpBox(
+                        "Select a GameObject from a scene, prefab stage, or prefab asset to search references across the selected scope.",
+                        MessageType.None);
+                }
+
+                EditorGUILayout.Space(6);
+                DrawContextualFinderActions(
+                    state,
+                    request?.TargetKind == AssetUsageFinderContextualTargetKind.GameObject ? request : null);
+            }
+        }
+
+        private void DrawFinderByComponentCard(AssetUsageFinderState state)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("Finder - By Component", EditorStyles.boldLabel);
+
+                using (EditorGUI.ChangeCheckScope change = new())
+                {
+                    Component newTarget = (Component)EditorGUILayout.ObjectField(
+                        "Target Component",
+                        _finderComponentTarget,
+                        typeof(Component),
+                        true);
+                    if (change.changed)
+                    {
+                        _finderComponentTarget = newTarget;
+                        _controller.SetContextualRequest(BuildComponentRequest(newTarget), false);
+                    }
+                }
+
+                AssetUsageFinderContextualRequest request =
+                    BuildComponentRequest(_finderComponentTarget) ?? state.ContextualRequest;
+
+                if (request?.TargetKind == AssetUsageFinderContextualTargetKind.Component)
+                {
+                    EditorGUILayout.LabelField(request.DisplayName, EditorStyles.miniBoldLabel);
+                    EditorGUILayout.LabelField(request.Description, EditorStyles.wordWrappedMiniLabel);
+                }
+                else
+                {
+                    EditorGUILayout.HelpBox(
+                        "Select a Component from a scene, prefab stage, or prefab asset to search references across the selected scope.",
+                        MessageType.None);
+                }
+
+                EditorGUILayout.Space(6);
+                DrawContextualFinderActions(
+                    state,
+                    request?.TargetKind == AssetUsageFinderContextualTargetKind.Component ? request : null);
+            }
+        }
+
+        private void DrawContextualFinderActions(
+            AssetUsageFinderState state,
+            AssetUsageFinderContextualRequest request)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUI.BeginDisabledGroup(state.ContextualFinderIsBusy || request == null);
+                if (GUILayout.Button(
+                        new GUIContent("Find Usages", EditorGUIUtility.IconContent("d_Search Icon").image),
+                        GUILayout.Height(28)))
+                {
+                    _controller.SetContextualRequest(request, false);
+                    _controller.FindContextualUsages(request);
+                }
+
+                EditorGUI.EndDisabledGroup();
+
+                EditorGUI.BeginDisabledGroup(request?.TargetObject == null);
+                if (GUILayout.Button(new GUIContent("Ping", EditorGUIUtility.IconContent("d_Ping").image),
+                        GUILayout.Height(28), GUILayout.Width(90)))
+                {
+                    if (request?.TargetObject != null)
+                        EditorGUIUtility.PingObject(request.TargetObject);
+                }
+
+                EditorGUI.EndDisabledGroup();
+
+                EditorGUI.BeginDisabledGroup(!state.ContextualFinderIsBusy);
+                if (GUILayout.Button("Cancel", GUILayout.Height(28), GUILayout.Width(90)))
+                    _controller.CancelContextualFinder();
+                EditorGUI.EndDisabledGroup();
+            }
+
+            if (!string.IsNullOrEmpty(state.ContextualFinderStatus))
+                EditorGUILayout.HelpBox(state.ContextualFinderStatus, MessageType.Info);
         }
 
         // -------- Finder/Replace: Serialized Field Query (Shared UI) --------
@@ -1242,9 +1413,7 @@ namespace LegendaryTools.Editor
             {
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
-                    EditorGUILayout.HelpBox(
-                        "No contextual results yet. Trigger Find Usages from a context menu or rerun the search from the left panel.",
-                        MessageType.None);
+                    EditorGUILayout.HelpBox(GetEmptyContextualResultsMessage(), MessageType.None);
                 }
 
                 return;
@@ -2124,6 +2293,95 @@ namespace LegendaryTools.Editor
 
             label += $"{entry.AssetPath}";
             return label;
+        }
+
+        private static FinderMode GetFinderModeForRequest(AssetUsageFinderContextualRequest request)
+        {
+            return request?.TargetKind switch
+            {
+                AssetUsageFinderContextualTargetKind.GameObject => FinderMode.ByGameObject,
+                AssetUsageFinderContextualTargetKind.Component => FinderMode.ByComponent,
+                _ => FinderMode.Contextual
+            };
+        }
+
+        private void SyncFinderTargetsFromState(AssetUsageFinderState state)
+        {
+            SyncFinderTargetsFromRequest(state?.ContextualRequest);
+        }
+
+        private void SyncContextualRequestForFinderMode()
+        {
+            switch (_finderMode)
+            {
+                case FinderMode.ByGameObject:
+                    _controller.SetContextualRequest(BuildGameObjectRequest(_finderGameObjectTarget), false);
+                    break;
+
+                case FinderMode.ByComponent:
+                    _controller.SetContextualRequest(BuildComponentRequest(_finderComponentTarget), false);
+                    break;
+
+                case FinderMode.Contextual:
+                    if (_controller.State.ContextualRequest?.TargetKind !=
+                        AssetUsageFinderContextualTargetKind.SerializedProperty)
+                    {
+                        _controller.SetContextualRequest(null, false);
+                    }
+
+                    break;
+            }
+        }
+
+        private void SyncFinderTargetsFromRequest(AssetUsageFinderContextualRequest request)
+        {
+            if (request == null)
+                return;
+
+            switch (request.TargetKind)
+            {
+                case AssetUsageFinderContextualTargetKind.GameObject:
+                    _finderGameObjectTarget = request.TargetObject as GameObject;
+                    break;
+
+                case AssetUsageFinderContextualTargetKind.Component:
+                    _finderComponentTarget = request.TargetObject as Component;
+                    break;
+            }
+        }
+
+        private static AssetUsageFinderContextualRequest BuildGameObjectRequest(GameObject target)
+        {
+            return target != null
+                ? AssetUsageFinderContextualRequest.CreateForGameObject(target)
+                : null;
+        }
+
+        private static AssetUsageFinderContextualRequest BuildComponentRequest(Component target)
+        {
+            return target != null
+                ? AssetUsageFinderContextualRequest.CreateForComponent(target)
+                : null;
+        }
+
+        private static AssetUsageFinderSearchScope GetHierarchyContextScope()
+        {
+            return PrefabStageUtility.GetCurrentPrefabStage() != null
+                ? AssetUsageFinderSearchScope.OpenPrefab
+                : AssetUsageFinderSearchScope.OpenScene;
+        }
+
+        private string GetEmptyContextualResultsMessage()
+        {
+            return _finderMode switch
+            {
+                FinderMode.ByGameObject =>
+                    "No results yet. Select a GameObject and run Find Usages to scan the selected scope.",
+                FinderMode.ByComponent =>
+                    "No results yet. Select a Component and run Find Usages to scan the selected scope.",
+                _ =>
+                    "No contextual results yet. Trigger Find Usages from a context menu or rerun the search from the left panel."
+            };
         }
     }
 }
