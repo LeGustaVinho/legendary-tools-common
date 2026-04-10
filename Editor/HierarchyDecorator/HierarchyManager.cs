@@ -94,6 +94,13 @@ namespace HierarchyDecorator
                 return;
             }
 
+            if (s_Settings == null || !s_Settings.enableHierarchyDecorator)
+            {
+                Current = null;
+                Previous = null;
+                return;
+            }
+
             if (!TryGetValidInstance(id, out HierarchyItem item))
             {
                 DrawSceneItemHighlight(rect, id);

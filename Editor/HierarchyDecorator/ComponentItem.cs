@@ -67,7 +67,11 @@ namespace HierarchyDecorator
 
             if (!settings.Components.TryGetCustomComponent(type, out c))
             {
-                settings.Components.RegisterCustomComponent(Component);
+                if (settings.Components.RegisterCustomComponent(Component))
+                {
+                    settings.SaveSettings();
+                }
+
                 settings.Components.TryGetCustomComponent(type, out c);
             }
 

@@ -15,7 +15,10 @@ namespace HierarchyDecorator
 
         protected override bool DrawerIsEnabled(HierarchyItem item, Settings settings)
         {
-            return item != null && item.GameObject != null;
+            return item != null
+                && item.GameObject != null
+                && settings != null
+                && settings.enableBranchCategoryColorDrawer;
         }
 
         protected override void DrawInternal(Rect rect, HierarchyItem item, Settings settings)
@@ -31,7 +34,7 @@ namespace HierarchyDecorator
                 return;
             }
 
-            Color color = GetCategoryColor(category);
+            Color color = GetCategoryColor(settings, category);
             HierarchyGUI.DrawStandardContent(rect, item.GameObject, null, color, color);
         }
 
@@ -163,19 +166,29 @@ namespace HierarchyDecorator
                 || fullName.Contains("ParticleSystemRenderer");
         }
 
-        private static Color GetCategoryColor(CategoryType category)
+        private static Color GetCategoryColor(Settings settings, CategoryType category)
         {
-            bool isDark = EditorGUIUtility.isProSkin;
+            if (settings == null || settings.branchCategoryColors == null)
+            {
+                return EditorStyles.label.normal.textColor;
+            }
+
+            settings.branchCategoryColors.EnsureInitialized();
+
+            BranchCategoryThemeColors colors = EditorGUIUtility.isProSkin
+                ? settings.branchCategoryColors.darkMode
+                : settings.branchCategoryColors.lightMode;
+
             switch (category)
             {
                 case CategoryType.TwoD:
-                    return isDark ? new Color(0.38f, 0.86f, 0.67f, 1f) : new Color(0.13f, 0.50f, 0.35f, 1f);
+                    return colors.twoD;
 
                 case CategoryType.UI:
-                    return isDark ? new Color(1.00f, 0.79f, 0.38f, 1f) : new Color(0.72f, 0.41f, 0.10f, 1f);
+                    return colors.ui;
 
                 case CategoryType.ThreeD:
-                    return isDark ? new Color(0.80f, 0.70f, 0.98f, 1f) : new Color(0.41f, 0.25f, 0.72f, 1f);
+                    return colors.threeD;
 
                 default:
                     return EditorStyles.label.normal.textColor;

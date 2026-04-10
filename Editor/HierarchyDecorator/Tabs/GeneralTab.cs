@@ -10,6 +10,8 @@ namespace HierarchyDecorator
         public GeneralTab(Settings settings, SerializedObject serializedSettings) : base(settings, serializedSettings, "globalData", "General", "d_CustomTool")
         {
             // --- General Features
+            CreateDrawableGroup("Hierarchy")
+                .RegisterSerializedProperty(serializedSettings.FindProperty(nameof(Settings.enableHierarchyDecorator)));
 
             CreateDrawableGroup("Toggles")
                 .RegisterSerializedProperty(serializedTab, "showActiveToggles", "activeToggleType", "activeSwiping", "swipeSameState", "swipeSelectionOnly", "depthMode");

@@ -63,6 +63,10 @@ namespace HierarchyDecorator
 #endif
             SerializedProperty darkModeBack = serializedTab.FindPropertyRelative("darkMode");
             SerializedProperty lightModeBack = serializedTab.FindPropertyRelative("lightMode");
+            SerializedProperty enableBranchCategoryColorDrawer = serializedSettings.FindProperty(nameof(Settings.enableBranchCategoryColorDrawer));
+            SerializedProperty branchCategoryColors = serializedSettings.FindProperty(nameof(Settings.branchCategoryColors));
+            SerializedProperty darkModeBranchColors = branchCategoryColors.FindPropertyRelative(nameof(BranchCategoryColorSettings.darkMode));
+            SerializedProperty lightModeBranchColors = branchCategoryColors.FindPropertyRelative(nameof(BranchCategoryColorSettings.lightMode));
 
             CreateDrawableGroup("Background")
                 .RegisterSerializedProperty(serializedTab, "twoToneBackground")
@@ -73,6 +77,19 @@ namespace HierarchyDecorator
                     "Highlight Settings",
                     nameof(SceneItemHighlightSettings.color),
                     nameof(SceneItemHighlightSettings.lineThickness));
+
+            CreateDrawableGroup("Branch Categories")
+                .RegisterSerializedProperty(enableBranchCategoryColorDrawer)
+                .RegisterSerializedGroup(darkModeBranchColors,
+                    "Dark Mode",
+                    nameof(BranchCategoryThemeColors.twoD),
+                    nameof(BranchCategoryThemeColors.ui),
+                    nameof(BranchCategoryThemeColors.threeD)).EnableIf(() => enableBranchCategoryColorDrawer.boolValue)
+                .RegisterSerializedGroup(lightModeBranchColors,
+                    "Light Mode",
+                    nameof(BranchCategoryThemeColors.twoD),
+                    nameof(BranchCategoryThemeColors.ui),
+                    nameof(BranchCategoryThemeColors.threeD)).EnableIf(() => enableBranchCategoryColorDrawer.boolValue);
 
             CreateDrawableGroup ("Styles")
                 .RegisterSerializedProperty(serializedTab, "displayTags", "displayLayers", "displayIcons")
@@ -182,6 +199,7 @@ namespace HierarchyDecorator
             style.UpdateStyle(EditorGUIUtility.isProSkin);
 
             settings.styleData.styles.Add(style);
+            settings.SaveSettings();
         }
 
         // Height Calculation

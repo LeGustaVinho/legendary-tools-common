@@ -76,6 +76,7 @@ namespace HierarchyDecorator
         {
             serializedObject.Update();
             serializedObject.ApplyModifiedProperties();
+            settings?.SaveSettings();
             EditorApplication.RepaintHierarchyWindow();
             Repaint();
         }
@@ -94,13 +95,6 @@ namespace HierarchyDecorator
                 EditorGUILayout.LabelField ("Hierarchy Settings", Style.Title);
 
                 GUILayout.FlexibleSpace ();
-
-                // Link to repo for convenience
-
-                if (GUILayout.Button ("GitHub Repository", EditorStyles.miniButtonMid))
-                {
-                    Application.OpenURL ("https://github.com/WooshiiDev/HierarchyDecorator/");
-                }
             }
             EditorGUILayout.EndHorizontal ();
 

@@ -692,6 +692,17 @@ namespace HierarchyDecorator
             }
         }
 
+        private void PersistSettings(bool refreshCustomGroups = false)
+        {
+            settings.SaveSettings();
+            serializedSettings.Update();
+
+            if (refreshCustomGroups)
+            {
+                SerializedCustomGroups = GetSerializedArrayElements("customGroups");
+            }
+        }
+
         private bool DrawCustomGroupHeader(int index, ComponentGroup group, bool isExpanded)
         {
             Rect header = EditorGUILayout.BeginHorizontal();
@@ -707,14 +718,17 @@ namespace HierarchyDecorator
                 {
                     case 0: // Add component
                         group.AddEmpty();
+                        PersistSettings(true);
                         break;
 
                     case 1:
                         group.SetAllShown(true);
+                        PersistSettings();
                         break;
 
                     case 2:
                         group.SetAllShown(false);
+                        PersistSettings();
                         break;
 
                     case 3: // Other options
@@ -743,7 +757,11 @@ namespace HierarchyDecorator
 
             if (index != 0)
             {
-                menu.AddItem(moveUp, false, () => components.MoveCustomGroup(index, index - 1));
+                menu.AddItem(moveUp, false, () =>
+                {
+                    components.MoveCustomGroup(index, index - 1);
+                    PersistSettings(true);
+                });
             }
             else
             {
@@ -754,7 +772,11 @@ namespace HierarchyDecorator
 
             if (index != settings.Components.CustomGroups.Length - 1)
             {
-                menu.AddItem(moveDown, false, () => components.MoveCustomGroup(index, index + 1));
+                menu.AddItem(moveDown, false, () =>
+                {
+                    components.MoveCustomGroup(index, index + 1);
+                    PersistSettings(true);
+                });
             }
             else
             {
@@ -768,6 +790,7 @@ namespace HierarchyDecorator
             menu.AddItem(delete, false, () =>
             {
                 components.DeleteCustomGroup(index);
+                PersistSettings(true);
             });
 
             // Refine menu position
@@ -809,6 +832,7 @@ namespace HierarchyDecorator
                             if (component.Type != script.GetClass())
                             {
                                 group.Update(component, script);
+                                PersistSettings();
                             }
                         }
                         else
@@ -822,8 +846,7 @@ namespace HierarchyDecorator
                 if (GUILayout.Button(Labels.DELETE_COMPONENT_LABEL, Style.ToolbarButtonResizable, GUILayout.Width(deleteWidth)))
                 {
                     group.Remove(component);
-                    EditorUtility.SetDirty(settings);
-                    serializedSettings.Update();
+                    PersistSettings(true);
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -838,15 +861,7 @@ namespace HierarchyDecorator
                 // Create new group
 
                 components.AddCustomGroup(Labels.DEFAULT_GROUP_LABEL);
-
-                // Update settings object
-
-                EditorUtility.SetDirty(settings);
-                serializedSettings.Update();
-
-                // Update cached groups
-
-                SerializedCustomGroups = GetSerializedArrayElements("customGroups");
+                PersistSettings(true);
             }
             EditorGUILayout.EndHorizontal();
 
@@ -886,6 +901,7 @@ namespace HierarchyDecorator
                     break;
 
                 case EventType.DragExited when performDrag:
+                    bool hasChanges = false;
 
                     foreach (MonoScript script in selectedScripts)
                     {
@@ -895,7 +911,13 @@ namespace HierarchyDecorator
                         if (!hoveredGroup.Contains(component) && component.IsValid())
                         {
                             hoveredGroup.Add(component);
+                            hasChanges = true;
                         }
+                    }
+
+                    if (hasChanges)
+                    {
+                        PersistSettings();
                     }
 
                     performDrag = false;
