@@ -46,17 +46,34 @@ namespace LegendaryTools.Editor
         {
             switch (groupMode)
             {
+                case ReferenceTrackerGroupMode.None:
+                    return "All Results";
+
+                case ReferenceTrackerGroupMode.Asset:
+                    return string.IsNullOrEmpty(result.AssetPath) ? "<unknown asset>" : result.AssetPath;
+
+                case ReferenceTrackerGroupMode.AssetKind:
+                    return string.IsNullOrEmpty(result.AssetKindLabel) ? "<unknown kind>" : result.AssetKindLabel;
+
                 case ReferenceTrackerGroupMode.GameObject:
-                    return result.HostGameObjectPath;
+                    return string.IsNullOrEmpty(result.HostGameObjectPath)
+                        ? result.AssetPath
+                        : string.Format("{0} / {1}", result.AssetPath, result.HostGameObjectPath);
 
                 case ReferenceTrackerGroupMode.Component:
-                    return string.Format("{0} / {1}", result.HostGameObjectPath, result.HostComponentLabel);
+                    return string.IsNullOrEmpty(result.HostGameObjectPath)
+                        ? string.Format("{0} / {1}", result.AssetPath, result.HostComponentLabel)
+                        : string.Format("{0} / {1} / {2}", result.AssetPath, result.HostGameObjectPath,
+                            result.HostComponentLabel);
+
+                case ReferenceTrackerGroupMode.Property:
+                    return string.IsNullOrEmpty(result.PropertyPath) ? "<unknown property>" : result.PropertyPath;
 
                 case ReferenceTrackerGroupMode.ReferenceType:
                     return result.ReferenceTypeLabel;
 
                 default:
-                    return result.HostGameObjectPath;
+                    return result.AssetPath;
             }
         }
     }

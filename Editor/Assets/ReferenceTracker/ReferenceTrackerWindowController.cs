@@ -1,5 +1,8 @@
 namespace LegendaryTools.Editor
 {
+    using System.Threading;
+    using System.Threading.Tasks;
+
     internal sealed class ReferenceTrackerWindowController
     {
         private readonly ReferenceTrackerScopeResolver _scopeResolver;
@@ -50,9 +53,60 @@ namespace LegendaryTools.Editor
             state.Status = "Cleared.";
         }
 
-        public void RunSearch(ReferenceTrackerWindowState state)
+        public bool GuidCacheExists()
         {
-            ReferenceTrackerSearchResult searchResult = _searchService.Search(state.Target, state.SearchScopes);
+            return _searchService.GuidCacheExists;
+        }
+
+        public string GuidCachePath()
+        {
+            return ReferenceTrackerSearchService.GuidCachePath;
+        }
+
+        public async Task GenerateGuidCacheAsync(ReferenceTrackerWindowState state, CancellationToken cancellationToken)
+        {
+            state.IsSearching = true;
+            state.Status = "Generating AssetGuidMapper cache...";
+
+            try
+            {
+                await _searchService.GenerateGuidCacheAsync(cancellationToken);
+                state.Status = string.Format("AssetGuidMapper cache generated: {0}", GuidCachePath());
+            }
+            finally
+            {
+                state.IsSearching = false;
+            }
+        }
+
+        public void DeleteGuidCache(ReferenceTrackerWindowState state)
+        {
+            bool deleted = _searchService.DeleteGuidCache();
+            state.Status = deleted
+                ? string.Format("AssetGuidMapper cache deleted: {0}", GuidCachePath())
+                : string.Format("AssetGuidMapper cache was not found: {0}", GuidCachePath());
+        }
+
+        public async Task RunSearchAsync(ReferenceTrackerWindowState state, CancellationToken cancellationToken)
+        {
+            state.IsSearching = true;
+            state.Status = "Searching references...";
+
+            ReferenceTrackerSearchResult searchResult;
+
+            try
+            {
+                searchResult = await _searchService.SearchAsync(
+                    state.Target,
+                    state.SearchScopes,
+                    state.RebuildIndex,
+                    cancellationToken);
+            }
+            finally
+            {
+                state.IsSearching = false;
+                state.RebuildIndex = false;
+            }
 
             state.Results.Clear();
             state.Results.AddRange(searchResult.Usages);

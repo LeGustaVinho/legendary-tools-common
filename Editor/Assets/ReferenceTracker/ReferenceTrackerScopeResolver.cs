@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine.SceneManagement;
 
@@ -31,6 +32,16 @@ namespace LegendaryTools.Editor
             }
 
             return scopes;
+        }
+
+        public bool HasAnyProjectScope(ReferenceTrackerSearchScope scopes)
+        {
+            return (scopes &
+                    (ReferenceTrackerSearchScope.ScenesInProject |
+                     ReferenceTrackerSearchScope.Prefabs |
+                     ReferenceTrackerSearchScope.Materials |
+                     ReferenceTrackerSearchScope.ScriptableObjects |
+                     ReferenceTrackerSearchScope.Others)) != 0;
         }
 
         public List<ReferenceTrackerScopeDescriptor> Resolve(ReferenceTrackerSearchScope scopes, out string error)
@@ -95,6 +106,47 @@ namespace LegendaryTools.Editor
             return descriptors;
         }
 
+        public bool IsPathInSelectedProjectScope(string assetPath, ReferenceTrackerSearchScope scopes)
+        {
+            ReferenceTrackerSearchScope pathScope = GetProjectScopeForPath(assetPath);
+            return pathScope != ReferenceTrackerSearchScope.None && (scopes & pathScope) != 0;
+        }
+
+        public ReferenceTrackerSearchScope GetProjectScopeForPath(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath))
+            {
+                return ReferenceTrackerSearchScope.None;
+            }
+
+            string extension = System.IO.Path.GetExtension(assetPath);
+
+            if (string.Equals(extension, ".unity", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return ReferenceTrackerSearchScope.ScenesInProject;
+            }
+
+            if (string.Equals(extension, ".prefab", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return ReferenceTrackerSearchScope.Prefabs;
+            }
+
+            if (string.Equals(extension, ".mat", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return ReferenceTrackerSearchScope.Materials;
+            }
+
+            if (string.Equals(extension, ".asset", System.StringComparison.OrdinalIgnoreCase))
+            {
+                UnityEngine.Object mainAsset = AssetDatabase.LoadMainAssetAtPath(assetPath);
+                return mainAsset is UnityEngine.ScriptableObject
+                    ? ReferenceTrackerSearchScope.ScriptableObjects
+                    : ReferenceTrackerSearchScope.Others;
+            }
+
+            return ReferenceTrackerSearchScope.Others;
+        }
+
         public string GetDescription(ReferenceTrackerSearchScope scopes)
         {
             scopes = Normalize(scopes);
@@ -114,6 +166,31 @@ namespace LegendaryTools.Editor
                 descriptions.Add(prefabStage != null
                     ? string.Format("Searching Prefab Mode: {0}", prefabStage.assetPath)
                     : "Searching Prefab Mode: no prefab stage is currently open");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.ScenesInProject) != 0)
+            {
+                descriptions.Add("Searching Scenes in project.");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.Prefabs) != 0)
+            {
+                descriptions.Add("Searching Prefabs.");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.Materials) != 0)
+            {
+                descriptions.Add("Searching Materials.");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.ScriptableObjects) != 0)
+            {
+                descriptions.Add("Searching ScriptableObjects.");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.Others) != 0)
+            {
+                descriptions.Add("Searching Other supported asset files.");
             }
 
             if (!IsPrefabModeAvailable)

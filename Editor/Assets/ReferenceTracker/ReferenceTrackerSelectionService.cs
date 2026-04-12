@@ -22,6 +22,13 @@ namespace LegendaryTools.Editor
                 return true;
             }
 
+            if (!string.IsNullOrEmpty(AssetDatabase.GetAssetPath(Selection.activeObject)))
+            {
+                target = Selection.activeObject;
+                status = string.Format("Using asset: {0}", target.name);
+                return true;
+            }
+
             if (Selection.activeGameObject != null)
             {
                 target = Selection.activeGameObject;
