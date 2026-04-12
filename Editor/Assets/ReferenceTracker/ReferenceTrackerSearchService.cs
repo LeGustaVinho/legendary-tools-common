@@ -242,12 +242,14 @@ namespace LegendaryTools.Editor
 
         private static ReferenceTrackerSearchTargetContext BuildTargetContext(UnityEngine.Object target)
         {
+            UnityEngine.Object effectiveTarget = ResolveEffectiveSearchTarget(target);
+
             ReferenceTrackerSearchTargetContext context = new ReferenceTrackerSearchTargetContext
             {
-                OriginalTarget = target,
-                TargetGameObject = target as GameObject,
-                TargetComponent = target as Component,
-                TargetAsset = target,
+                OriginalTarget = effectiveTarget,
+                TargetGameObject = effectiveTarget as GameObject,
+                TargetComponent = effectiveTarget as Component,
+                TargetAsset = effectiveTarget,
             };
 
             if (context.TargetComponent != null)
@@ -255,13 +257,13 @@ namespace LegendaryTools.Editor
                 context.TargetGameObject = context.TargetComponent.gameObject;
             }
 
-            context.TargetAssetPath = AssetDatabase.GetAssetPath(target);
-            context.IsMonoScriptTarget = target is MonoScript;
+            context.TargetAssetPath = AssetDatabase.GetAssetPath(effectiveTarget);
+            context.IsMonoScriptTarget = effectiveTarget is MonoScript;
 
             if (!string.IsNullOrEmpty(context.TargetAssetPath))
             {
                 context.IsAssetTarget = AssetDatabase.TryGetGUIDAndLocalFileIdentifier(
-                    target,
+                    effectiveTarget,
                     out string guid,
                     out long localFileId);
 
@@ -276,6 +278,53 @@ namespace LegendaryTools.Editor
             }
 
             return context;
+        }
+
+        private static UnityEngine.Object ResolveEffectiveSearchTarget(UnityEngine.Object target)
+        {
+            Texture2D texture = target as Texture2D;
+            if (texture == null)
+            {
+                return target;
+            }
+
+            Sprite singleSprite = TryGetSingleSpriteFromTexture(texture);
+            return singleSprite != null ? singleSprite : target;
+        }
+
+        private static Sprite TryGetSingleSpriteFromTexture(Texture2D texture)
+        {
+            string assetPath = AssetDatabase.GetAssetPath(texture);
+            if (string.IsNullOrEmpty(assetPath))
+            {
+                return null;
+            }
+
+            TextureImporter importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+            if (importer == null ||
+                importer.textureType != TextureImporterType.Sprite ||
+                importer.spriteImportMode != SpriteImportMode.Single)
+            {
+                return null;
+            }
+
+            Sprite sprite = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (sprite != null)
+            {
+                return sprite;
+            }
+
+            UnityEngine.Object[] assets = AssetDatabase.LoadAllAssetsAtPath(assetPath);
+            for (int i = 0; i < assets.Length; i++)
+            {
+                sprite = assets[i] as Sprite;
+                if (sprite != null)
+                {
+                    return sprite;
+                }
+            }
+
+            return null;
         }
 
         private void ScanAssetPath(
@@ -309,7 +358,10 @@ namespace LegendaryTools.Editor
 
             if (addFallbackWhenNoSerializedMatch && results.Count == countBefore)
             {
-                AddFallbackGuidResult(assetPath, targetContext, sourceScope, results, resultKeys);
+                if (!ShouldSuppressFallbackGuidResult(assetPath, targetContext.TargetGuid))
+                {
+                    AddFallbackGuidResult(assetPath, targetContext, sourceScope, results, resultKeys);
+                }
             }
         }
 
@@ -624,6 +676,11 @@ namespace LegendaryTools.Editor
                     continue;
                 }
 
+                if (ShouldSkipUnityInternalReferenceProperty(iterator.propertyPath))
+                {
+                    continue;
+                }
+
                 UnityEngine.Object referencedObject = iterator.objectReferenceValue;
                 if (referencedObject == null)
                 {
@@ -651,7 +708,9 @@ namespace LegendaryTools.Editor
                         ? ReferenceTrackerFormatting.GetComponentLabel(hostComponent)
                         : GetHostObjectLabel(hostObject),
                     PropertyPath = iterator.propertyPath,
-                    PropertyDisplayName = iterator.displayName,
+                    PropertyDisplayName = ReferenceTrackerFormatting.GetSerializedPropertyReferenceLabel(
+                        iterator.propertyPath,
+                        iterator.displayName),
                     ReferenceTypeLabel = referenceTypeLabel,
                     ReferencedObject = referencedObject,
                     SourceScope = sourceScope,
@@ -713,6 +772,33 @@ namespace LegendaryTools.Editor
             }
 
             return false;
+        }
+
+        private static bool ShouldSkipUnityInternalReferenceProperty(string propertyPath)
+        {
+            if (string.IsNullOrEmpty(propertyPath))
+            {
+                return false;
+            }
+
+            return ContainsPropertySegment(propertyPath, "m_CorrespondingSourceObject") ||
+                   ContainsPropertySegment(propertyPath, "m_PrefabInstance") ||
+                   ContainsPropertySegment(propertyPath, "m_PrefabAsset") ||
+                   ContainsPropertySegment(propertyPath, "m_GameObject") ||
+                   ContainsPropertySegment(propertyPath, "m_Father") ||
+                   ContainsPropertySegment(propertyPath, "m_Children");
+        }
+
+        private static bool ContainsPropertySegment(string propertyPath, string segment)
+        {
+            if (string.Equals(propertyPath, segment, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            return propertyPath.StartsWith(segment + ".", StringComparison.Ordinal) ||
+                   propertyPath.EndsWith("." + segment, StringComparison.Ordinal) ||
+                   propertyPath.IndexOf("." + segment + ".", StringComparison.Ordinal) >= 0;
         }
 
         private void AddPrefabVariantParentResult(
@@ -790,6 +876,56 @@ namespace LegendaryTools.Editor
                 IsLiveContext = assetObject != null,
                 IsFallback = true,
             });
+        }
+
+        private static bool ShouldSuppressFallbackGuidResult(string assetPath, string guid)
+        {
+            if (string.IsNullOrEmpty(assetPath) ||
+                string.IsNullOrEmpty(guid) ||
+                !File.Exists(assetPath))
+            {
+                return false;
+            }
+
+            bool foundGuid = false;
+
+            try
+            {
+                using (StreamReader reader = new StreamReader(assetPath))
+                {
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        if (line.IndexOf(guid, StringComparison.OrdinalIgnoreCase) < 0)
+                        {
+                            continue;
+                        }
+
+                        foundGuid = true;
+                        if (!IsUnityInternalReferenceLine(line))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return foundGuid;
+        }
+
+        private static bool IsUnityInternalReferenceLine(string line)
+        {
+            return !string.IsNullOrEmpty(line) &&
+                   (line.IndexOf("m_CorrespondingSourceObject", StringComparison.Ordinal) >= 0 ||
+                    line.IndexOf("m_PrefabInstance", StringComparison.Ordinal) >= 0 ||
+                    line.IndexOf("m_PrefabAsset", StringComparison.Ordinal) >= 0 ||
+                    line.IndexOf("m_GameObject", StringComparison.Ordinal) >= 0 ||
+                    line.IndexOf("m_Father", StringComparison.Ordinal) >= 0 ||
+                    line.IndexOf("m_Children", StringComparison.Ordinal) >= 0);
         }
 
         private static bool AddResult(
@@ -911,6 +1047,31 @@ namespace LegendaryTools.Editor
                 labels.Add("Others");
             }
 
+            if ((scopes & ReferenceTrackerSearchScope.AnimatorControllersAndAnimationClips) != 0)
+            {
+                labels.Add("Animator Controllers / Animation Clips");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.TimelineAssets) != 0)
+            {
+                labels.Add("Timeline assets");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.AddressablesGroups) != 0)
+            {
+                labels.Add("Addressables groups");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.ResourcesFolders) != 0)
+            {
+                labels.Add("Resources folders");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.AssetBundles) != 0)
+            {
+                labels.Add("Asset Bundles");
+            }
+
             return labels.Count == 0 ? "selected scopes" : string.Join(", ", labels.ToArray());
         }
 
@@ -937,6 +1098,16 @@ namespace LegendaryTools.Editor
                     return "ScriptableObject";
                 case ReferenceTrackerSearchScope.Others:
                     return "Other";
+                case ReferenceTrackerSearchScope.AnimatorControllersAndAnimationClips:
+                    return "Animation";
+                case ReferenceTrackerSearchScope.TimelineAssets:
+                    return "Timeline";
+                case ReferenceTrackerSearchScope.AddressablesGroups:
+                    return "Addressables Group";
+                case ReferenceTrackerSearchScope.ResourcesFolders:
+                    return "Resources";
+                case ReferenceTrackerSearchScope.AssetBundles:
+                    return "Asset Bundle";
                 default:
                     return "Asset";
             }

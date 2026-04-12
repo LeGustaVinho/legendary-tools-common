@@ -9,6 +9,7 @@ namespace LegendaryTools.Editor
     internal sealed class ReferenceTrackerWindowState
     {
         public UnityEngine.Object Target;
+        public bool UseSelectionAsTarget;
         public ReferenceTrackerSearchScope SearchScopes =
             ReferenceTrackerSearchScope.CurrentScene |
             ReferenceTrackerSearchScope.ScenesInProject |
@@ -16,13 +17,17 @@ namespace LegendaryTools.Editor
             ReferenceTrackerSearchScope.Prefabs |
             ReferenceTrackerSearchScope.Materials |
             ReferenceTrackerSearchScope.ScriptableObjects |
-            ReferenceTrackerSearchScope.Others;
+            ReferenceTrackerSearchScope.Others |
+            ReferenceTrackerSearchScope.AnimatorControllersAndAnimationClips |
+            ReferenceTrackerSearchScope.TimelineAssets |
+            ReferenceTrackerSearchScope.AddressablesGroups |
+            ReferenceTrackerSearchScope.ResourcesFolders |
+            ReferenceTrackerSearchScope.AssetBundles;
         public ReferenceTrackerGroupMode GroupMode = ReferenceTrackerGroupMode.GameObject;
         public string Status = "Select an asset, script, GameObject, or Component and run the search.";
         public double LastSearchDurationMs;
         public List<ReferenceTrackerUsageResult> Results = new List<ReferenceTrackerUsageResult>();
         public List<ReferenceTrackerGroupBucket> Groups = new List<ReferenceTrackerGroupBucket>();
-        public bool RebuildIndex;
         public bool IsSearching;
         public ReferenceTrackerSortColumn SortColumn = ReferenceTrackerSortColumn.Asset;
         public bool SortAscending = true;

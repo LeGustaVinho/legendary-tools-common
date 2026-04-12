@@ -35,11 +35,20 @@ namespace LegendaryTools.Editor
 
         public void UseSelection(ReferenceTrackerWindowState state)
         {
+            SyncSelectionTarget(state, false);
+        }
+
+        public void SyncSelectionTarget(ReferenceTrackerWindowState state, bool clearUnsupportedSelection)
+        {
             UnityEngine.Object selectedTarget;
             string status;
             if (_selectionService.TryGetSupportedSelection(out selectedTarget, out status))
             {
                 state.Target = selectedTarget;
+            }
+            else if (clearUnsupportedSelection)
+            {
+                state.Target = null;
             }
 
             state.Status = status;
@@ -99,13 +108,12 @@ namespace LegendaryTools.Editor
                 searchResult = await _searchService.SearchAsync(
                     state.Target,
                     state.SearchScopes,
-                    state.RebuildIndex,
+                    false,
                     cancellationToken);
             }
             finally
             {
                 state.IsSearching = false;
-                state.RebuildIndex = false;
             }
 
             state.Results.Clear();

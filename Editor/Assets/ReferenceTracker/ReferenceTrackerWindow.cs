@@ -38,12 +38,35 @@ namespace LegendaryTools.Editor
         private static readonly ReferenceTrackerWindowController Controller =
             new ReferenceTrackerWindowController(ScopeResolver, SearchService, GroupingService, SelectionService);
 
+        private struct TableRowEntry
+        {
+            public bool IsGroup;
+            public ReferenceTrackerGroupBucket Group;
+            public ReferenceTrackerUsageResult Result;
+            public int ResultRowIndex;
+            public float Y;
+            public float Height;
+        }
+
         [SerializeField] private ReferenceTrackerWindowState _state = new ReferenceTrackerWindowState();
 
         private readonly Dictionary<string, bool> _groupStates = new Dictionary<string, bool>(System.StringComparer.Ordinal);
+        private readonly List<ReferenceTrackerUsageResult> _sortedResultsCache = new List<ReferenceTrackerUsageResult>();
+        private readonly List<ReferenceTrackerGroupBucket> _sortedBucketsCache = new List<ReferenceTrackerGroupBucket>();
+        private readonly Dictionary<ReferenceTrackerGroupBucket, List<ReferenceTrackerUsageResult>> _sortedBucketRowsCache =
+            new Dictionary<ReferenceTrackerGroupBucket, List<ReferenceTrackerUsageResult>>();
+        private readonly List<TableRowEntry> _tableRowsCache = new List<TableRowEntry>();
+        private readonly GUIContent _tempContent = new GUIContent();
 
         private Vector2 _resultsScroll;
         private CancellationTokenSource _searchCancellation;
+        private bool _tableCacheDirty = true;
+        private int _cachedResultCount = -1;
+        private int _cachedGroupCount = -1;
+        private ReferenceTrackerGroupMode _cachedGroupMode;
+        private ReferenceTrackerSortColumn _cachedSortColumn;
+        private bool _cachedSortAscending;
+        private float _tableContentHeight = TableHeaderHeight;
 
         private GUIStyle _titleStyle;
         private GUIStyle _sectionTitleStyle;
@@ -124,11 +147,13 @@ namespace LegendaryTools.Editor
             ReferenceTrackerWindow window = GetWindow<ReferenceTrackerWindow>(WindowTitle);
             window.minSize = new Vector2(1040f, 520f);
             window.EnsureState();
+            window._state.UseSelectionAsTarget = false;
             window._state.Target = target;
             window._state.SearchScopes = string.IsNullOrEmpty(AssetDatabase.GetAssetPath(target))
                 ? ScopeResolver.GetCurrentScope()
                 : GetDefaultAssetScopes();
             window._groupStates.Clear();
+            window.InvalidateTableCache();
             window.Show();
             window.Focus();
             window.RunSearchFromUi();
@@ -143,7 +168,12 @@ namespace LegendaryTools.Editor
                 ReferenceTrackerSearchScope.Prefabs |
                 ReferenceTrackerSearchScope.Materials |
                 ReferenceTrackerSearchScope.ScriptableObjects |
-                ReferenceTrackerSearchScope.Others);
+                ReferenceTrackerSearchScope.Others |
+                ReferenceTrackerSearchScope.AnimatorControllersAndAnimationClips |
+                ReferenceTrackerSearchScope.TimelineAssets |
+                ReferenceTrackerSearchScope.AddressablesGroups |
+                ReferenceTrackerSearchScope.ResourcesFolders |
+                ReferenceTrackerSearchScope.AssetBundles);
         }
 
         private void OnDisable()
@@ -151,6 +181,18 @@ namespace LegendaryTools.Editor
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _searchCancellation = null;
+        }
+
+        private void OnSelectionChange()
+        {
+            EnsureState();
+            if (!_state.UseSelectionAsTarget)
+            {
+                return;
+            }
+
+            Controller.SyncSelectionTarget(_state, true);
+            Repaint();
         }
 
         private void OnGUI()
@@ -258,6 +300,7 @@ namespace LegendaryTools.Editor
             using (new EditorGUILayout.HorizontalScope())
             {
                 DrawTargetPanel();
+                DrawGuidCachePanel();
                 DrawScopePanel();
             }
         }
@@ -268,11 +311,14 @@ namespace LegendaryTools.Editor
             {
                 EditorGUILayout.LabelField("Target", _sectionTitleStyle);
 
-                EditorGUI.BeginChangeCheck();
-                UnityEngine.Object newTarget = EditorGUILayout.ObjectField(_state.Target, typeof(UnityEngine.Object), true);
-                if (EditorGUI.EndChangeCheck())
+                using (new EditorGUI.DisabledScope(_state.UseSelectionAsTarget))
                 {
-                    _state.Target = newTarget;
+                    EditorGUI.BeginChangeCheck();
+                    UnityEngine.Object newTarget = EditorGUILayout.ObjectField(_state.Target, typeof(UnityEngine.Object), true);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        _state.Target = newTarget;
+                    }
                 }
 
                 EditorGUILayout.Space(4f);
@@ -288,19 +334,27 @@ namespace LegendaryTools.Editor
                     {
                         _groupStates.Clear();
                         Controller.SetGroupMode(_state, newGroupMode);
+                        InvalidateTableCache();
                     }
                 }
-
-                _state.RebuildIndex = EditorGUILayout.ToggleLeft("Rebuild GUID index before next search", _state.RebuildIndex);
-                DrawGuidCacheControls();
 
                 EditorGUILayout.Space(4f);
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (GUILayout.Button("Use Selection", GUILayout.Height(24f)))
+                    EditorGUI.BeginChangeCheck();
+                    bool useSelectionAsTarget = GUILayout.Toggle(
+                        _state.UseSelectionAsTarget,
+                        "Use Selection",
+                        EditorStyles.miniButton,
+                        GUILayout.Height(24f));
+                    if (EditorGUI.EndChangeCheck())
                     {
-                        Controller.UseSelection(_state);
+                        _state.UseSelectionAsTarget = useSelectionAsTarget;
+                        if (_state.UseSelectionAsTarget)
+                        {
+                            Controller.SyncSelectionTarget(_state, true);
+                        }
                     }
 
                     using (new EditorGUI.DisabledScope(!ReferenceTrackerSearchService.IsSupportedTarget(_state.Target) ||
@@ -324,6 +378,7 @@ namespace LegendaryTools.Editor
                     {
                         _groupStates.Clear();
                         Controller.ClearResults(_state);
+                        InvalidateTableCache();
                     }
                 }
 
@@ -336,34 +391,44 @@ namespace LegendaryTools.Editor
             }
         }
 
-        private void DrawGuidCacheControls()
+        private void DrawGuidCachePanel()
         {
             bool cacheExists = Controller.GuidCacheExists();
             string cacheLabel = cacheExists ? "Cache: ready" : "Cache: not generated";
 
-            using (new EditorGUILayout.HorizontalScope())
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.Width(260f)))
             {
+                EditorGUILayout.LabelField("AssetGuidMapper Cache", _sectionTitleStyle);
+
                 EditorGUILayout.LabelField(
                     new GUIContent(cacheLabel, Controller.GuidCachePath()),
                     EditorStyles.miniLabel,
-                    GUILayout.Width(118f));
+                    GUILayout.ExpandWidth(true));
 
-                using (new EditorGUI.DisabledScope(_state.IsSearching))
+                using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (GUILayout.Button("Generate Cache", EditorStyles.miniButton, GUILayout.Width(108f)))
+                    using (new EditorGUI.DisabledScope(_state.IsSearching))
                     {
-                        GenerateGuidCacheFromUi();
+                        if (GUILayout.Button("Generate Cache", EditorStyles.miniButton))
+                        {
+                            GenerateGuidCacheFromUi();
+                        }
+                    }
+
+                    using (new EditorGUI.DisabledScope(_state.IsSearching || !cacheExists))
+                    {
+                        if (GUILayout.Button("Delete Cache", EditorStyles.miniButton))
+                        {
+                            Controller.DeleteGuidCache(_state);
+                            Repaint();
+                        }
                     }
                 }
 
-                using (new EditorGUI.DisabledScope(_state.IsSearching || !cacheExists))
-                {
-                    if (GUILayout.Button("Delete Cache", EditorStyles.miniButton, GUILayout.Width(92f)))
-                    {
-                        Controller.DeleteGuidCache(_state);
-                        Repaint();
-                    }
-                }
+                EditorGUILayout.LabelField(
+                    Controller.GuidCachePath(),
+                    EditorStyles.wordWrappedMiniLabel,
+                    GUILayout.ExpandWidth(true));
             }
         }
 
@@ -395,6 +460,12 @@ namespace LegendaryTools.Editor
             bool materials = (scopes & ReferenceTrackerSearchScope.Materials) != 0;
             bool scriptableObjects = (scopes & ReferenceTrackerSearchScope.ScriptableObjects) != 0;
             bool others = (scopes & ReferenceTrackerSearchScope.Others) != 0;
+            bool animatorControllersAndAnimationClips =
+                (scopes & ReferenceTrackerSearchScope.AnimatorControllersAndAnimationClips) != 0;
+            bool timelineAssets = (scopes & ReferenceTrackerSearchScope.TimelineAssets) != 0;
+            bool addressablesGroups = (scopes & ReferenceTrackerSearchScope.AddressablesGroups) != 0;
+            bool resourcesFolders = (scopes & ReferenceTrackerSearchScope.ResourcesFolders) != 0;
+            bool assetBundles = (scopes & ReferenceTrackerSearchScope.AssetBundles) != 0;
             bool prefabModeAvailable = ScopeResolver.IsPrefabModeAvailable;
 
             using (new EditorGUILayout.HorizontalScope())
@@ -416,6 +487,24 @@ namespace LegendaryTools.Editor
                 scriptableObjects = EditorGUILayout.ToggleLeft("ScriptableObject", scriptableObjects,
                     GUILayout.Width(132f));
                 others = EditorGUILayout.ToggleLeft("Others", others, GUILayout.Width(78f));
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                animatorControllersAndAnimationClips = EditorGUILayout.ToggleLeft(
+                    "Animator Controllers / Animation Clips",
+                    animatorControllersAndAnimationClips,
+                    GUILayout.Width(226f));
+                timelineAssets = EditorGUILayout.ToggleLeft("Timeline assets", timelineAssets, GUILayout.Width(112f));
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                addressablesGroups = EditorGUILayout.ToggleLeft("Addressables groups", addressablesGroups,
+                    GUILayout.Width(142f));
+                resourcesFolders = EditorGUILayout.ToggleLeft("Resources folders", resourcesFolders,
+                    GUILayout.Width(128f));
+                assetBundles = EditorGUILayout.ToggleLeft("Asset Bundles", assetBundles, GUILayout.Width(106f));
             }
 
             ReferenceTrackerSearchScope newScopes = ReferenceTrackerSearchScope.None;
@@ -453,6 +542,31 @@ namespace LegendaryTools.Editor
             if (others)
             {
                 newScopes |= ReferenceTrackerSearchScope.Others;
+            }
+
+            if (animatorControllersAndAnimationClips)
+            {
+                newScopes |= ReferenceTrackerSearchScope.AnimatorControllersAndAnimationClips;
+            }
+
+            if (timelineAssets)
+            {
+                newScopes |= ReferenceTrackerSearchScope.TimelineAssets;
+            }
+
+            if (addressablesGroups)
+            {
+                newScopes |= ReferenceTrackerSearchScope.AddressablesGroups;
+            }
+
+            if (resourcesFolders)
+            {
+                newScopes |= ReferenceTrackerSearchScope.ResourcesFolders;
+            }
+
+            if (assetBundles)
+            {
+                newScopes |= ReferenceTrackerSearchScope.AssetBundles;
             }
 
             return newScopes;
@@ -505,42 +619,36 @@ namespace LegendaryTools.Editor
                     return;
                 }
 
+                EnsureTableCache();
                 _resultsScroll = EditorGUILayout.BeginScrollView(_resultsScroll);
 
-                using (new EditorGUILayout.VerticalScope(GUILayout.Width(TableWidth)))
-                {
-                    DrawTableHeader();
+                Rect contentRect = GUILayoutUtility.GetRect(
+                    TableWidth,
+                    _tableContentHeight,
+                    GUILayout.Width(TableWidth),
+                    GUILayout.Height(_tableContentHeight));
 
-                    int rowIndex = 0;
-                    if (_state.GroupMode == ReferenceTrackerGroupMode.None)
+                float visibleTop = contentRect.y + _resultsScroll.y - TableRowHeight;
+                float visibleBottom = contentRect.y + _resultsScroll.y + position.height + TableRowHeight;
+
+                DrawTableHeader(new Rect(contentRect.x, contentRect.y, TableWidth, TableHeaderHeight));
+
+                for (int i = 0; i < _tableRowsCache.Count; i++)
+                {
+                    TableRowEntry entry = _tableRowsCache[i];
+                    Rect row = new Rect(contentRect.x, contentRect.y + entry.Y, TableWidth, entry.Height);
+                    if (row.yMax < visibleTop || row.y > visibleBottom)
                     {
-                        List<ReferenceTrackerUsageResult> rows = GetSortedResults(_state.Results);
-                        for (int i = 0; i < rows.Count; i++)
-                        {
-                            DrawResultRow(rows[i], rowIndex);
-                            rowIndex++;
-                        }
+                        continue;
+                    }
+
+                    if (entry.IsGroup)
+                    {
+                        DrawGroupRow(entry.Group, row);
                     }
                     else
                     {
-                        List<ReferenceTrackerGroupBucket> buckets = GetSortedBuckets(_state.Groups);
-                        for (int i = 0; i < buckets.Count; i++)
-                        {
-                            ReferenceTrackerGroupBucket bucket = buckets[i];
-                            DrawGroupRow(bucket);
-
-                            if (!GetGroupState(bucket.Key))
-                            {
-                                continue;
-                            }
-
-                            List<ReferenceTrackerUsageResult> rows = GetSortedResults(bucket.Items);
-                            for (int j = 0; j < rows.Count; j++)
-                            {
-                                DrawResultRow(rows[j], rowIndex);
-                                rowIndex++;
-                            }
-                        }
+                        DrawResultRow(entry.Result, entry.ResultRowIndex, row);
                     }
                 }
 
@@ -554,11 +662,128 @@ namespace LegendaryTools.Editor
             GUI.Label(rect, "No results to show.", _emptyStateStyle);
         }
 
-        private void DrawTableHeader()
+        private void EnsureTableCache()
         {
-            Rect row = GUILayoutUtility.GetRect(TableWidth, TableHeaderHeight, GUILayout.Width(TableWidth),
-                GUILayout.Height(TableHeaderHeight));
+            if (!_tableCacheDirty &&
+                _cachedResultCount == _state.Results.Count &&
+                _cachedGroupCount == _state.Groups.Count &&
+                _cachedGroupMode == _state.GroupMode &&
+                _cachedSortColumn == _state.SortColumn &&
+                _cachedSortAscending == _state.SortAscending)
+            {
+                return;
+            }
 
+            RebuildTableCache();
+        }
+
+        private void InvalidateTableCache()
+        {
+            _tableCacheDirty = true;
+        }
+
+        private void RebuildTableCache()
+        {
+            _sortedResultsCache.Clear();
+            _sortedBucketsCache.Clear();
+            _sortedBucketRowsCache.Clear();
+            _tableRowsCache.Clear();
+
+            float y = TableHeaderHeight;
+            int rowIndex = 0;
+
+            if (_state.GroupMode == ReferenceTrackerGroupMode.None)
+            {
+                CopySortedResults(_state.Results, _sortedResultsCache);
+                for (int i = 0; i < _sortedResultsCache.Count; i++)
+                {
+                    _tableRowsCache.Add(new TableRowEntry
+                    {
+                        Result = _sortedResultsCache[i],
+                        ResultRowIndex = rowIndex,
+                        Y = y,
+                        Height = TableRowHeight,
+                    });
+
+                    rowIndex++;
+                    y += TableRowHeight;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < _state.Groups.Count; i++)
+                {
+                    ReferenceTrackerGroupBucket bucket = _state.Groups[i];
+                    List<ReferenceTrackerUsageResult> rows = new List<ReferenceTrackerUsageResult>();
+                    CopySortedResults(bucket.Items, rows);
+                    _sortedBucketRowsCache[bucket] = rows;
+                    _sortedBucketsCache.Add(bucket);
+                }
+
+                _sortedBucketsCache.Sort(CompareBucketsForCurrentSort);
+
+                for (int i = 0; i < _sortedBucketsCache.Count; i++)
+                {
+                    ReferenceTrackerGroupBucket bucket = _sortedBucketsCache[i];
+                    _tableRowsCache.Add(new TableRowEntry
+                    {
+                        IsGroup = true,
+                        Group = bucket,
+                        Y = y,
+                        Height = TableGroupHeight,
+                    });
+                    y += TableGroupHeight;
+
+                    if (!GetGroupState(bucket.Key))
+                    {
+                        continue;
+                    }
+
+                    List<ReferenceTrackerUsageResult> rows = _sortedBucketRowsCache[bucket];
+                    for (int j = 0; j < rows.Count; j++)
+                    {
+                        _tableRowsCache.Add(new TableRowEntry
+                        {
+                            Result = rows[j],
+                            ResultRowIndex = rowIndex,
+                            Y = y,
+                            Height = TableRowHeight,
+                        });
+
+                        rowIndex++;
+                        y += TableRowHeight;
+                    }
+                }
+            }
+
+            _tableContentHeight = Mathf.Max(TableHeaderHeight, y);
+            _cachedResultCount = _state.Results.Count;
+            _cachedGroupCount = _state.Groups.Count;
+            _cachedGroupMode = _state.GroupMode;
+            _cachedSortColumn = _state.SortColumn;
+            _cachedSortAscending = _state.SortAscending;
+            _tableCacheDirty = false;
+        }
+
+        private void CopySortedResults(
+            IList<ReferenceTrackerUsageResult> source,
+            List<ReferenceTrackerUsageResult> destination)
+        {
+            destination.Clear();
+
+            if (source != null)
+            {
+                for (int i = 0; i < source.Count; i++)
+                {
+                    destination.Add(source[i]);
+                }
+            }
+
+            destination.Sort(CompareResultsForCurrentSort);
+        }
+
+        private void DrawTableHeader(Rect row)
+        {
             Color background = EditorGUIUtility.isProSkin
                 ? new Color(0.12f, 0.13f, 0.14f, 1f)
                 : new Color(0.72f, 0.75f, 0.78f, 1f);
@@ -576,11 +801,8 @@ namespace LegendaryTools.Editor
             DrawHeaderCell(ref x, row, "Actions", ActionsColumnWidth, ReferenceTrackerSortColumn.Asset, false);
         }
 
-        private void DrawGroupRow(ReferenceTrackerGroupBucket bucket)
+        private void DrawGroupRow(ReferenceTrackerGroupBucket bucket, Rect row)
         {
-            Rect row = GUILayoutUtility.GetRect(TableWidth, TableGroupHeight, GUILayout.Width(TableWidth),
-                GUILayout.Height(TableGroupHeight));
-
             Color background = EditorGUIUtility.isProSkin
                 ? new Color(0.20f, 0.22f, 0.24f, 1f)
                 : new Color(0.78f, 0.81f, 0.84f, 1f);
@@ -589,19 +811,21 @@ namespace LegendaryTools.Editor
 
             bool isExpanded = GetGroupState(bucket.Key);
             Rect foldoutRect = new Rect(row.x + 8f, row.y + 4f, row.width - 16f, 20f);
-            isExpanded = EditorGUI.Foldout(
+            bool newExpanded = EditorGUI.Foldout(
                 foldoutRect,
                 isExpanded,
                 string.Format("{0} ({1})", bucket.Key, bucket.Items.Count),
                 true);
-            _groupStates[bucket.Key] = isExpanded;
+            if (newExpanded != isExpanded)
+            {
+                _groupStates[bucket.Key] = newExpanded;
+                InvalidateTableCache();
+                Repaint();
+            }
         }
 
-        private void DrawResultRow(ReferenceTrackerUsageResult result, int rowIndex)
+        private void DrawResultRow(ReferenceTrackerUsageResult result, int rowIndex, Rect row)
         {
-            Rect row = GUILayoutUtility.GetRect(TableWidth, TableRowHeight, GUILayout.Width(TableWidth),
-                GUILayout.Height(TableRowHeight));
-
             Color background = GetRowBackground(rowIndex);
             EditorGUI.DrawRect(row, background);
 
@@ -641,7 +865,7 @@ namespace LegendaryTools.Editor
 
             if (sortable)
             {
-                if (GUI.Button(cell, new GUIContent(label + sortIndicator, "Sort by " + label), _tableHeaderStyle))
+                if (GUI.Button(cell, GetTempContent(label + sortIndicator, "Sort by " + label), _tableHeaderStyle))
                 {
                     SetSortColumn(sortColumn);
                 }
@@ -658,9 +882,16 @@ namespace LegendaryTools.Editor
         private void DrawTextCell(ref float x, Rect row, string text, string tooltip, float width, GUIStyle style)
         {
             Rect cell = new Rect(x, row.y, width, row.height);
-            GUI.Label(cell, new GUIContent(text ?? string.Empty, tooltip ?? string.Empty), style);
+            GUI.Label(cell, GetTempContent(text, tooltip), style);
             DrawColumnSeparator(cell);
             x += width;
+        }
+
+        private GUIContent GetTempContent(string text, string tooltip)
+        {
+            _tempContent.text = text ?? string.Empty;
+            _tempContent.tooltip = tooltip ?? string.Empty;
+            return _tempContent;
         }
 
         private void SetSortColumn(ReferenceTrackerSortColumn sortColumn)
@@ -675,43 +906,14 @@ namespace LegendaryTools.Editor
                 _state.SortAscending = true;
             }
 
+            InvalidateTableCache();
             Repaint();
-        }
-
-        private List<ReferenceTrackerUsageResult> GetSortedResults(IList<ReferenceTrackerUsageResult> source)
-        {
-            List<ReferenceTrackerUsageResult> sorted = new List<ReferenceTrackerUsageResult>();
-            if (source != null)
-            {
-                for (int i = 0; i < source.Count; i++)
-                {
-                    sorted.Add(source[i]);
-                }
-            }
-
-            sorted.Sort(CompareResultsForCurrentSort);
-            return sorted;
-        }
-
-        private List<ReferenceTrackerGroupBucket> GetSortedBuckets(IList<ReferenceTrackerGroupBucket> source)
-        {
-            List<ReferenceTrackerGroupBucket> sorted = new List<ReferenceTrackerGroupBucket>();
-            if (source != null)
-            {
-                for (int i = 0; i < source.Count; i++)
-                {
-                    sorted.Add(source[i]);
-                }
-            }
-
-            sorted.Sort(CompareBucketsForCurrentSort);
-            return sorted;
         }
 
         private int CompareBucketsForCurrentSort(ReferenceTrackerGroupBucket left, ReferenceTrackerGroupBucket right)
         {
-            ReferenceTrackerUsageResult leftItem = GetFirstSortedItem(left);
-            ReferenceTrackerUsageResult rightItem = GetFirstSortedItem(right);
+            ReferenceTrackerUsageResult leftItem = GetFirstCachedSortedItem(left);
+            ReferenceTrackerUsageResult rightItem = GetFirstCachedSortedItem(right);
 
             int byColumn = CompareResultsForCurrentSort(leftItem, rightItem);
             if (byColumn != 0)
@@ -723,15 +925,20 @@ namespace LegendaryTools.Editor
                 System.StringComparison.OrdinalIgnoreCase);
         }
 
-        private ReferenceTrackerUsageResult GetFirstSortedItem(ReferenceTrackerGroupBucket bucket)
+        private ReferenceTrackerUsageResult GetFirstCachedSortedItem(ReferenceTrackerGroupBucket bucket)
         {
-            if (bucket == null || bucket.Items.Count == 0)
+            if (bucket == null)
             {
                 return null;
             }
 
-            List<ReferenceTrackerUsageResult> sorted = GetSortedResults(bucket.Items);
-            return sorted.Count > 0 ? sorted[0] : null;
+            List<ReferenceTrackerUsageResult> sorted;
+            if (_sortedBucketRowsCache.TryGetValue(bucket, out sorted) && sorted.Count > 0)
+            {
+                return sorted[0];
+            }
+
+            return null;
         }
 
         private int CompareResultsForCurrentSort(ReferenceTrackerUsageResult left, ReferenceTrackerUsageResult right)
@@ -831,7 +1038,7 @@ namespace LegendaryTools.Editor
             bool previousEnabled = GUI.enabled;
             GUI.enabled = previousEnabled && enabled;
 
-            if (GUI.Button(new Rect(x, y, width, height), new GUIContent(label, tooltip), _tableActionStyle))
+            if (GUI.Button(new Rect(x, y, width, height), GetTempContent(label, tooltip), _tableActionStyle))
             {
                 action?.Invoke();
             }
@@ -917,7 +1124,7 @@ namespace LegendaryTools.Editor
                 return result.PropertyPath;
             }
 
-            return string.Format("{0} ({1})", result.PropertyDisplayName, result.PropertyPath);
+            return result.PropertyDisplayName;
         }
 
         private async void GenerateGuidCacheFromUi()
@@ -955,6 +1162,7 @@ namespace LegendaryTools.Editor
         {
             EnsureState();
             _groupStates.Clear();
+            InvalidateTableCache();
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _searchCancellation = new CancellationTokenSource();
@@ -979,6 +1187,7 @@ namespace LegendaryTools.Editor
             }
             finally
             {
+                InvalidateTableCache();
                 Repaint();
             }
         }
@@ -996,6 +1205,7 @@ namespace LegendaryTools.Editor
                 return;
             }
 
+            _state.UseSelectionAsTarget = false;
             _state.Target = target;
             RunSearchFromUi();
         }

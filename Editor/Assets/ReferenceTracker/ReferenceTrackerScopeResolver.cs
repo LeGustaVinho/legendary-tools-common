@@ -41,7 +41,12 @@ namespace LegendaryTools.Editor
                      ReferenceTrackerSearchScope.Prefabs |
                      ReferenceTrackerSearchScope.Materials |
                      ReferenceTrackerSearchScope.ScriptableObjects |
-                     ReferenceTrackerSearchScope.Others)) != 0;
+                     ReferenceTrackerSearchScope.Others |
+                     ReferenceTrackerSearchScope.AnimatorControllersAndAnimationClips |
+                     ReferenceTrackerSearchScope.TimelineAssets |
+                     ReferenceTrackerSearchScope.AddressablesGroups |
+                     ReferenceTrackerSearchScope.ResourcesFolders |
+                     ReferenceTrackerSearchScope.AssetBundles)) != 0;
         }
 
         public List<ReferenceTrackerScopeDescriptor> Resolve(ReferenceTrackerSearchScope scopes, out string error)
@@ -108,8 +113,8 @@ namespace LegendaryTools.Editor
 
         public bool IsPathInSelectedProjectScope(string assetPath, ReferenceTrackerSearchScope scopes)
         {
-            ReferenceTrackerSearchScope pathScope = GetProjectScopeForPath(assetPath);
-            return pathScope != ReferenceTrackerSearchScope.None && (scopes & pathScope) != 0;
+            ReferenceTrackerSearchScope pathScopes = GetProjectScopesForPath(assetPath);
+            return pathScopes != ReferenceTrackerSearchScope.None && (scopes & pathScopes) != 0;
         }
 
         public ReferenceTrackerSearchScope GetProjectScopeForPath(string assetPath)
@@ -120,6 +125,11 @@ namespace LegendaryTools.Editor
             }
 
             string extension = System.IO.Path.GetExtension(assetPath);
+
+            if (IsAddressablesGroupPath(assetPath))
+            {
+                return ReferenceTrackerSearchScope.AddressablesGroups;
+            }
 
             if (string.Equals(extension, ".unity", System.StringComparison.OrdinalIgnoreCase))
             {
@@ -136,6 +146,16 @@ namespace LegendaryTools.Editor
                 return ReferenceTrackerSearchScope.Materials;
             }
 
+            if (IsAnimatorControllerOrAnimationClipExtension(extension))
+            {
+                return ReferenceTrackerSearchScope.AnimatorControllersAndAnimationClips;
+            }
+
+            if (string.Equals(extension, ".playable", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return ReferenceTrackerSearchScope.TimelineAssets;
+            }
+
             if (string.Equals(extension, ".asset", System.StringComparison.OrdinalIgnoreCase))
             {
                 UnityEngine.Object mainAsset = AssetDatabase.LoadMainAssetAtPath(assetPath);
@@ -145,6 +165,28 @@ namespace LegendaryTools.Editor
             }
 
             return ReferenceTrackerSearchScope.Others;
+        }
+
+        public ReferenceTrackerSearchScope GetProjectScopesForPath(string assetPath)
+        {
+            ReferenceTrackerSearchScope scopes = GetProjectScopeForPath(assetPath);
+
+            if (IsInResourcesFolder(assetPath))
+            {
+                scopes |= ReferenceTrackerSearchScope.ResourcesFolders;
+            }
+
+            if (HasAssetBundleName(assetPath))
+            {
+                scopes |= ReferenceTrackerSearchScope.AssetBundles;
+            }
+
+            if (IsAddressablesGroupPath(assetPath))
+            {
+                scopes |= ReferenceTrackerSearchScope.AddressablesGroups;
+            }
+
+            return scopes;
         }
 
         public string GetDescription(ReferenceTrackerSearchScope scopes)
@@ -193,12 +235,79 @@ namespace LegendaryTools.Editor
                 descriptions.Add("Searching Other supported asset files.");
             }
 
+            if ((scopes & ReferenceTrackerSearchScope.AnimatorControllersAndAnimationClips) != 0)
+            {
+                descriptions.Add("Searching Animator Controllers / Animation Clips.");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.TimelineAssets) != 0)
+            {
+                descriptions.Add("Searching Timeline assets.");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.AddressablesGroups) != 0)
+            {
+                descriptions.Add("Searching Addressables groups.");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.ResourcesFolders) != 0)
+            {
+                descriptions.Add("Searching Resources folders.");
+            }
+
+            if ((scopes & ReferenceTrackerSearchScope.AssetBundles) != 0)
+            {
+                descriptions.Add("Searching Asset Bundles.");
+            }
+
             if (!IsPrefabModeAvailable)
             {
                 descriptions.Add("Prefab Mode is available only while a prefab stage is open.");
             }
 
             return string.Join("\n", descriptions.ToArray());
+        }
+
+        private static bool IsAnimatorControllerOrAnimationClipExtension(string extension)
+        {
+            return string.Equals(extension, ".controller", System.StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(extension, ".overrideController", System.StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(extension, ".anim", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAddressablesGroupPath(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath))
+            {
+                return false;
+            }
+
+            string normalized = assetPath.Replace("\\", "/");
+            return normalized.IndexOf("/AddressableAssetsData/AssetGroups/", System.StringComparison.OrdinalIgnoreCase) >= 0 &&
+                   string.Equals(System.IO.Path.GetExtension(normalized), ".asset", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsInResourcesFolder(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath))
+            {
+                return false;
+            }
+
+            string normalized = assetPath.Replace("\\", "/");
+            return normalized.StartsWith("Assets/Resources/", System.StringComparison.OrdinalIgnoreCase) ||
+                   normalized.IndexOf("/Resources/", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool HasAssetBundleName(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath))
+            {
+                return false;
+            }
+
+            AssetImporter importer = AssetImporter.GetAtPath(assetPath);
+            return importer != null && !string.IsNullOrEmpty(importer.assetBundleName);
         }
     }
 }
