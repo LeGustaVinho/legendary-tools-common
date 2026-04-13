@@ -1,6 +1,7 @@
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace LegendaryTools.Editor
 {
@@ -85,7 +86,8 @@ namespace LegendaryTools.Editor
             }
 
             return !string.IsNullOrEmpty(result.AssetPath) &&
-                   result.AssetPath.EndsWith(".prefab", System.StringComparison.OrdinalIgnoreCase);
+                   result.AssetPath.EndsWith(".prefab", System.StringComparison.OrdinalIgnoreCase) &&
+                   !IsPrefabOpenInPrefabMode(result.AssetPath);
         }
 
         public static void OpenPrefab(ReferenceTrackerUsageResult result)
@@ -110,7 +112,8 @@ namespace LegendaryTools.Editor
             }
 
             return !string.IsNullOrEmpty(result.AssetPath) &&
-                   result.AssetPath.EndsWith(".unity", System.StringComparison.OrdinalIgnoreCase);
+                   result.AssetPath.EndsWith(".unity", System.StringComparison.OrdinalIgnoreCase) &&
+                   !IsSceneOpen(result.AssetPath);
         }
 
         public static void OpenScene(ReferenceTrackerUsageResult result)
@@ -121,6 +124,35 @@ namespace LegendaryTools.Editor
             }
 
             EditorSceneManager.OpenScene(result.AssetPath);
+        }
+
+        private static bool IsPrefabOpenInPrefabMode(string assetPath)
+        {
+            PrefabStage stage = PrefabStageUtility.GetCurrentPrefabStage();
+            return stage != null &&
+                   !string.IsNullOrEmpty(stage.assetPath) &&
+                   string.Equals(stage.assetPath, assetPath, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsSceneOpen(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                Scene scene = SceneManager.GetSceneAt(i);
+                if (scene.IsValid() &&
+                    scene.isLoaded &&
+                    string.Equals(scene.path, assetPath, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public static string GetCopyPath(ReferenceTrackerUsageResult result)

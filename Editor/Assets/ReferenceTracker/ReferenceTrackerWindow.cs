@@ -444,10 +444,6 @@ namespace LegendaryTools.Editor
                 {
                     _state.SearchScopes = ScopeResolver.Normalize(newSearchScopes);
                 }
-
-                EditorGUILayout.Space(4f);
-                EditorGUILayout.LabelField(ScopeResolver.GetDescription(_state.SearchScopes),
-                    EditorStyles.wordWrappedMiniLabel);
             }
         }
 

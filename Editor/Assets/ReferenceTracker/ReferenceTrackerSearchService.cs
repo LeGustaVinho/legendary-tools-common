@@ -614,9 +614,15 @@ namespace LegendaryTools.Editor
                 return;
             }
 
-            GameObject source = PrefabUtility.GetCorrespondingObjectFromSource(instanceRoot) as GameObject;
-            string sourcePath = source != null ? AssetDatabase.GetAssetPath(source) : string.Empty;
-            if (!string.Equals(sourcePath, targetContext.TargetAssetPath, StringComparison.OrdinalIgnoreCase))
+            if (!IsPrefabInstanceRootForTarget(instanceRoot, targetContext, out GameObject source))
+            {
+                return;
+            }
+
+            GameObject outermostRoot = PrefabUtility.GetOutermostPrefabInstanceRoot(candidate);
+            if (outermostRoot != null &&
+                outermostRoot != candidate &&
+                IsPrefabInstanceRootForTarget(outermostRoot, targetContext, out _))
             {
                 return;
             }
@@ -689,6 +695,11 @@ namespace LegendaryTools.Editor
 
                 if (!IsMatch(targetContext, referencedObject, out string referenceTypeLabel))
                 {
+                continue;
+            }
+
+                if (IsSerializedReferenceInsideTargetPrefabInstance(targetContext, hostGameObject, hostObject))
+                {
                     continue;
                 }
 
@@ -719,6 +730,68 @@ namespace LegendaryTools.Editor
 
                 AddResult(results, resultKeys, usage);
             }
+        }
+
+        private static bool IsSerializedReferenceInsideTargetPrefabInstance(
+            ReferenceTrackerSearchTargetContext targetContext,
+            GameObject hostGameObject,
+            UnityEngine.Object hostObject)
+        {
+            if (!IsPrefabAssetTarget(targetContext))
+            {
+                return false;
+            }
+
+            GameObject host = hostGameObject;
+            if (host == null)
+            {
+                host = hostObject as GameObject;
+            }
+
+            Component hostComponent = hostObject as Component;
+            if (host == null && hostComponent != null)
+            {
+                host = hostComponent.gameObject;
+            }
+
+            if (host == null || !PrefabUtility.IsPartOfPrefabInstance(host))
+            {
+                return false;
+            }
+
+            GameObject nearestRoot = PrefabUtility.GetNearestPrefabInstanceRoot(host);
+            if (IsPrefabInstanceRootForTarget(nearestRoot, targetContext, out _))
+            {
+                return true;
+            }
+
+            GameObject outermostRoot = PrefabUtility.GetOutermostPrefabInstanceRoot(host);
+            return IsPrefabInstanceRootForTarget(outermostRoot, targetContext, out _);
+        }
+
+        private static bool IsPrefabAssetTarget(ReferenceTrackerSearchTargetContext targetContext)
+        {
+            return targetContext != null &&
+                   targetContext.IsAssetTarget &&
+                   !string.IsNullOrEmpty(targetContext.TargetAssetPath) &&
+                   targetContext.TargetAssetPath.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPrefabInstanceRootForTarget(
+            GameObject instanceRoot,
+            ReferenceTrackerSearchTargetContext targetContext,
+            out GameObject source)
+        {
+            source = null;
+
+            if (instanceRoot == null || !IsPrefabAssetTarget(targetContext))
+            {
+                return false;
+            }
+
+            source = PrefabUtility.GetCorrespondingObjectFromSource(instanceRoot) as GameObject;
+            string sourcePath = source != null ? AssetDatabase.GetAssetPath(source) : string.Empty;
+            return string.Equals(sourcePath, targetContext.TargetAssetPath, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsMatch(
