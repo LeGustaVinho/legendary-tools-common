@@ -31,6 +31,16 @@ namespace LegendaryTools.Editor
         public bool IsSearching;
         public ReferenceTrackerSortColumn SortColumn = ReferenceTrackerSortColumn.Asset;
         public bool SortAscending = true;
+        public float[] ResultColumnWidths =
+        {
+            92f,
+            260f,
+            230f,
+            170f,
+            230f,
+            150f,
+            388f,
+        };
     }
 
     internal enum ReferenceTrackerSortColumn

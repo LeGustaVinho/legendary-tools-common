@@ -19,17 +19,41 @@ namespace LegendaryTools.Editor
         private const string ComponentContextPath = "CONTEXT/Component/Reference Tracker/Find References In Current Scope";
         private const string AssetContextPath = "Assets/Reference Tracker/Find References";
 
-        private const float TableWidth = 1520f;
         private const float TableHeaderHeight = 28f;
         private const float TableGroupHeight = 28f;
         private const float TableRowHeight = 34f;
-        private const float KindColumnWidth = 92f;
-        private const float AssetColumnWidth = 260f;
-        private const float GameObjectColumnWidth = 230f;
-        private const float ComponentColumnWidth = 170f;
-        private const float PropertyColumnWidth = 230f;
-        private const float ReferenceColumnWidth = 150f;
-        private const float ActionsColumnWidth = 388f;
+        private const float ColumnResizeHandleWidth = 6f;
+        private const float ColumnResizeVisualWidth = 2f;
+        private const int KindColumnIndex = 0;
+        private const int AssetColumnIndex = 1;
+        private const int GameObjectColumnIndex = 2;
+        private const int ComponentColumnIndex = 3;
+        private const int PropertyColumnIndex = 4;
+        private const int ReferenceColumnIndex = 5;
+        private const int ActionsColumnIndex = 6;
+        private const int TableColumnCount = 7;
+
+        private static readonly float[] DefaultColumnWidths =
+        {
+            92f,
+            260f,
+            230f,
+            170f,
+            230f,
+            150f,
+            388f,
+        };
+
+        private static readonly float[] MinimumColumnWidths =
+        {
+            64f,
+            140f,
+            150f,
+            110f,
+            130f,
+            100f,
+            300f,
+        };
 
         private static readonly ReferenceTrackerScopeResolver ScopeResolver = new ReferenceTrackerScopeResolver();
         private static readonly ReferenceTrackerSearchService SearchService = new ReferenceTrackerSearchService(ScopeResolver);
@@ -67,6 +91,9 @@ namespace LegendaryTools.Editor
         private ReferenceTrackerSortColumn _cachedSortColumn;
         private bool _cachedSortAscending;
         private float _tableContentHeight = TableHeaderHeight;
+        private int _resizingColumnIndex = -1;
+        private float _resizeStartMouseX;
+        private float _resizeStartColumnWidth;
 
         private GUIStyle _titleStyle;
         private GUIStyle _sectionTitleStyle;
@@ -85,7 +112,7 @@ namespace LegendaryTools.Editor
             window.Show();
         }
 
-        [MenuItem(GameObjectMenuPath, false, 49)]
+        [MenuItem(GameObjectMenuPath, false, 0)]
         private static void FindFromGameObjectMenu(MenuCommand command)
         {
             GameObject gameObject = command.context as GameObject;
@@ -181,6 +208,7 @@ namespace LegendaryTools.Editor
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _searchCancellation = null;
+            _resizingColumnIndex = -1;
         }
 
         private void OnSelectionChange()
@@ -212,6 +240,26 @@ namespace LegendaryTools.Editor
             if (_state == null)
             {
                 _state = new ReferenceTrackerWindowState();
+            }
+
+            EnsureColumnWidths();
+        }
+
+        private void EnsureColumnWidths()
+        {
+            if (_state.ResultColumnWidths == null || _state.ResultColumnWidths.Length != TableColumnCount)
+            {
+                _state.ResultColumnWidths = new float[TableColumnCount];
+            }
+
+            for (int i = 0; i < TableColumnCount; i++)
+            {
+                if (_state.ResultColumnWidths[i] <= 0f)
+                {
+                    _state.ResultColumnWidths[i] = DefaultColumnWidths[i];
+                }
+
+                _state.ResultColumnWidths[i] = Mathf.Max(_state.ResultColumnWidths[i], MinimumColumnWidths[i]);
             }
         }
 
@@ -616,23 +664,24 @@ namespace LegendaryTools.Editor
                 }
 
                 EnsureTableCache();
+                float tableWidth = GetTableWidth();
                 _resultsScroll = EditorGUILayout.BeginScrollView(_resultsScroll);
 
                 Rect contentRect = GUILayoutUtility.GetRect(
-                    TableWidth,
+                    tableWidth,
                     _tableContentHeight,
-                    GUILayout.Width(TableWidth),
+                    GUILayout.Width(tableWidth),
                     GUILayout.Height(_tableContentHeight));
 
                 float visibleTop = contentRect.y + _resultsScroll.y - TableRowHeight;
                 float visibleBottom = contentRect.y + _resultsScroll.y + position.height + TableRowHeight;
 
-                DrawTableHeader(new Rect(contentRect.x, contentRect.y, TableWidth, TableHeaderHeight));
+                DrawTableHeader(new Rect(contentRect.x, contentRect.y, tableWidth, TableHeaderHeight));
 
                 for (int i = 0; i < _tableRowsCache.Count; i++)
                 {
                     TableRowEntry entry = _tableRowsCache[i];
-                    Rect row = new Rect(contentRect.x, contentRect.y + entry.Y, TableWidth, entry.Height);
+                    Rect row = new Rect(contentRect.x, contentRect.y + entry.Y, tableWidth, entry.Height);
                     if (row.yMax < visibleTop || row.y > visibleBottom)
                     {
                         continue;
@@ -778,6 +827,31 @@ namespace LegendaryTools.Editor
             destination.Sort(CompareResultsForCurrentSort);
         }
 
+        private float GetTableWidth()
+        {
+            EnsureColumnWidths();
+
+            float width = 0f;
+            for (int i = 0; i < TableColumnCount; i++)
+            {
+                width += _state.ResultColumnWidths[i];
+            }
+
+            return width;
+        }
+
+        private float GetColumnWidth(int columnIndex)
+        {
+            EnsureColumnWidths();
+            return _state.ResultColumnWidths[columnIndex];
+        }
+
+        private void SetColumnWidth(int columnIndex, float width)
+        {
+            EnsureColumnWidths();
+            _state.ResultColumnWidths[columnIndex] = Mathf.Max(width, MinimumColumnWidths[columnIndex]);
+        }
+
         private void DrawTableHeader(Rect row)
         {
             Color background = EditorGUIUtility.isProSkin
@@ -787,14 +861,14 @@ namespace LegendaryTools.Editor
             EditorGUI.DrawRect(row, background);
 
             float x = row.x;
-            DrawHeaderCell(ref x, row, "Kind", KindColumnWidth, ReferenceTrackerSortColumn.Kind, true);
-            DrawHeaderCell(ref x, row, "Asset", AssetColumnWidth, ReferenceTrackerSortColumn.Asset, true);
-            DrawHeaderCell(ref x, row, "GameObject / Object", GameObjectColumnWidth,
+            DrawHeaderCell(ref x, row, "Kind", KindColumnIndex, ReferenceTrackerSortColumn.Kind, true);
+            DrawHeaderCell(ref x, row, "Asset", AssetColumnIndex, ReferenceTrackerSortColumn.Asset, true);
+            DrawHeaderCell(ref x, row, "GameObject / Object", GameObjectColumnIndex,
                 ReferenceTrackerSortColumn.GameObject, true);
-            DrawHeaderCell(ref x, row, "Component", ComponentColumnWidth, ReferenceTrackerSortColumn.Component, true);
-            DrawHeaderCell(ref x, row, "Property", PropertyColumnWidth, ReferenceTrackerSortColumn.Property, true);
-            DrawHeaderCell(ref x, row, "Reference", ReferenceColumnWidth, ReferenceTrackerSortColumn.Reference, true);
-            DrawHeaderCell(ref x, row, "Actions", ActionsColumnWidth, ReferenceTrackerSortColumn.Asset, false);
+            DrawHeaderCell(ref x, row, "Component", ComponentColumnIndex, ReferenceTrackerSortColumn.Component, true);
+            DrawHeaderCell(ref x, row, "Property", PropertyColumnIndex, ReferenceTrackerSortColumn.Property, true);
+            DrawHeaderCell(ref x, row, "Reference", ReferenceColumnIndex, ReferenceTrackerSortColumn.Reference, true);
+            DrawHeaderCell(ref x, row, "Actions", ActionsColumnIndex, ReferenceTrackerSortColumn.Asset, false);
         }
 
         private void DrawGroupRow(ReferenceTrackerGroupBucket bucket, Rect row)
@@ -834,53 +908,126 @@ namespace LegendaryTools.Editor
             }
 
             float x = row.x;
-            DrawTextCell(ref x, row, result.AssetKindLabel, result.AssetKindLabel, KindColumnWidth, _tableMiniCellStyle);
-            DrawTextCell(ref x, row, GetAssetText(result), result.AssetPath, AssetColumnWidth, _tableCellStyle);
-            DrawTextCell(ref x, row, GetHostText(result), GetHostTooltip(result), GameObjectColumnWidth, _tableCellStyle);
-            DrawTextCell(ref x, row, result.HostComponentLabel, result.HostComponentLabel, ComponentColumnWidth,
-                _tableCellStyle);
-            DrawTextCell(ref x, row, GetPropertyText(result), result.PropertyPath, PropertyColumnWidth,
-                _tableCellStyle);
-            DrawTextCell(ref x, row, result.ReferenceTypeLabel, result.ReferenceTypeLabel, ReferenceColumnWidth,
+            DrawTextCell(ref x, row, result.AssetKindLabel, result.AssetKindLabel, KindColumnIndex,
                 _tableMiniCellStyle);
-            DrawActionsCell(new Rect(x, row.y, ActionsColumnWidth, row.height), result);
+            DrawTextCell(ref x, row, GetAssetText(result), result.AssetPath, AssetColumnIndex, _tableCellStyle);
+            DrawTextCell(ref x, row, GetHostText(result), GetHostTooltip(result), GameObjectColumnIndex,
+                _tableCellStyle);
+            DrawTextCell(ref x, row, result.HostComponentLabel, result.HostComponentLabel, ComponentColumnIndex,
+                _tableCellStyle);
+            DrawTextCell(ref x, row, GetPropertyText(result), result.PropertyPath, PropertyColumnIndex,
+                _tableCellStyle);
+            DrawTextCell(ref x, row, result.ReferenceTypeLabel, result.ReferenceTypeLabel, ReferenceColumnIndex,
+                _tableMiniCellStyle);
+            DrawActionsCell(new Rect(x, row.y, GetColumnWidth(ActionsColumnIndex), row.height), result);
         }
 
         private void DrawHeaderCell(
             ref float x,
             Rect row,
             string label,
-            float width,
+            int columnIndex,
             ReferenceTrackerSortColumn sortColumn,
             bool sortable)
         {
+            float width = GetColumnWidth(columnIndex);
             Rect cell = new Rect(x, row.y, width, row.height);
+            Rect contentCell = new Rect(cell.x, cell.y, Mathf.Max(0f, cell.width - ColumnResizeHandleWidth), cell.height);
             string sortIndicator = sortable && _state.SortColumn == sortColumn
                 ? (_state.SortAscending ? "  ^" : "  v")
                 : string.Empty;
 
             if (sortable)
             {
-                if (GUI.Button(cell, GetTempContent(label + sortIndicator, "Sort by " + label), _tableHeaderStyle))
+                if (GUI.Button(contentCell, GetTempContent(label + sortIndicator, "Sort by " + label),
+                        _tableHeaderStyle))
                 {
                     SetSortColumn(sortColumn);
                 }
             }
             else
             {
-                GUI.Label(cell, label, _tableHeaderStyle);
+                GUI.Label(contentCell, label, _tableHeaderStyle);
             }
 
+            DrawColumnResizeHandle(cell, columnIndex);
             DrawColumnSeparator(cell);
             x += width;
         }
 
-        private void DrawTextCell(ref float x, Rect row, string text, string tooltip, float width, GUIStyle style)
+        private void DrawTextCell(ref float x, Rect row, string text, string tooltip, int columnIndex, GUIStyle style)
         {
+            float width = GetColumnWidth(columnIndex);
             Rect cell = new Rect(x, row.y, width, row.height);
             GUI.Label(cell, GetTempContent(text, tooltip), style);
             DrawColumnSeparator(cell);
             x += width;
+        }
+
+        private void DrawColumnResizeHandle(Rect cell, int columnIndex)
+        {
+            Rect handle = new Rect(
+                cell.xMax - ColumnResizeHandleWidth,
+                cell.y,
+                ColumnResizeHandleWidth,
+                cell.height);
+
+            EditorGUIUtility.AddCursorRect(handle, MouseCursor.ResizeHorizontal);
+
+            int controlId = GUIUtility.GetControlID(
+                "ReferenceTrackerColumnResize".GetHashCode() + columnIndex,
+                FocusType.Passive,
+                handle);
+
+            Event current = Event.current;
+            switch (current.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown:
+                    if (current.button == 0 && handle.Contains(current.mousePosition))
+                    {
+                        _resizingColumnIndex = columnIndex;
+                        _resizeStartMouseX = current.mousePosition.x;
+                        _resizeStartColumnWidth = GetColumnWidth(columnIndex);
+                        GUIUtility.hotControl = controlId;
+                        current.Use();
+                    }
+
+                    break;
+
+                case EventType.MouseDrag:
+                    if (GUIUtility.hotControl == controlId && _resizingColumnIndex == columnIndex)
+                    {
+                        SetColumnWidth(
+                            columnIndex,
+                            _resizeStartColumnWidth + current.mousePosition.x - _resizeStartMouseX);
+                        current.Use();
+                        Repaint();
+                    }
+
+                    break;
+
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl == controlId && _resizingColumnIndex == columnIndex)
+                    {
+                        GUIUtility.hotControl = 0;
+                        _resizingColumnIndex = -1;
+                        current.Use();
+                        Repaint();
+                    }
+
+                    break;
+            }
+
+            Color color = _resizingColumnIndex == columnIndex
+                ? (EditorGUIUtility.isProSkin ? new Color(0.36f, 0.62f, 0.95f, 0.95f) : new Color(0.15f, 0.38f, 0.70f, 0.95f))
+                : (EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.18f) : new Color(0f, 0f, 0f, 0.18f));
+
+            Rect visual = new Rect(
+                cell.xMax - ColumnResizeVisualWidth,
+                cell.y + 5f,
+                ColumnResizeVisualWidth,
+                cell.height - 10f);
+            EditorGUI.DrawRect(visual, color);
         }
 
         private GUIContent GetTempContent(string text, string tooltip)
