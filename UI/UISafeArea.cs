@@ -58,6 +58,9 @@ namespace LegendaryTools.UI
 
         private void ApplySafeArea()
         {
+            if (Screen.width <= 0 || Screen.height <= 0)
+                return;
+
             Rect safeArea = Screen.safeArea;
 
             // Aplica os offsets
@@ -72,16 +75,33 @@ namespace LegendaryTools.UI
             safeArea.yMin = Mathf.Clamp(safeArea.yMin, 0, Screen.height);
             safeArea.yMax = Mathf.Clamp(safeArea.yMax, safeArea.yMin, Screen.height);
 
-            Vector2 anchorMin = safeArea.position;
-            Vector2 anchorMax = safeArea.position + safeArea.size;
+            RectTransform parentRectTransform = rectTransform.parent as RectTransform;
+            if (parentRectTransform == null)
+                return;
 
-            anchorMin.x /= Screen.width;
-            anchorMin.y /= Screen.height;
-            anchorMax.x /= Screen.width;
-            anchorMax.y /= Screen.height;
+            Rect parentRect = parentRectTransform.rect;
+            Vector2 parentSize = parentRect.size;
 
-            rectTransform.anchorMin = anchorMin;
-            rectTransform.anchorMax = anchorMax;
+            Vector2 safeAreaMin = safeArea.position;
+            Vector2 safeAreaMax = safeArea.position + safeArea.size;
+
+            safeAreaMin.x /= Screen.width;
+            safeAreaMin.y /= Screen.height;
+            safeAreaMax.x /= Screen.width;
+            safeAreaMax.y /= Screen.height;
+
+            Vector2 targetMin = parentRect.min + Vector2.Scale(safeAreaMin, parentSize);
+            Vector2 targetMax = parentRect.min + Vector2.Scale(safeAreaMax, parentSize);
+            Vector2 targetSize = targetMax - targetMin;
+            Vector2 targetPivotPosition = targetMin + Vector2.Scale(targetSize, rectTransform.pivot);
+
+            rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, targetSize.x);
+            rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, targetSize.y);
+
+            Vector2 anchorPosition = rectTransform.anchorMin +
+                                     Vector2.Scale(rectTransform.anchorMax - rectTransform.anchorMin, rectTransform.pivot);
+            Vector2 anchorReference = parentRect.min + Vector2.Scale(anchorPosition, parentSize);
+            rectTransform.anchoredPosition = targetPivotPosition - anchorReference;
         }
 
 #if UNITY_EDITOR
