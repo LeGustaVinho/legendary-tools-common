@@ -1,0 +1,32 @@
+{
+    "name": "LegendaryTools.SpatialHashGrid",
+    "rootNamespace": "",
+    "references": [
+        "GUID:2247f345c1389cb428906dc038800b93",
+        "GUID:2665a8d13d1b3f18800f46e256720795",
+        "GUID:e0cd26848372d4e5c891c569017e11f1"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "HAS_UNITY_BURST",
+        "HAS_UNITY_COLLECTIONS"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.burst",
+            "expression": "",
+            "define": "HAS_UNITY_BURST"
+        },
+        {
+            "name": "com.unity.collections",
+            "expression": "",
+            "define": "HAS_UNITY_COLLECTIONS"
+        }
+    ],
+    "noEngineReferences": false
+}
