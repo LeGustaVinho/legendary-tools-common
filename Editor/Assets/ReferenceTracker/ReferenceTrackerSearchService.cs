@@ -675,7 +675,7 @@ namespace LegendaryTools.Editor
 
             while (iterator.Next(enterChildren))
             {
-                enterChildren = false;
+                enterChildren = iterator.propertyType != SerializedPropertyType.ObjectReference;
 
                 if (iterator.propertyType != SerializedPropertyType.ObjectReference)
                 {
@@ -695,8 +695,8 @@ namespace LegendaryTools.Editor
 
                 if (!IsMatch(targetContext, referencedObject, out string referenceTypeLabel))
                 {
-                continue;
-            }
+                    continue;
+                }
 
                 if (IsSerializedReferenceInsideTargetPrefabInstance(targetContext, hostGameObject, hostObject))
                 {
