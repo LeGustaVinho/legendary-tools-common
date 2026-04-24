@@ -27,8 +27,8 @@ namespace LegendaryTools.Editor
             All,
             ProbablyOrphan,
             VerifiedOrphan,
-            RuntimeReferenced,
-            IndirectlyReferenced,
+            RuntimeReachable,
+            NonRuntimeChain,
             Unknown,
             ResourcesOnly,
             AssetBundlesOnly,
@@ -46,8 +46,8 @@ namespace LegendaryTools.Editor
             Unknown,
             ProbablyOrphan,
             VerifiedOrphan,
-            RuntimeReferenced,
-            IndirectlyReferenced
+            RuntimeReachable,
+            NonRuntimeChain
         }
 
         [Flags]
@@ -80,8 +80,7 @@ namespace LegendaryTools.Editor
             Status,
             RuntimeUsage,
             ReferencedByCount,
-            EstimatedSize,
-            Notes
+            EstimatedSize
         }
 
         private sealed class OrphanAssetResult
@@ -100,6 +99,24 @@ namespace LegendaryTools.Editor
             public int DeepScanReferenceCount;
             public int BuildSettingsSceneReferenceCount;
             public UnityEngine.Object Asset;
+            public string CategoryLabel;
+            public string StatusLabel;
+            public string RuntimeUsageLabel;
+            public string EstimatedSizeLabel;
+        }
+
+        private struct SummaryStats
+        {
+            public int ActiveCount;
+            public int ProbablyOrphanCount;
+            public int VerifiedOrphanCount;
+            public int RuntimeReachableCount;
+            public int NonRuntimeChainCount;
+            public int UnknownCount;
+            public int ResourcesCount;
+            public int AssetBundleCount;
+            public int AddressablesCount;
+            public int BuildSettingsSceneReferenceCount;
         }
 
         private static readonly string[] MapperExtensions =
@@ -148,12 +165,16 @@ namespace LegendaryTools.Editor
         private const float RuntimeUsageColumnWidth = 230f;
         private const float ReferencedByCountColumnWidth = 86f;
         private const float EstimatedSizeColumnWidth = 110f;
-        private const float NotesColumnWidth = 360f;
-        private const float ActionsColumnWidth = 140f;
+        private const float ActionsColumnWidth = 210f;
+        private const float ResultRowHeight = 22f;
+        private const int ExtraVisibleRows = 8;
 
         private readonly List<OrphanAssetResult> _results = new();
+        private readonly List<OrphanAssetResult> _filteredResultsWithoutCategory = new();
+        private readonly List<OrphanAssetResult> _visibleResults = new();
         private readonly HashSet<string> _selectedAssetPaths = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> _ignoredFolders = new();
+        private readonly Dictionary<AssetCategoryFilter, int> _categoryCounts = new();
 
         private Vector2 _scrollPosition;
         private AssetGuidMapper _assetGuidMapper;
@@ -164,7 +185,6 @@ namespace LegendaryTools.Editor
         private string _searchText = string.Empty;
         private string _typeFilter = string.Empty;
         private string _rootFolder = "Assets";
-        private string _moveTargetFolder = "Assets";
         private string _ignoredFolderDraft = "Assets";
         private ResultFilter _resultFilter = ResultFilter.All;
         private ScanReferenceMode _scanReferenceMode = ScanReferenceMode.ScanWholeProject;
@@ -180,12 +200,16 @@ namespace LegendaryTools.Editor
         private GUIStyle _statLabelStyle;
         private GUIStyle _headerButtonStyle;
         private GUIStyle _pathLabelStyle;
-        private GUIStyle _notesLabelStyle;
         private GUIStyle _chipStyle;
         private GUIStyle _selectedChipStyle;
         private GUIStyle _statusPillStyle;
         private GUIStyle _mutedMiniLabelStyle;
         private GUIStyle _dangerButtonStyle;
+        private GUIStyle _rowEvenStyle;
+        private GUIStyle _rowOddStyle;
+        private bool _isResultViewCacheDirty = true;
+        private bool _isSummaryCacheDirty = true;
+        private SummaryStats _summaryStats;
 
         [MenuItem("Tools/LegendaryTools/Assets/Orphan Asset Scanner")]
         private static void OpenWindow()
@@ -262,6 +286,7 @@ namespace LegendaryTools.Editor
                         _selectedAssetPaths.Clear();
                         _scanProgress = 0f;
                         _scanStatus = "Results cleared.";
+                        InvalidateResultCaches();
                     }
 
                     GUILayout.FlexibleSpace();
@@ -277,21 +302,34 @@ namespace LegendaryTools.Editor
         {
             using (new EditorGUILayout.HorizontalScope())
             {
-                _rootFolder = EditorGUILayout.TextField("Root Folder", _rootFolder);
+                EditorGUI.BeginChangeCheck();
+                string rootFolder = EditorGUILayout.TextField("Root Folder", _rootFolder);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    _rootFolder = rootFolder;
+                    InvalidateViewCache();
+                }
+                else
+                {
+                    _rootFolder = rootFolder;
+                }
 
                 if (GUILayout.Button("Use Selected Folder", GUILayout.Width(160f)))
                 {
                     AssignFolderFromSelection(ref _rootFolder);
+                    InvalidateViewCache();
                 }
 
                 if (GUILayout.Button("Browse", GUILayout.Width(80f)))
                 {
                     BrowseForProjectFolder(ref _rootFolder);
+                    InvalidateViewCache();
                 }
 
                 if (GUILayout.Button("Reset", GUILayout.Width(80f)))
                 {
                     _rootFolder = "Assets";
+                    InvalidateViewCache();
                 }
             }
 
@@ -299,9 +337,23 @@ namespace LegendaryTools.Editor
 
             using (new EditorGUILayout.HorizontalScope())
             {
-                _searchText = EditorGUILayout.TextField("Search", _searchText);
-                _typeFilter = EditorGUILayout.TextField("Type Contains", _typeFilter);
-                _resultFilter = (ResultFilter)EditorGUILayout.EnumPopup("Status", _resultFilter, GUILayout.Width(320f));
+                EditorGUI.BeginChangeCheck();
+                string searchText = EditorGUILayout.TextField("Search", _searchText);
+                string typeFilter = EditorGUILayout.TextField("Type Contains", _typeFilter);
+                ResultFilter resultFilter = (ResultFilter)EditorGUILayout.EnumPopup("Status", _resultFilter, GUILayout.Width(320f));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    _searchText = searchText;
+                    _typeFilter = typeFilter;
+                    _resultFilter = resultFilter;
+                    InvalidateViewCache();
+                }
+                else
+                {
+                    _searchText = searchText;
+                    _typeFilter = typeFilter;
+                    _resultFilter = resultFilter;
+                }
             }
 
             using (new EditorGUILayout.HorizontalScope())
@@ -334,13 +386,14 @@ namespace LegendaryTools.Editor
 
         private void DrawBulkActions()
         {
+            IReadOnlyList<OrphanAssetResult> visibleResults = GetVisibleResults();
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.LabelField($"Selected: {_selectedAssetPaths.Count}", _sectionBodyStyle, GUILayout.Width(140f));
 
                 if (GUILayout.Button("Select Visible", GUILayout.Width(120f)))
                 {
-                    foreach (OrphanAssetResult result in GetVisibleResults())
+                    foreach (OrphanAssetResult result in visibleResults)
                     {
                         _selectedAssetPaths.Add(result.Path);
                     }
@@ -352,21 +405,6 @@ namespace LegendaryTools.Editor
                 }
 
                 GUILayout.FlexibleSpace();
-            }
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                _moveTargetFolder = EditorGUILayout.TextField("Move Target Folder", _moveTargetFolder);
-
-                if (GUILayout.Button("Use Selected Folder", GUILayout.Width(160f)))
-                {
-                    AssignFolderFromSelection(ref _moveTargetFolder);
-                }
-
-                if (GUILayout.Button("Browse", GUILayout.Width(80f)))
-                {
-                    BrowseForProjectFolder(ref _moveTargetFolder);
-                }
             }
 
             using (new EditorGUILayout.HorizontalScope())
@@ -399,31 +437,20 @@ namespace LegendaryTools.Editor
 
         private void DrawSummary()
         {
-            List<OrphanAssetResult> activeResults = _results
-                .Where(result => !IsIgnoredAssetPath(result.Path))
-                .ToList();
-
-            int probablyOrphanCount = activeResults.Count(result => result.Status == OrphanStatus.ProbablyOrphan);
-            int verifiedOrphanCount = activeResults.Count(result => result.Status == OrphanStatus.VerifiedOrphan);
-            int runtimeReferencedCount = activeResults.Count(result => result.Status == OrphanStatus.RuntimeReferenced);
-            int indirectlyReferencedCount = activeResults.Count(result => result.Status == OrphanStatus.IndirectlyReferenced);
-            int unknownCount = activeResults.Count(result => result.Status == OrphanStatus.Unknown);
-            int resourcesCount = activeResults.Count(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Resources));
-            int assetBundleCount = activeResults.Count(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.AssetBundle));
-            int addressablesCount = activeResults.Count(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Addressables));
+            EnsureSummaryCache();
 
             using (new EditorGUILayout.HorizontalScope())
             {
-                DrawStatCard("Candidates", activeResults.Count.ToString(), new Color(0.22f, 0.46f, 0.84f, 0.22f));
-                DrawStatCard("Probably Orphan", probablyOrphanCount.ToString(), new Color(0.16f, 0.62f, 0.42f, 0.22f));
-                DrawStatCard("Verified Orphan", verifiedOrphanCount.ToString(), new Color(0.14f, 0.49f, 0.32f, 0.26f));
-                DrawStatCard("Runtime-Referenced", runtimeReferencedCount.ToString(), new Color(0.82f, 0.56f, 0.17f, 0.22f));
-                DrawStatCard("Indirectly Referenced", indirectlyReferencedCount.ToString(), new Color(0.74f, 0.36f, 0.20f, 0.22f));
-                DrawStatCard("Unknown", unknownCount.ToString(), new Color(0.48f, 0.50f, 0.58f, 0.22f));
-                DrawStatCard("Build Scenes", activeResults.Sum(result => result.BuildSettingsSceneReferenceCount).ToString(), new Color(0.18f, 0.68f, 0.70f, 0.22f));
-                DrawStatCard("Resources", resourcesCount.ToString(), new Color(0.60f, 0.33f, 0.77f, 0.22f));
-                DrawStatCard("Bundles", assetBundleCount.ToString(), new Color(0.84f, 0.42f, 0.20f, 0.22f));
-                DrawStatCard("Addressables", addressablesCount.ToString(), new Color(0.18f, 0.68f, 0.70f, 0.22f));
+                DrawStatCard("Candidates", _summaryStats.ActiveCount.ToString(), new Color(0.22f, 0.46f, 0.84f, 0.22f));
+                DrawStatCard("Probably Orphan", _summaryStats.ProbablyOrphanCount.ToString(), new Color(0.16f, 0.62f, 0.42f, 0.22f));
+                DrawStatCard("Verified Orphan", _summaryStats.VerifiedOrphanCount.ToString(), new Color(0.14f, 0.49f, 0.32f, 0.26f));
+                DrawStatCard("Runtime Reachable", _summaryStats.RuntimeReachableCount.ToString(), new Color(0.82f, 0.56f, 0.17f, 0.22f));
+                DrawStatCard("Non-Runtime Chain", _summaryStats.NonRuntimeChainCount.ToString(), new Color(0.74f, 0.36f, 0.20f, 0.22f));
+                DrawStatCard("Unknown", _summaryStats.UnknownCount.ToString(), new Color(0.48f, 0.50f, 0.58f, 0.22f));
+                DrawStatCard("Build Scenes", _summaryStats.BuildSettingsSceneReferenceCount.ToString(), new Color(0.18f, 0.68f, 0.70f, 0.22f));
+                DrawStatCard("Resources", _summaryStats.ResourcesCount.ToString(), new Color(0.60f, 0.33f, 0.77f, 0.22f));
+                DrawStatCard("Bundles", _summaryStats.AssetBundleCount.ToString(), new Color(0.84f, 0.42f, 0.20f, 0.22f));
+                DrawStatCard("Addressables", _summaryStats.AddressablesCount.ToString(), new Color(0.18f, 0.68f, 0.70f, 0.22f));
             }
         }
 
@@ -431,19 +458,36 @@ namespace LegendaryTools.Editor
         {
             EditorGUILayout.Space();
 
-            List<OrphanAssetResult> visibleResults = GetVisibleResults().ToList();
+            IReadOnlyList<OrphanAssetResult> visibleResults = GetVisibleResults();
             DrawTableHeader(visibleResults);
-
-            _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
-
-            for (int i = 0; i < visibleResults.Count; i++)
-            {
-                DrawRow(visibleResults[i], i);
-            }
 
             if (visibleResults.Count == 0)
             {
                 EditorGUILayout.HelpBox("No results match the current filters.", MessageType.None);
+                return;
+            }
+
+            _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
+
+            int startIndex = Mathf.Clamp(Mathf.FloorToInt(_scrollPosition.y / ResultRowHeight), 0, visibleResults.Count - 1);
+            int visibleRowCount = Mathf.CeilToInt(position.height / ResultRowHeight) + ExtraVisibleRows;
+            int endIndex = Mathf.Min(visibleResults.Count, startIndex + visibleRowCount);
+            float topPadding = startIndex * ResultRowHeight;
+            float bottomPadding = Mathf.Max(0f, (visibleResults.Count - endIndex) * ResultRowHeight);
+
+            if (topPadding > 0f)
+            {
+                GUILayout.Space(topPadding);
+            }
+
+            for (int i = startIndex; i < endIndex; i++)
+            {
+                DrawRow(visibleResults[i], i);
+            }
+
+            if (bottomPadding > 0f)
+            {
+                GUILayout.Space(bottomPadding);
             }
 
             EditorGUILayout.EndScrollView();
@@ -451,19 +495,44 @@ namespace LegendaryTools.Editor
 
         private void DrawTableHeader(IReadOnlyCollection<OrphanAssetResult> visibleResults)
         {
-            using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
+            Rect clipRect = EditorGUILayout.GetControlRect(false, 24f, GUILayout.ExpandWidth(true));
+            GUI.BeginGroup(clipRect);
+            Rect contentRect = new(-_scrollPosition.x, 0f, GetResultsTableWidth(), clipRect.height);
+            GUILayout.BeginArea(contentRect);
+            try
             {
-                DrawSelectionHeader(visibleResults);
-                DrawSortableHeader("Name", SortColumn.Name, NameColumnWidth);
-                DrawSortableHeader("Type", SortColumn.Type, TypeColumnWidth);
-                DrawSortableHeader("Path", SortColumn.Path, PathColumnWidth);
-                DrawSortableHeader("Status", SortColumn.Status, StatusColumnWidth);
-                DrawSortableHeader("Runtime Usage", SortColumn.RuntimeUsage, RuntimeUsageColumnWidth);
-                DrawSortableHeader("Ref By", SortColumn.ReferencedByCount, ReferencedByCountColumnWidth);
-                DrawSortableHeader("Est. Size", SortColumn.EstimatedSize, EstimatedSizeColumnWidth);
-                DrawSortableHeader("Notes", SortColumn.Notes, NotesColumnWidth);
-                GUILayout.Label("Actions", _sectionBodyStyle, GUILayout.Width(ActionsColumnWidth));
+                using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox, GUILayout.Width(GetResultsTableWidth())))
+                {
+                    DrawSelectionHeader(visibleResults);
+                    DrawSortableHeader("Name", SortColumn.Name, NameColumnWidth);
+                    DrawSortableHeader("Type", SortColumn.Type, TypeColumnWidth);
+                    DrawSortableHeader("Path", SortColumn.Path, PathColumnWidth);
+                    DrawSortableHeader("Status", SortColumn.Status, StatusColumnWidth);
+                    DrawSortableHeader("Runtime Usage", SortColumn.RuntimeUsage, RuntimeUsageColumnWidth);
+                    DrawSortableHeader("Ref By", SortColumn.ReferencedByCount, ReferencedByCountColumnWidth);
+                    DrawSortableHeader("Est. Size", SortColumn.EstimatedSize, EstimatedSizeColumnWidth);
+                    GUILayout.Label("Actions", _sectionBodyStyle, GUILayout.Width(ActionsColumnWidth));
+                }
             }
+            finally
+            {
+                GUILayout.EndArea();
+                GUI.EndGroup();
+            }
+        }
+
+        private static float GetResultsTableWidth()
+        {
+            return ToggleColumnWidth +
+                   NameColumnWidth +
+                   TypeColumnWidth +
+                   PathColumnWidth +
+                   StatusColumnWidth +
+                   RuntimeUsageColumnWidth +
+                   ReferencedByCountColumnWidth +
+                   EstimatedSizeColumnWidth +
+                   ActionsColumnWidth +
+                   32f;
         }
 
         private void DrawSelectionHeader(IReadOnlyCollection<OrphanAssetResult> visibleResults)
@@ -506,127 +575,181 @@ namespace LegendaryTools.Editor
 
         private void DrawRow(OrphanAssetResult result, int index)
         {
-            GUIStyle backgroundStyle = new GUIStyle((index & 1) == 0 ? "CN EntryBackEven" : "CN EntryBackOdd");
-            Rect rowRect = EditorGUILayout.BeginHorizontal();
-            GUI.Box(rowRect, GUIContent.none, backgroundStyle);
-
-            bool isSelected = _selectedAssetPaths.Contains(result.Path);
-            bool newSelection = GUILayout.Toggle(isSelected, GUIContent.none, GUILayout.Width(ToggleColumnWidth));
-            if (newSelection != isSelected)
+            Rect rowRect = EditorGUILayout.BeginHorizontal(GUILayout.Height(ResultRowHeight));
+            try
             {
-                if (newSelection)
+                if (Event.current.type == EventType.Repaint)
                 {
-                    _selectedAssetPaths.Add(result.Path);
+                    Color rowColor = (index & 1) == 0
+                        ? new Color(1f, 1f, 1f, 0.03f)
+                        : new Color(0f, 0f, 0f, 0.06f);
+                    EditorGUI.DrawRect(rowRect, rowColor);
                 }
-                else
+
+                bool isSelected = _selectedAssetPaths.Contains(result.Path);
+                bool newSelection = GUILayout.Toggle(isSelected, GUIContent.none, GUILayout.Width(ToggleColumnWidth));
+                if (newSelection != isSelected)
                 {
-                    _selectedAssetPaths.Remove(result.Path);
+                    if (newSelection)
+                    {
+                        _selectedAssetPaths.Add(result.Path);
+                    }
+                    else
+                    {
+                        _selectedAssetPaths.Remove(result.Path);
+                    }
+                }
+
+                GUILayout.Label(result.Name ?? string.Empty, GUILayout.Width(NameColumnWidth), GUILayout.Height(ResultRowHeight));
+                GUILayout.Label(result.CategoryLabel ?? string.Empty, GUILayout.Width(TypeColumnWidth), GUILayout.Height(ResultRowHeight));
+                GUILayout.Label(result.Path ?? string.Empty, _pathLabelStyle, GUILayout.Width(PathColumnWidth), GUILayout.Height(ResultRowHeight));
+                DrawStatusPill(result.StatusLabel ?? "Unknown", GUILayout.Width(StatusColumnWidth), GUILayout.Height(ResultRowHeight - 2f));
+                GUILayout.Label(result.RuntimeUsageLabel ?? string.Empty, GUILayout.Width(RuntimeUsageColumnWidth), GUILayout.Height(ResultRowHeight));
+                GUILayout.Label(result.DeepScanPerformed ? result.DeepScanReferenceCount.ToString() : "-", GUILayout.Width(ReferencedByCountColumnWidth));
+                GUILayout.Label(result.EstimatedSizeLabel ?? string.Empty, GUILayout.Width(EstimatedSizeColumnWidth), GUILayout.Height(ResultRowHeight));
+
+                using (new EditorGUILayout.HorizontalScope(GUILayout.Width(ActionsColumnWidth)))
+                {
+                    if (GUILayout.Button("Ping", GUILayout.Width(60f), GUILayout.Height(ResultRowHeight - 4f)))
+                    {
+                        FocusAsset(result.Asset);
+                    }
+
+                    if (GUILayout.Button("Ref Tracker", GUILayout.Width(76f), GUILayout.Height(ResultRowHeight - 4f)))
+                    {
+                        OpenResultInReferenceTracker(result);
+                    }
+
+                    if (GUILayout.Button("Reveal", GUILayout.Width(70f), GUILayout.Height(ResultRowHeight - 4f)))
+                    {
+                        EditorUtility.RevealInFinder(ToAbsolutePath(result.Path));
+                    }
                 }
             }
-
-            GUILayout.Label(result.Name, GUILayout.Width(NameColumnWidth));
-            GUILayout.Label(GetDisplayCategoryLabel(result), GUILayout.Width(TypeColumnWidth));
-            GUILayout.Label(result.Path, _pathLabelStyle, GUILayout.Width(PathColumnWidth));
-            DrawStatusPill(GetDisplayStatusLabel(result.Status), GUILayout.Width(StatusColumnWidth));
-            GUILayout.Label(BuildRuntimeUsageLabel(result), GUILayout.Width(RuntimeUsageColumnWidth));
-            GUILayout.Label(result.DeepScanPerformed ? result.DeepScanReferenceCount.ToString() : "-", GUILayout.Width(ReferencedByCountColumnWidth));
-            GUILayout.Label(FormatBytes(result.EstimatedSizeBytes), GUILayout.Width(EstimatedSizeColumnWidth));
-            GUILayout.Label(result.Notes, _notesLabelStyle, GUILayout.Width(NotesColumnWidth));
-
-            using (new EditorGUILayout.HorizontalScope(GUILayout.Width(ActionsColumnWidth)))
+            finally
             {
-                if (GUILayout.Button("Ping", GUILayout.Width(60f)))
-                {
-                    FocusAsset(result.Asset);
-                }
-
-                if (GUILayout.Button("Reveal", GUILayout.Width(70f)))
-                {
-                    EditorUtility.RevealInFinder(ToAbsolutePath(result.Path));
-                }
+                EditorGUILayout.EndHorizontal();
             }
-
-            EditorGUILayout.EndHorizontal();
         }
 
-        private IEnumerable<OrphanAssetResult> GetVisibleResults()
+        private IReadOnlyList<OrphanAssetResult> GetVisibleResults()
         {
-            IEnumerable<OrphanAssetResult> query = GetFilteredResultsWithoutCategoryFilter();
-            if (_assetCategoryFilter != AssetCategoryFilter.None)
-            {
-                query = query.Where(result => (_assetCategoryFilter & result.Category) != 0);
-            }
-
-            return ApplySort(query);
+            EnsureResultViewCache();
+            return _visibleResults;
         }
 
-        private IEnumerable<OrphanAssetResult> GetFilteredResultsWithoutCategoryFilter()
+        private IReadOnlyList<OrphanAssetResult> GetFilteredResultsWithoutCategoryFilter()
         {
-            IEnumerable<OrphanAssetResult> query = _results.Where(result => !IsIgnoredAssetPath(result.Path));
-
-            if (TryNormalizeProjectFolder(_rootFolder, out string normalizedRootFolder, out _))
-            {
-                query = query.Where(result => IsPathUnderFolder(result.Path, normalizedRootFolder));
-            }
-
-            if (!string.IsNullOrWhiteSpace(_searchText))
-            {
-                string search = _searchText.Trim();
-                query = query.Where(result =>
-                    Contains(result.Name, search) ||
-                    Contains(result.Path, search) ||
-                    Contains(result.TypeName, search) ||
-                    Contains(result.Notes, search) ||
-                    Contains(GetDisplayStatusLabel(result.Status), search));
-            }
-
-            if (!string.IsNullOrWhiteSpace(_typeFilter))
-            {
-                string typeSearch = _typeFilter.Trim();
-                query = query.Where(result =>
-                    Contains(result.TypeName, typeSearch) ||
-                    Contains(GetDisplayCategoryLabel(result), typeSearch));
-            }
-
-            return ApplyResultFilter(query);
+            EnsureResultViewCache();
+            return _filteredResultsWithoutCategory;
         }
 
-        private IEnumerable<OrphanAssetResult> ApplyResultFilter(IEnumerable<OrphanAssetResult> query)
+        private bool MatchesResultFilter(OrphanAssetResult result)
         {
             return _resultFilter switch
             {
-                ResultFilter.ProbablyOrphan => query.Where(result => result.Status == OrphanStatus.ProbablyOrphan),
-                ResultFilter.VerifiedOrphan => query.Where(result => result.Status == OrphanStatus.VerifiedOrphan),
-                ResultFilter.RuntimeReferenced => query.Where(result => result.Status == OrphanStatus.RuntimeReferenced),
-                ResultFilter.IndirectlyReferenced => query.Where(result => result.Status == OrphanStatus.IndirectlyReferenced),
-                ResultFilter.Unknown => query.Where(result => result.Status == OrphanStatus.Unknown),
-                ResultFilter.ResourcesOnly => query.Where(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Resources)),
-                ResultFilter.AssetBundlesOnly => query.Where(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.AssetBundle)),
-                ResultFilter.AddressablesOnly => query.Where(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Addressables)),
-                _ => query
+                ResultFilter.ProbablyOrphan => result.Status == OrphanStatus.ProbablyOrphan,
+                ResultFilter.VerifiedOrphan => result.Status == OrphanStatus.VerifiedOrphan,
+                ResultFilter.RuntimeReachable => result.Status == OrphanStatus.RuntimeReachable,
+                ResultFilter.NonRuntimeChain => result.Status == OrphanStatus.NonRuntimeChain,
+                ResultFilter.Unknown => result.Status == OrphanStatus.Unknown,
+                ResultFilter.ResourcesOnly => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Resources),
+                ResultFilter.AssetBundlesOnly => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.AssetBundle),
+                ResultFilter.AddressablesOnly => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Addressables),
+                _ => true
             };
         }
 
-        private IEnumerable<OrphanAssetResult> ApplySort(IEnumerable<OrphanAssetResult> results)
+        private void EnsureResultViewCache()
         {
-            Func<OrphanAssetResult, IComparable> keySelector = _sortColumn switch
+            if (!_isResultViewCacheDirty)
             {
-                SortColumn.Name => result => result.Name ?? string.Empty,
-                SortColumn.Type => result => result.TypeName ?? string.Empty,
-                SortColumn.Path => result => result.Path ?? string.Empty,
-                SortColumn.Status => result => GetStatusSortValue(result.Status),
-                SortColumn.RuntimeUsage => result => BuildRuntimeUsageLabel(result),
-                SortColumn.ReferencedByCount => result => result.DeepScanReferenceCount,
-                SortColumn.EstimatedSize => result => result.EstimatedSizeBytes,
-                SortColumn.Notes => result => result.Notes ?? string.Empty,
-                _ => result => result.Path ?? string.Empty
+                return;
+            }
+
+            _filteredResultsWithoutCategory.Clear();
+            _visibleResults.Clear();
+            _categoryCounts.Clear();
+
+            bool hasRootFolderFilter = TryNormalizeProjectFolder(_rootFolder, out string normalizedRootFolder, out _);
+            string search = string.IsNullOrWhiteSpace(_searchText) ? null : _searchText.Trim();
+            string typeSearch = string.IsNullOrWhiteSpace(_typeFilter) ? null : _typeFilter.Trim();
+
+            foreach (OrphanAssetResult result in _results)
+            {
+                if (IsIgnoredAssetPath(result.Path))
+                {
+                    continue;
+                }
+
+                if (hasRootFolderFilter && !IsPathUnderFolder(result.Path, normalizedRootFolder))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(search) &&
+                    !Contains(result.Name, search) &&
+                    !Contains(result.Path, search) &&
+                    !Contains(result.TypeName, search) &&
+                    !Contains(result.Notes, search) &&
+                    !Contains(result.StatusLabel, search))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(typeSearch) &&
+                    !Contains(result.TypeName, typeSearch) &&
+                    !Contains(result.CategoryLabel, typeSearch))
+                {
+                    continue;
+                }
+
+                if (!MatchesResultFilter(result))
+                {
+                    continue;
+                }
+
+                _filteredResultsWithoutCategory.Add(result);
+                _categoryCounts.TryGetValue(result.Category, out int currentCount);
+                _categoryCounts[result.Category] = currentCount + 1;
+
+                if (_assetCategoryFilter == AssetCategoryFilter.None || (_assetCategoryFilter & result.Category) != 0)
+                {
+                    _visibleResults.Add(result);
+                }
+            }
+
+            SortResultsInPlace(_visibleResults);
+            _isResultViewCacheDirty = false;
+        }
+
+        private void SortResultsInPlace(List<OrphanAssetResult> results)
+        {
+            results.Sort(CompareResults);
+        }
+
+        private int CompareResults(OrphanAssetResult left, OrphanAssetResult right)
+        {
+            int comparison = _sortColumn switch
+            {
+                SortColumn.Name => StringComparer.OrdinalIgnoreCase.Compare(left.Name ?? string.Empty, right.Name ?? string.Empty),
+                SortColumn.Type => StringComparer.OrdinalIgnoreCase.Compare(left.TypeName ?? string.Empty, right.TypeName ?? string.Empty),
+                SortColumn.Path => StringComparer.OrdinalIgnoreCase.Compare(left.Path ?? string.Empty, right.Path ?? string.Empty),
+                SortColumn.Status => GetStatusSortValue(left.Status).CompareTo(GetStatusSortValue(right.Status)),
+                SortColumn.RuntimeUsage => StringComparer.OrdinalIgnoreCase.Compare(left.RuntimeUsageLabel ?? string.Empty, right.RuntimeUsageLabel ?? string.Empty),
+                SortColumn.ReferencedByCount => left.DeepScanReferenceCount.CompareTo(right.DeepScanReferenceCount),
+                SortColumn.EstimatedSize => left.EstimatedSizeBytes.CompareTo(right.EstimatedSizeBytes),
+                _ => StringComparer.OrdinalIgnoreCase.Compare(left.Path ?? string.Empty, right.Path ?? string.Empty)
             };
 
-            IOrderedEnumerable<OrphanAssetResult> orderedResults = _sortAscending
-                ? results.OrderBy(keySelector).ThenBy(result => result.Path, StringComparer.OrdinalIgnoreCase)
-                : results.OrderByDescending(keySelector).ThenBy(result => result.Path, StringComparer.OrdinalIgnoreCase);
+            if (!_sortAscending)
+            {
+                comparison = -comparison;
+            }
 
-            return orderedResults;
+            return comparison != 0
+                ? comparison
+                : StringComparer.OrdinalIgnoreCase.Compare(left.Path ?? string.Empty, right.Path ?? string.Empty);
         }
 
         private void ApplySort(SortColumn column)
@@ -640,6 +763,8 @@ namespace LegendaryTools.Editor
                 _sortColumn = column;
                 _sortAscending = true;
             }
+
+            InvalidateViewCache();
         }
 
         private void StartScan()
@@ -679,6 +804,8 @@ namespace LegendaryTools.Editor
                 CancellationToken cancellationToken = _scanCancellationSource.Token;
                 List<string> ignoredFolders = GetIgnoredFoldersSnapshot();
                 HashSet<string> addressableGuids = CollectAddressableGuids();
+                HashSet<string> runtimeRootPaths = CollectRuntimeRootPaths(addressableGuids, ignoredFolders);
+                HashSet<string> runtimeReachableAssets = GetReachableAssets(runtimeRootPaths);
 
                 _scanStatus = "Mapping serialized references with AssetGuidMapper...";
                 await _assetGuidMapper.MapProjectGUIDsAsync(MapperExtensions, UpdateMapperProgress, cancellationToken);
@@ -700,30 +827,45 @@ namespace LegendaryTools.Editor
                     }
 
                     IReadOnlyCollection<string> references = await _assetGuidMapper.FindFilesContainingGuidAsync(guid);
-                    int externalReferenceCount = CountExternalReferences(
+                    List<string> externalReferencePaths = GetExternalReferencePaths(
                         assetPath,
                         references,
                         rootFolder,
                         scanReferenceMode,
                         ignoredFolders);
+                    int externalReferenceCount = externalReferencePaths.Count;
+                    RuntimeUsageFlags runtimeUsage = GetRuntimeUsage(
+                        assetPath,
+                        guid,
+                        addressableGuids,
+                        out _);
+                    bool isRuntimeReachable = runtimeReachableAssets.Contains(assetPath);
 
                     UpdateScanProgress(processedAssets, totalAssets, $"Analyzing {assetPath}");
 
-                    if (externalReferenceCount > 0)
+                    if (runtimeUsage == RuntimeUsageFlags.None && isRuntimeReachable)
                     {
                         continue;
                     }
 
-                    _results.Add(BuildResult(assetPath, guid, addressableGuids, scanReferenceMode));
+                    _results.Add(BuildResult(
+                        assetPath,
+                        guid,
+                        addressableGuids,
+                        scanReferenceMode,
+                        externalReferenceCount,
+                        externalReferencePaths));
 
                     if ((processedAssets % 50) == 0)
                     {
+                        InvalidateResultCaches();
                         Repaint();
                     }
                 }
 
                 _scanProgress = 1f;
                 _scanStatus = $"Scan complete. {_results.Count} candidate assets found.";
+                InvalidateResultCaches();
             }
             catch (OperationCanceledException)
             {
@@ -808,6 +950,7 @@ namespace LegendaryTools.Editor
             }
 
             _scanStatus = $"Deleted {deletedPaths.Count} assets.";
+            InvalidateResultCaches();
         }
 
         private void DeepScanSelectedAssets()
@@ -823,7 +966,13 @@ namespace LegendaryTools.Editor
 
             HashSet<string> selectedPaths = new(selectedResults.Select(result => result.Path), StringComparer.OrdinalIgnoreCase);
             HashSet<string> buildSettingsScenes = GetEnabledBuildSettingsScenes();
+            HashSet<string> addressableGuids = CollectAddressableGuids();
+            HashSet<string> runtimeRootPaths = CollectRuntimeRootPaths(addressableGuids, GetIgnoredFoldersSnapshot());
             Dictionary<string, HashSet<string>> referencesByAsset = selectedResults.ToDictionary(
+                result => result.Path,
+                _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, HashSet<string>> runtimeRootReferencesByAsset = selectedResults.ToDictionary(
                 result => result.Path,
                 _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 StringComparer.OrdinalIgnoreCase);
@@ -842,6 +991,7 @@ namespace LegendaryTools.Editor
                 for (int i = 0; i < dependencyRoots.Length; i++)
                 {
                     string rootPath = dependencyRoots[i];
+                    bool isRuntimeRoot = runtimeRootPaths.Contains(rootPath);
                     bool isBuildSettingsScene = buildSettingsScenes.Contains(rootPath);
                     float progress = dependencyRoots.Length == 0 ? 1f : (float)(i + 1) / dependencyRoots.Length;
                     if (EditorUtility.DisplayCancelableProgressBar("Orphan Asset Deep Scan", rootPath, progress))
@@ -860,6 +1010,11 @@ namespace LegendaryTools.Editor
                         }
 
                         referencesByAsset[dependency].Add(rootPath);
+                        if (isRuntimeRoot)
+                        {
+                            runtimeRootReferencesByAsset[dependency].Add(rootPath);
+                        }
+
                         if (isBuildSettingsScene)
                         {
                             buildSceneReferencesByAsset[dependency].Add(rootPath);
@@ -878,31 +1033,42 @@ namespace LegendaryTools.Editor
                 result.DeepScanReferenceCount = referencesByAsset.TryGetValue(result.Path, out HashSet<string> references)
                     ? references.Count
                     : 0;
+                int runtimeRootReferenceCount =
+                    runtimeRootReferencesByAsset.TryGetValue(result.Path, out HashSet<string> runtimeRootReferences)
+                        ? runtimeRootReferences.Count
+                        : 0;
                 result.BuildSettingsSceneReferenceCount =
                     buildSceneReferencesByAsset.TryGetValue(result.Path, out HashSet<string> buildSceneReferences)
                         ? buildSceneReferences.Count
                         : 0;
 
-                if (references != null && references.Count > 0)
+                if (runtimeRootReferenceCount > 0)
                 {
-                    result.Status = OrphanStatus.IndirectlyReferenced;
-                    result.Notes = BuildDeepScanReferenceNote(references, result.BuildSettingsSceneReferenceCount);
-                    continue;
+                    result.Status = OrphanStatus.RuntimeReachable;
+                    result.Notes = BuildRuntimeReachableNote(runtimeRootReferences, result.BuildSettingsSceneReferenceCount);
                 }
-
-                if (result.RuntimeUsage != RuntimeUsageFlags.None)
+                else if (references != null && references.Count > 0)
                 {
-                    result.Status = OrphanStatus.RuntimeReferenced;
+                    result.Status = OrphanStatus.NonRuntimeChain;
+                    result.Notes = BuildNonRuntimeReferenceNote(references);
+                }
+                else if (result.RuntimeUsage != RuntimeUsageFlags.None)
+                {
+                    result.Status = OrphanStatus.RuntimeReachable;
                     result.Notes =
-                        $"Unity dependency scan found no serialized dependents, but this asset is still exposed through {BuildRuntimeUsageLabel(result)}.";
-                    continue;
+                        $"Unity dependency scan found no runtime roots referencing this asset, but it is still a runtime root through {BuildRuntimeUsageLabel(result)}.";
+                }
+                else
+                {
+                    result.Status = OrphanStatus.VerifiedOrphan;
+                    result.Notes = "Unity dependency scan found no serialized dependents for this asset.";
                 }
 
-                result.Status = OrphanStatus.VerifiedOrphan;
-                result.Notes = "Unity dependency scan found no serialized dependents for this asset.";
+                RefreshResultDisplayFields(result);
             }
 
             _scanStatus = $"Deep Scan complete for {selectedResults.Count} selected asset(s).";
+            InvalidateResultCaches();
             Repaint();
         }
 
@@ -914,13 +1080,17 @@ namespace LegendaryTools.Editor
                 return;
             }
 
-            if (!TryNormalizeProjectFolder(_moveTargetFolder, out string normalizedTargetFolder, out string folderError))
+            string moveTargetFolder = GetDefaultMoveTargetFolder();
+            if (!TryBrowseForProjectFolder(ref moveTargetFolder))
+            {
+                return;
+            }
+
+            if (!TryNormalizeProjectFolder(moveTargetFolder, out string normalizedTargetFolder, out string folderError))
             {
                 EditorUtility.DisplayDialog("Invalid Move Target Folder", folderError, "OK");
                 return;
             }
-
-            _moveTargetFolder = normalizedTargetFolder;
 
             bool confirmed = EditorUtility.DisplayDialog(
                 "Move Selected Assets",
@@ -976,11 +1146,33 @@ namespace LegendaryTools.Editor
                 result.Asset = AssetDatabase.LoadMainAssetAtPath(newPath);
                 result.Name = result.Asset != null ? result.Asset.name : Path.GetFileNameWithoutExtension(newPath);
                 result.EstimatedSizeBytes = GetEstimatedSizeBytes(newPath);
+                RefreshResultDisplayFields(result);
                 _selectedAssetPaths.Add(newPath);
             }
 
             _scanStatus = $"Moved {movedPaths.Count} assets to {normalizedTargetFolder}.";
             PruneSelectionOfIgnoredAssets();
+            InvalidateResultCaches();
+        }
+
+        private string GetDefaultMoveTargetFolder()
+        {
+            string selectedPath = GetSelectedAssetPath();
+            if (AssetDatabase.IsValidFolder(selectedPath))
+            {
+                return selectedPath;
+            }
+
+            if (!string.IsNullOrWhiteSpace(selectedPath))
+            {
+                string parentFolder = Path.GetDirectoryName(selectedPath);
+                if (!string.IsNullOrWhiteSpace(parentFolder))
+                {
+                    return NormalizePath(parentFolder);
+                }
+            }
+
+            return "Assets";
         }
 
         private List<OrphanAssetResult> GetSelectedResults()
@@ -990,7 +1182,7 @@ namespace LegendaryTools.Editor
                 .ToList();
         }
 
-        private static int CountExternalReferences(
+        private static List<string> GetExternalReferencePaths(
             string assetPath,
             IEnumerable<string> references,
             string rootFolder,
@@ -999,7 +1191,7 @@ namespace LegendaryTools.Editor
         {
             if (references == null)
             {
-                return 0;
+                return new List<string>();
             }
 
             string metaPath = $"{assetPath}.meta";
@@ -1010,9 +1202,10 @@ namespace LegendaryTools.Editor
                                     IsPathUnderFolder(reference, rootFolder))
                 .Where(reference => !IsPathIgnored(reference, ignoredFolders))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count(reference =>
+                .Where(reference =>
                     !string.Equals(reference, assetPath, StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(reference, metaPath, StringComparison.OrdinalIgnoreCase));
+                    !string.Equals(reference, metaPath, StringComparison.OrdinalIgnoreCase))
+                .ToList();
         }
 
         private static bool ShouldIncludeDeepScanRoot(string assetPath)
@@ -1029,6 +1222,68 @@ namespace LegendaryTools.Editor
                 .Where(scene => scene != null && scene.enabled && !string.IsNullOrWhiteSpace(scene.path))
                 .Select(scene => NormalizePath(scene.path))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static HashSet<string> CollectRuntimeRootPaths(
+            HashSet<string> addressableGuids,
+            IReadOnlyCollection<string> ignoredFolders)
+        {
+            HashSet<string> runtimeRoots = GetEnabledBuildSettingsScenes();
+
+            foreach (string assetPath in AssetDatabase.GetAllAssetPaths())
+            {
+                string normalizedAssetPath = NormalizePath(assetPath);
+                if (!ShouldIncludeDeepScanRoot(normalizedAssetPath) ||
+                    IsPathIgnored(normalizedAssetPath, ignoredFolders))
+                {
+                    continue;
+                }
+
+                if (IsInResourcesFolder(normalizedAssetPath))
+                {
+                    runtimeRoots.Add(normalizedAssetPath);
+                    continue;
+                }
+
+                string guid = AssetDatabase.AssetPathToGUID(normalizedAssetPath);
+                if (!string.IsNullOrWhiteSpace(guid) && addressableGuids.Contains(guid))
+                {
+                    runtimeRoots.Add(normalizedAssetPath);
+                    continue;
+                }
+
+                AssetImporter importer = AssetImporter.GetAtPath(normalizedAssetPath);
+                if (importer != null && !string.IsNullOrWhiteSpace(importer.assetBundleName))
+                {
+                    runtimeRoots.Add(normalizedAssetPath);
+                }
+            }
+
+            return runtimeRoots;
+        }
+
+        private static HashSet<string> GetReachableAssets(IEnumerable<string> rootPaths)
+        {
+            HashSet<string> normalizedRoots = rootPaths?
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(NormalizePath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (normalizedRoots.Count == 0)
+            {
+                return normalizedRoots;
+            }
+
+            foreach (string dependency in AssetDatabase.GetDependencies(normalizedRoots.ToArray(), true))
+            {
+                if (!string.IsNullOrWhiteSpace(dependency))
+                {
+                    normalizedRoots.Add(NormalizePath(dependency));
+                }
+            }
+
+            return normalizedRoots;
         }
 
         private static string BuildReferencePreview(IReadOnlyList<string> references)
@@ -1051,14 +1306,13 @@ namespace LegendaryTools.Editor
             return $"{string.Join(", ", distinctReferences.Take(previewCount))} and {distinctReferences.Count - previewCount} more";
         }
 
-        private static string BuildDeepScanReferenceNote(IEnumerable<string> references, int buildSettingsSceneReferenceCount)
+        private static string BuildRuntimeReachableNote(IEnumerable<string> runtimeRoots, int buildSettingsSceneReferenceCount)
         {
-            List<string> distinctReferences = references
+            List<string> distinctRoots = runtimeRoots
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            string baseNote =
-                $"Unity dependency scan found {distinctReferences.Count} referencing asset(s): {BuildReferencePreview(distinctReferences)}.";
+            string baseNote = $"Runtime dependency chain reaches this asset from {distinctRoots.Count} root(s): {BuildReferencePreview(distinctRoots)}.";
 
             if (buildSettingsSceneReferenceCount <= 0)
             {
@@ -1069,18 +1323,30 @@ namespace LegendaryTools.Editor
                 $"{baseNote} {buildSettingsSceneReferenceCount} reference(s) come from enabled Scenes In Build Settings.";
         }
 
+        private static string BuildNonRuntimeReferenceNote(IEnumerable<string> references)
+        {
+            List<string> distinctReferences = references
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return
+                $"Referenced by {distinctReferences.Count} non-runtime asset(s): {BuildReferencePreview(distinctReferences)}. No runtime root reaches this dependency chain.";
+        }
+
         private OrphanAssetResult BuildResult(
             string assetPath,
             string guid,
             HashSet<string> addressableGuids,
-            ScanReferenceMode scanReferenceMode)
+            ScanReferenceMode scanReferenceMode,
+            int externalReferenceCount,
+            IReadOnlyCollection<string> externalReferencePaths)
         {
             Type assetType = AssetDatabase.GetMainAssetTypeAtPath(assetPath);
             UnityEngine.Object asset = AssetDatabase.LoadMainAssetAtPath(assetPath);
             RuntimeUsageFlags runtimeUsage = GetRuntimeUsage(assetPath, guid, addressableGuids, out string assetBundleName);
             AssetCategoryFilter category = GetAssetCategory(assetType, assetPath, asset);
 
-            return new OrphanAssetResult
+            OrphanAssetResult result = new()
             {
                 Guid = guid,
                 Name = asset != null ? asset.name : Path.GetFileNameWithoutExtension(assetPath),
@@ -1089,14 +1355,45 @@ namespace LegendaryTools.Editor
                 Category = category,
                 AssetBundleName = assetBundleName,
                 RuntimeUsage = runtimeUsage,
-                Status = GetInitialStatus(runtimeUsage, scanReferenceMode),
-                Notes = BuildNotes(runtimeUsage, assetBundleName, scanReferenceMode),
+                Status = GetInitialStatus(runtimeUsage, scanReferenceMode, externalReferenceCount),
+                Notes = BuildNotes(runtimeUsage, assetBundleName, scanReferenceMode, externalReferencePaths),
                 EstimatedSizeBytes = GetEstimatedSizeBytes(assetPath),
                 DeepScanPerformed = false,
                 DeepScanReferenceCount = 0,
                 BuildSettingsSceneReferenceCount = 0,
                 Asset = asset
             };
+
+            RefreshResultDisplayFields(result);
+            return result;
+        }
+
+        private static void RefreshResultDisplayFields(OrphanAssetResult result)
+        {
+            result.CategoryLabel = GetDisplayCategoryLabel(result);
+            result.StatusLabel = GetDisplayStatusLabel(result.Status);
+            result.RuntimeUsageLabel = BuildRuntimeUsageLabel(result);
+            result.EstimatedSizeLabel = FormatBytes(result.EstimatedSizeBytes);
+        }
+
+        private static void OpenResultInReferenceTracker(OrphanAssetResult result)
+        {
+            if (result == null)
+            {
+                return;
+            }
+
+            UnityEngine.Object target = result.Asset != null
+                ? result.Asset
+                : AssetDatabase.LoadMainAssetAtPath(result.Path);
+
+            if (target == null)
+            {
+                EditorUtility.DisplayDialog("Reference Tracker", $"Could not load asset at path: {result.Path}", "OK");
+                return;
+            }
+
+            ReferenceTrackerWindow.OpenWithTargetAndSearch(target);
         }
 
         private static RuntimeUsageFlags GetRuntimeUsage(
@@ -1127,11 +1424,19 @@ namespace LegendaryTools.Editor
             return runtimeUsage;
         }
 
-        private static OrphanStatus GetInitialStatus(RuntimeUsageFlags runtimeUsage, ScanReferenceMode scanReferenceMode)
+        private static OrphanStatus GetInitialStatus(
+            RuntimeUsageFlags runtimeUsage,
+            ScanReferenceMode scanReferenceMode,
+            int externalReferenceCount)
         {
             if (runtimeUsage != RuntimeUsageFlags.None)
             {
-                return OrphanStatus.RuntimeReferenced;
+                return OrphanStatus.RuntimeReachable;
+            }
+
+            if (externalReferenceCount > 0)
+            {
+                return OrphanStatus.NonRuntimeChain;
             }
 
             return scanReferenceMode == ScanReferenceMode.ScanWholeProject
@@ -1142,39 +1447,41 @@ namespace LegendaryTools.Editor
         private static string BuildNotes(
             RuntimeUsageFlags runtimeUsage,
             string assetBundleName,
-            ScanReferenceMode scanReferenceMode)
+            ScanReferenceMode scanReferenceMode,
+            IReadOnlyCollection<string> externalReferencePaths)
         {
-            if (runtimeUsage == RuntimeUsageFlags.None)
+            if (runtimeUsage != RuntimeUsageFlags.None)
             {
-                return scanReferenceMode == ScanReferenceMode.ScanWholeProject
-                    ? "No serialized references were found by AssetGuidMapper across the whole project."
-                    : "No serialized references were found by AssetGuidMapper inside the selected scope. References may still exist outside the scope.";
+                List<string> sources = new();
+
+                if (HasFlag(runtimeUsage, RuntimeUsageFlags.Resources))
+                {
+                    sources.Add("Resources");
+                }
+
+                if (HasFlag(runtimeUsage, RuntimeUsageFlags.AssetBundle))
+                {
+                    sources.Add(string.IsNullOrWhiteSpace(assetBundleName)
+                        ? "AssetBundle"
+                        : $"AssetBundle ({assetBundleName})");
+                }
+
+                if (HasFlag(runtimeUsage, RuntimeUsageFlags.Addressables))
+                {
+                    sources.Add("Addressables");
+                }
+
+                return $"This asset is a runtime root through: {string.Join(", ", sources)}.";
             }
 
-            List<string> sources = new();
-
-            if (HasFlag(runtimeUsage, RuntimeUsageFlags.Resources))
+            if (externalReferencePaths != null && externalReferencePaths.Count > 0)
             {
-                sources.Add("Resources");
+                return BuildNonRuntimeReferenceNote(externalReferencePaths);
             }
 
-            if (HasFlag(runtimeUsage, RuntimeUsageFlags.AssetBundle))
-            {
-                sources.Add(string.IsNullOrWhiteSpace(assetBundleName)
-                    ? "AssetBundle"
-                    : $"AssetBundle ({assetBundleName})");
-            }
-
-            if (HasFlag(runtimeUsage, RuntimeUsageFlags.Addressables))
-            {
-                sources.Add("Addressables");
-            }
-
-            string scopeSuffix = scanReferenceMode == ScanReferenceMode.ScanWholeProject
-                ? "across the whole project"
-                : "inside the selected scope";
-
-            return $"No direct serialized references were found {scopeSuffix}. The asset may still be loaded dynamically through: {string.Join(", ", sources)}.";
+            return scanReferenceMode == ScanReferenceMode.ScanWholeProject
+                ? "No serialized references were found by AssetGuidMapper across the whole project."
+                : "No serialized references were found by AssetGuidMapper inside the selected scope. References may still exist outside the scope.";
         }
 
         private static string BuildRuntimeUsageLabel(OrphanAssetResult result)
@@ -1466,8 +1773,8 @@ namespace LegendaryTools.Editor
             {
                 OrphanStatus.ProbablyOrphan => "Probably Orphan",
                 OrphanStatus.VerifiedOrphan => "Verified Orphan",
-                OrphanStatus.RuntimeReferenced => "Runtime-Referenced",
-                OrphanStatus.IndirectlyReferenced => "Indirectly Referenced",
+                OrphanStatus.RuntimeReachable => "Runtime Reachable",
+                OrphanStatus.NonRuntimeChain => "Non-Runtime Chain",
                 _ => "Unknown"
             };
         }
@@ -1479,8 +1786,8 @@ namespace LegendaryTools.Editor
                 OrphanStatus.VerifiedOrphan => 0,
                 OrphanStatus.ProbablyOrphan => 1,
                 OrphanStatus.Unknown => 2,
-                OrphanStatus.RuntimeReferenced => 3,
-                OrphanStatus.IndirectlyReferenced => 4,
+                OrphanStatus.NonRuntimeChain => 3,
+                OrphanStatus.RuntimeReachable => 4,
                 _ => 5
             };
         }
@@ -1560,6 +1867,7 @@ namespace LegendaryTools.Editor
                         {
                             _ignoredFolders.Clear();
                             PruneSelectionOfIgnoredAssets();
+                            InvalidateResultCaches();
                         }
                     }
                 }
@@ -1581,6 +1889,7 @@ namespace LegendaryTools.Editor
                         if (GUILayout.Button("Remove", GUILayout.Width(80f)))
                         {
                             _ignoredFolders.RemoveAt(i);
+                            InvalidateResultCaches();
                             break;
                         }
                     }
@@ -1607,6 +1916,7 @@ namespace LegendaryTools.Editor
             _ignoredFolders.Sort(StringComparer.OrdinalIgnoreCase);
             _ignoredFolderDraft = normalizedFolder;
             PruneSelectionOfIgnoredAssets();
+            InvalidateResultCaches();
         }
 
         private List<string> GetIgnoredFoldersSnapshot()
@@ -1669,7 +1979,7 @@ namespace LegendaryTools.Editor
 
         private static void AssignFolderFromSelection(ref string folderField)
         {
-            string selectedPath = AssetDatabase.GetAssetPath(Selection.activeObject);
+            string selectedPath = GetSelectedAssetPath();
             if (string.IsNullOrEmpty(selectedPath))
             {
                 return;
@@ -1688,7 +1998,49 @@ namespace LegendaryTools.Editor
             }
         }
 
+        private static string GetSelectedAssetPath()
+        {
+            if (Selection.assetGUIDs != null)
+            {
+                foreach (string guid in Selection.assetGUIDs)
+                {
+                    if (string.IsNullOrWhiteSpace(guid))
+                    {
+                        continue;
+                    }
+
+                    string pathFromGuid = AssetDatabase.GUIDToAssetPath(guid);
+                    if (!string.IsNullOrWhiteSpace(pathFromGuid))
+                    {
+                        return NormalizePath(pathFromGuid);
+                    }
+                }
+            }
+
+            if (Selection.objects != null)
+            {
+                foreach (UnityEngine.Object selectedObject in Selection.objects)
+                {
+                    string pathFromObject = AssetDatabase.GetAssetPath(selectedObject);
+                    if (!string.IsNullOrWhiteSpace(pathFromObject))
+                    {
+                        return NormalizePath(pathFromObject);
+                    }
+                }
+            }
+
+            string activeObjectPath = AssetDatabase.GetAssetPath(Selection.activeObject);
+            return string.IsNullOrWhiteSpace(activeObjectPath)
+                ? string.Empty
+                : NormalizePath(activeObjectPath);
+        }
+
         private static void BrowseForProjectFolder(ref string folderField)
+        {
+            _ = TryBrowseForProjectFolder(ref folderField);
+        }
+
+        private static bool TryBrowseForProjectFolder(ref string folderField)
         {
             string projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath;
             string startingFolder = TryNormalizeProjectFolder(folderField, out string normalizedFolder, out _)
@@ -1698,7 +2050,7 @@ namespace LegendaryTools.Editor
             string selectedFolder = EditorUtility.OpenFolderPanel("Select Folder", startingFolder, string.Empty);
             if (string.IsNullOrEmpty(selectedFolder))
             {
-                return;
+                return false;
             }
 
             string normalizedSelectedFolder = NormalizePath(selectedFolder);
@@ -1706,11 +2058,12 @@ namespace LegendaryTools.Editor
             if (!normalizedSelectedFolder.StartsWith(normalizedProjectRoot, StringComparison.OrdinalIgnoreCase))
             {
                 EditorUtility.DisplayDialog("Invalid Folder", "The selected folder must be inside the current Unity project.", "OK");
-                return;
+                return false;
             }
 
             string relativePath = normalizedSelectedFolder.Substring(normalizedProjectRoot.Length).TrimStart('/');
             folderField = string.IsNullOrEmpty(relativePath) ? "Assets" : relativePath;
+            return true;
         }
 
         private void EnsureStyles()
@@ -1773,11 +2126,6 @@ namespace LegendaryTools.Editor
                 clipping = TextClipping.Clip
             };
 
-            _notesLabelStyle = new GUIStyle(EditorStyles.wordWrappedMiniLabel)
-            {
-                clipping = TextClipping.Clip
-            };
-
             _chipStyle = new GUIStyle(EditorStyles.miniButton)
             {
                 padding = new RectOffset(10, 10, 5, 5),
@@ -1805,6 +2153,9 @@ namespace LegendaryTools.Editor
             {
                 fontStyle = FontStyle.Bold
             };
+
+            _rowEvenStyle = new GUIStyle("CN EntryBackEven");
+            _rowOddStyle = new GUIStyle("CN EntryBackOdd");
         }
 
         private void BeginSection(string title)
@@ -1821,7 +2172,7 @@ namespace LegendaryTools.Editor
 
         private void DrawAssetCategoryFilters()
         {
-            Dictionary<AssetCategoryFilter, int> categoryCounts = GetCategoryCounts();
+            IReadOnlyDictionary<AssetCategoryFilter, int> categoryCounts = GetCategoryCounts();
             AssetCategoryFilter[] orderedCategories =
             {
                 AssetCategoryFilter.Prefab,
@@ -1849,16 +2200,19 @@ namespace LegendaryTools.Editor
                         GUILayout.Width(150f)))
                 {
                     _assetCategoryFilter = AssetCategoryFilter.None;
+                    InvalidateViewCache();
                 }
 
                 if (GUILayout.Button("Select All", _chipStyle, GUILayout.Width(90f)))
                 {
                     _assetCategoryFilter = AssetCategoryFilter.All;
+                    InvalidateViewCache();
                 }
 
                 if (GUILayout.Button("Clear", _chipStyle, GUILayout.Width(70f)))
                 {
                     _assetCategoryFilter = AssetCategoryFilter.None;
+                    InvalidateViewCache();
                 }
 
                 GUILayout.Space(8f);
@@ -1884,16 +2238,10 @@ namespace LegendaryTools.Editor
             }
         }
 
-        private Dictionary<AssetCategoryFilter, int> GetCategoryCounts()
+        private IReadOnlyDictionary<AssetCategoryFilter, int> GetCategoryCounts()
         {
-            Dictionary<AssetCategoryFilter, int> counts = new();
-            foreach (OrphanAssetResult result in GetFilteredResultsWithoutCategoryFilter())
-            {
-                counts.TryGetValue(result.Category, out int currentCount);
-                counts[result.Category] = currentCount + 1;
-            }
-
-            return counts;
+            EnsureResultViewCache();
+            return _categoryCounts;
         }
 
         private void DrawCategoryChip(AssetCategoryFilter category, string label)
@@ -1919,6 +2267,8 @@ namespace LegendaryTools.Editor
                 {
                     _assetCategoryFilter |= category;
                 }
+
+                InvalidateViewCache();
             }
 
             GUI.backgroundColor = previousBackground;
@@ -1958,14 +2308,81 @@ namespace LegendaryTools.Editor
             GUI.Label(rect, text, _statusPillStyle);
         }
 
+        private void EnsureSummaryCache()
+        {
+            if (!_isSummaryCacheDirty)
+            {
+                return;
+            }
+
+            _summaryStats = default;
+            foreach (OrphanAssetResult result in _results)
+            {
+                if (IsIgnoredAssetPath(result.Path))
+                {
+                    continue;
+                }
+
+                _summaryStats.ActiveCount++;
+                _summaryStats.BuildSettingsSceneReferenceCount += result.BuildSettingsSceneReferenceCount;
+
+                switch (result.Status)
+                {
+                    case OrphanStatus.ProbablyOrphan:
+                        _summaryStats.ProbablyOrphanCount++;
+                        break;
+                    case OrphanStatus.VerifiedOrphan:
+                        _summaryStats.VerifiedOrphanCount++;
+                        break;
+                    case OrphanStatus.RuntimeReachable:
+                        _summaryStats.RuntimeReachableCount++;
+                        break;
+                    case OrphanStatus.NonRuntimeChain:
+                        _summaryStats.NonRuntimeChainCount++;
+                        break;
+                    default:
+                        _summaryStats.UnknownCount++;
+                        break;
+                }
+
+                if (HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Resources))
+                {
+                    _summaryStats.ResourcesCount++;
+                }
+
+                if (HasFlag(result.RuntimeUsage, RuntimeUsageFlags.AssetBundle))
+                {
+                    _summaryStats.AssetBundleCount++;
+                }
+
+                if (HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Addressables))
+                {
+                    _summaryStats.AddressablesCount++;
+                }
+            }
+
+            _isSummaryCacheDirty = false;
+        }
+
+        private void InvalidateViewCache()
+        {
+            _isResultViewCacheDirty = true;
+        }
+
+        private void InvalidateResultCaches()
+        {
+            _isResultViewCacheDirty = true;
+            _isSummaryCacheDirty = true;
+        }
+
         private static Color GetStatusColor(string text)
         {
             return text switch
             {
                 "Verified Orphan" => new Color(0.10f, 0.52f, 0.29f, 0.32f),
                 "Probably Orphan" => new Color(0.16f, 0.62f, 0.42f, 0.28f),
-                "Runtime-Referenced" => new Color(0.82f, 0.56f, 0.17f, 0.28f),
-                "Indirectly Referenced" => new Color(0.74f, 0.36f, 0.20f, 0.28f),
+                "Runtime Reachable" => new Color(0.82f, 0.56f, 0.17f, 0.28f),
+                "Non-Runtime Chain" => new Color(0.74f, 0.36f, 0.20f, 0.28f),
                 _ => new Color(0.45f, 0.48f, 0.55f, 0.28f)
             };
         }

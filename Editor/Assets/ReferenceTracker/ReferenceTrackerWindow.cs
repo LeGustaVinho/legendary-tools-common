@@ -169,7 +169,7 @@ namespace LegendaryTools.Editor
                    !string.IsNullOrEmpty(AssetDatabase.GetAssetPath(Selection.activeObject));
         }
 
-        private static void OpenWithTargetAndSearch(UnityEngine.Object target)
+        internal static void OpenWithTargetAndSearch(UnityEngine.Object target)
         {
             ReferenceTrackerWindow window = GetWindow<ReferenceTrackerWindow>(WindowTitle);
             window.minSize = new Vector2(1040f, 520f);
