@@ -153,6 +153,7 @@ namespace LegendaryTools.Editor
 
         private readonly List<OrphanAssetResult> _results = new();
         private readonly HashSet<string> _selectedAssetPaths = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<string> _ignoredFolders = new();
 
         private Vector2 _scrollPosition;
         private AssetGuidMapper _assetGuidMapper;
@@ -164,6 +165,7 @@ namespace LegendaryTools.Editor
         private string _typeFilter = string.Empty;
         private string _rootFolder = "Assets";
         private string _moveTargetFolder = "Assets";
+        private string _ignoredFolderDraft = "Assets";
         private ResultFilter _resultFilter = ResultFilter.All;
         private ScanReferenceMode _scanReferenceMode = ScanReferenceMode.ScanWholeProject;
         private AssetCategoryFilter _assetCategoryFilter = AssetCategoryFilter.None;
@@ -313,6 +315,10 @@ namespace LegendaryTools.Editor
             }
 
             EditorGUILayout.Space(8f);
+            EditorGUILayout.LabelField("Ignored Folders", _sectionBodyStyle);
+            DrawIgnoredFoldersUi();
+
+            EditorGUILayout.Space(8f);
             EditorGUILayout.LabelField("Asset Type Filters", _sectionBodyStyle);
             DrawAssetCategoryFilters();
 
@@ -393,24 +399,28 @@ namespace LegendaryTools.Editor
 
         private void DrawSummary()
         {
-            int probablyOrphanCount = _results.Count(result => result.Status == OrphanStatus.ProbablyOrphan);
-            int verifiedOrphanCount = _results.Count(result => result.Status == OrphanStatus.VerifiedOrphan);
-            int runtimeReferencedCount = _results.Count(result => result.Status == OrphanStatus.RuntimeReferenced);
-            int indirectlyReferencedCount = _results.Count(result => result.Status == OrphanStatus.IndirectlyReferenced);
-            int unknownCount = _results.Count(result => result.Status == OrphanStatus.Unknown);
-            int resourcesCount = _results.Count(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Resources));
-            int assetBundleCount = _results.Count(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.AssetBundle));
-            int addressablesCount = _results.Count(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Addressables));
+            List<OrphanAssetResult> activeResults = _results
+                .Where(result => !IsIgnoredAssetPath(result.Path))
+                .ToList();
+
+            int probablyOrphanCount = activeResults.Count(result => result.Status == OrphanStatus.ProbablyOrphan);
+            int verifiedOrphanCount = activeResults.Count(result => result.Status == OrphanStatus.VerifiedOrphan);
+            int runtimeReferencedCount = activeResults.Count(result => result.Status == OrphanStatus.RuntimeReferenced);
+            int indirectlyReferencedCount = activeResults.Count(result => result.Status == OrphanStatus.IndirectlyReferenced);
+            int unknownCount = activeResults.Count(result => result.Status == OrphanStatus.Unknown);
+            int resourcesCount = activeResults.Count(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Resources));
+            int assetBundleCount = activeResults.Count(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.AssetBundle));
+            int addressablesCount = activeResults.Count(result => HasFlag(result.RuntimeUsage, RuntimeUsageFlags.Addressables));
 
             using (new EditorGUILayout.HorizontalScope())
             {
-                DrawStatCard("Candidates", _results.Count.ToString(), new Color(0.22f, 0.46f, 0.84f, 0.22f));
+                DrawStatCard("Candidates", activeResults.Count.ToString(), new Color(0.22f, 0.46f, 0.84f, 0.22f));
                 DrawStatCard("Probably Orphan", probablyOrphanCount.ToString(), new Color(0.16f, 0.62f, 0.42f, 0.22f));
                 DrawStatCard("Verified Orphan", verifiedOrphanCount.ToString(), new Color(0.14f, 0.49f, 0.32f, 0.26f));
                 DrawStatCard("Runtime-Referenced", runtimeReferencedCount.ToString(), new Color(0.82f, 0.56f, 0.17f, 0.22f));
                 DrawStatCard("Indirectly Referenced", indirectlyReferencedCount.ToString(), new Color(0.74f, 0.36f, 0.20f, 0.22f));
                 DrawStatCard("Unknown", unknownCount.ToString(), new Color(0.48f, 0.50f, 0.58f, 0.22f));
-                DrawStatCard("Build Scenes", _results.Sum(result => result.BuildSettingsSceneReferenceCount).ToString(), new Color(0.18f, 0.68f, 0.70f, 0.22f));
+                DrawStatCard("Build Scenes", activeResults.Sum(result => result.BuildSettingsSceneReferenceCount).ToString(), new Color(0.18f, 0.68f, 0.70f, 0.22f));
                 DrawStatCard("Resources", resourcesCount.ToString(), new Color(0.60f, 0.33f, 0.77f, 0.22f));
                 DrawStatCard("Bundles", assetBundleCount.ToString(), new Color(0.84f, 0.42f, 0.20f, 0.22f));
                 DrawStatCard("Addressables", addressablesCount.ToString(), new Color(0.18f, 0.68f, 0.70f, 0.22f));
@@ -552,7 +562,7 @@ namespace LegendaryTools.Editor
 
         private IEnumerable<OrphanAssetResult> GetFilteredResultsWithoutCategoryFilter()
         {
-            IEnumerable<OrphanAssetResult> query = _results;
+            IEnumerable<OrphanAssetResult> query = _results.Where(result => !IsIgnoredAssetPath(result.Path));
 
             if (TryNormalizeProjectFolder(_rootFolder, out string normalizedRootFolder, out _))
             {
@@ -667,6 +677,7 @@ namespace LegendaryTools.Editor
             try
             {
                 CancellationToken cancellationToken = _scanCancellationSource.Token;
+                List<string> ignoredFolders = GetIgnoredFoldersSnapshot();
                 HashSet<string> addressableGuids = CollectAddressableGuids();
 
                 _scanStatus = "Mapping serialized references with AssetGuidMapper...";
@@ -682,14 +693,19 @@ namespace LegendaryTools.Editor
                     processedAssets++;
 
                     string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-                    if (!ShouldAnalyzeAsset(assetPath, rootFolder))
+                    if (!ShouldAnalyzeAsset(assetPath, rootFolder, ignoredFolders))
                     {
                         UpdateScanProgress(processedAssets, totalAssets, "Skipping unsupported assets...");
                         continue;
                     }
 
                     IReadOnlyCollection<string> references = await _assetGuidMapper.FindFilesContainingGuidAsync(guid);
-                    int externalReferenceCount = CountExternalReferences(assetPath, references, rootFolder, scanReferenceMode);
+                    int externalReferenceCount = CountExternalReferences(
+                        assetPath,
+                        references,
+                        rootFolder,
+                        scanReferenceMode,
+                        ignoredFolders);
 
                     UpdateScanProgress(processedAssets, totalAssets, $"Analyzing {assetPath}");
 
@@ -796,9 +812,12 @@ namespace LegendaryTools.Editor
 
         private void DeepScanSelectedAssets()
         {
-            List<OrphanAssetResult> selectedResults = GetSelectedResults();
+            List<OrphanAssetResult> selectedResults = GetSelectedResults()
+                .Where(result => !IsIgnoredAssetPath(result.Path))
+                .ToList();
             if (selectedResults.Count == 0)
             {
+                _scanStatus = "No selected assets are eligible for Deep Scan.";
                 return;
             }
 
@@ -815,7 +834,7 @@ namespace LegendaryTools.Editor
 
             string[] dependencyRoots = AssetDatabase
                 .GetAllAssetPaths()
-                .Where(ShouldIncludeDeepScanRoot)
+                .Where(path => ShouldIncludeDeepScanRoot(path) && !IsIgnoredAssetPath(path))
                 .ToArray();
 
             try
@@ -961,6 +980,7 @@ namespace LegendaryTools.Editor
             }
 
             _scanStatus = $"Moved {movedPaths.Count} assets to {normalizedTargetFolder}.";
+            PruneSelectionOfIgnoredAssets();
         }
 
         private List<OrphanAssetResult> GetSelectedResults()
@@ -974,7 +994,8 @@ namespace LegendaryTools.Editor
             string assetPath,
             IEnumerable<string> references,
             string rootFolder,
-            ScanReferenceMode scanReferenceMode)
+            ScanReferenceMode scanReferenceMode,
+            IReadOnlyCollection<string> ignoredFolders)
         {
             if (references == null)
             {
@@ -987,6 +1008,7 @@ namespace LegendaryTools.Editor
                 .Select(NormalizePath)
                 .Where(reference => scanReferenceMode == ScanReferenceMode.ScanWholeProject ||
                                     IsPathUnderFolder(reference, rootFolder))
+                .Where(reference => !IsPathIgnored(reference, ignoredFolders))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Count(reference =>
                     !string.Equals(reference, assetPath, StringComparison.OrdinalIgnoreCase) &&
@@ -1258,12 +1280,16 @@ namespace LegendaryTools.Editor
             return AssetCategoryFilter.Other;
         }
 
-        private static bool ShouldAnalyzeAsset(string assetPath, string rootFolder)
+        private static bool ShouldAnalyzeAsset(
+            string assetPath,
+            string rootFolder,
+            IReadOnlyCollection<string> ignoredFolders = null)
         {
             if (string.IsNullOrWhiteSpace(assetPath) ||
                 !assetPath.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
                 AssetDatabase.IsValidFolder(assetPath) ||
-                !IsPathUnderFolder(assetPath, rootFolder))
+                !IsPathUnderFolder(assetPath, rootFolder) ||
+                IsPathIgnored(assetPath, ignoredFolders))
             {
                 return false;
             }
@@ -1464,6 +1490,35 @@ namespace LegendaryTools.Editor
             return path.Replace('\\', '/');
         }
 
+        private static bool IsPathIgnored(string assetPath, IEnumerable<string> ignoredFolders)
+        {
+            if (string.IsNullOrWhiteSpace(assetPath) || ignoredFolders == null)
+            {
+                return false;
+            }
+
+            string normalizedPath = NormalizePath(assetPath);
+            foreach (string ignoredFolder in ignoredFolders)
+            {
+                if (string.IsNullOrWhiteSpace(ignoredFolder))
+                {
+                    continue;
+                }
+
+                if (IsPathUnderFolder(normalizedPath, NormalizePath(ignoredFolder)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsIgnoredAssetPath(string assetPath)
+        {
+            return IsPathIgnored(assetPath, _ignoredFolders);
+        }
+
         private static bool IsPathUnderFolder(string assetPath, string folderPath)
         {
             if (string.Equals(folderPath, "Assets", StringComparison.OrdinalIgnoreCase))
@@ -1474,6 +1529,98 @@ namespace LegendaryTools.Editor
             string folderPrefix = folderPath.EndsWith("/", StringComparison.Ordinal) ? folderPath : $"{folderPath}/";
             return string.Equals(assetPath, folderPath, StringComparison.OrdinalIgnoreCase) ||
                    assetPath.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void DrawIgnoredFoldersUi()
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    _ignoredFolderDraft = EditorGUILayout.TextField("Folder", _ignoredFolderDraft);
+
+                    if (GUILayout.Button("Use Selected Folder", GUILayout.Width(160f)))
+                    {
+                        AssignFolderFromSelection(ref _ignoredFolderDraft);
+                    }
+
+                    if (GUILayout.Button("Browse", GUILayout.Width(80f)))
+                    {
+                        BrowseForProjectFolder(ref _ignoredFolderDraft);
+                    }
+
+                    if (GUILayout.Button("Add", GUILayout.Width(80f)))
+                    {
+                        TryAddIgnoredFolder(_ignoredFolderDraft);
+                    }
+
+                    using (new EditorGUI.DisabledScope(_ignoredFolders.Count == 0))
+                    {
+                        if (GUILayout.Button("Clear All", GUILayout.Width(90f)))
+                        {
+                            _ignoredFolders.Clear();
+                            PruneSelectionOfIgnoredAssets();
+                        }
+                    }
+                }
+
+                if (_ignoredFolders.Count == 0)
+                {
+                    EditorGUILayout.LabelField(
+                        "No ignored folders configured. Assets inside ignored folders are excluded from scan results, searches, filters, and Deep Scan roots.",
+                        _mutedMiniLabelStyle);
+                    return;
+                }
+
+                for (int i = 0; i < _ignoredFolders.Count; i++)
+                {
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        EditorGUILayout.LabelField(_ignoredFolders[i], _pathLabelStyle);
+
+                        if (GUILayout.Button("Remove", GUILayout.Width(80f)))
+                        {
+                            _ignoredFolders.RemoveAt(i);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void TryAddIgnoredFolder(string folderPath)
+        {
+            if (!TryNormalizeProjectFolder(folderPath, out string normalizedFolder, out string folderError))
+            {
+                EditorUtility.DisplayDialog("Invalid Ignored Folder", folderError, "OK");
+                return;
+            }
+
+            if (_ignoredFolders.Any(existing =>
+                    string.Equals(existing, normalizedFolder, StringComparison.OrdinalIgnoreCase)))
+            {
+                _ignoredFolderDraft = normalizedFolder;
+                return;
+            }
+
+            _ignoredFolders.Add(normalizedFolder);
+            _ignoredFolders.Sort(StringComparer.OrdinalIgnoreCase);
+            _ignoredFolderDraft = normalizedFolder;
+            PruneSelectionOfIgnoredAssets();
+        }
+
+        private List<string> GetIgnoredFoldersSnapshot()
+        {
+            return _ignoredFolders
+                .Where(folder => !string.IsNullOrWhiteSpace(folder))
+                .Select(NormalizePath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private void PruneSelectionOfIgnoredAssets()
+        {
+            _selectedAssetPaths.RemoveWhere(IsIgnoredAssetPath);
         }
 
         private static bool TryNormalizeProjectFolder(string input, out string normalizedFolder, out string error)
