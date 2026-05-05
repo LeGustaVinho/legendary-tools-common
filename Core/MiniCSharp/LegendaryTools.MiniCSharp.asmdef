@@ -1,0 +1,16 @@
+{
+    "name": "LegendaryTools.MiniCSharp",
+    "rootNamespace": "",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "ENABLE_MINICSHARP"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
