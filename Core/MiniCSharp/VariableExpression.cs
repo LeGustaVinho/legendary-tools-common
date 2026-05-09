@@ -17,16 +17,11 @@ namespace LegendaryTools.MiniCSharp
         public RuntimeValue GetValue(ScriptContext context)
         {
             VariableSlot slot = context.GetVariable(_name.Lexeme);
-
-            context.EnsureTypeAllowed(slot.Type, $"read variable '{_name.Lexeme}'");
-            context.EnsureValueAllowed(slot.Value, $"read variable '{_name.Lexeme}'");
-
             return new RuntimeValue(slot.Value, slot.Type);
         }
 
         public void Assign(ScriptContext context, object value)
         {
-            context.EnsureValueAllowed(value, $"assign variable '{_name.Lexeme}'");
             context.AssignVariable(_name.Lexeme, value);
         }
     }

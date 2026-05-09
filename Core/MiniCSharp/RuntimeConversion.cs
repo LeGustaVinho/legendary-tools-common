@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 
@@ -78,6 +80,12 @@ namespace LegendaryTools.MiniCSharp
             if (typeof(Delegate).IsAssignableFrom(targetType) && value is IScriptCallable)
             {
                 score = 2;
+                return true;
+            }
+
+            if (TryCanConvertCollection(value, targetType, out int collectionScore))
+            {
+                score = collectionScore;
                 return true;
             }
 
@@ -165,7 +173,17 @@ namespace LegendaryTools.MiniCSharp
                     return scriptFunction.GetOrCreateDelegate(targetType);
                 }
 
+                if (scriptCallable is ScriptLambda scriptLambda)
+                {
+                    return scriptLambda.GetOrCreateDelegate(targetType);
+                }
+
                 return ScriptDelegateAdapter.CreateDelegate(targetType, scriptCallable);
+            }
+
+            if (TryConvertCollection(value, targetType, out object convertedCollection))
+            {
+                return convertedCollection;
             }
 
             try
@@ -220,6 +238,269 @@ namespace LegendaryTools.MiniCSharp
             }
 
             return convertedArguments;
+        }
+
+        public static bool IsCompatibleWithType(object value, Type targetType)
+        {
+            if (targetType == null || value == null)
+            {
+                return false;
+            }
+
+            Type nullableType = Nullable.GetUnderlyingType(targetType);
+
+            if (nullableType != null)
+            {
+                targetType = nullableType;
+            }
+
+            Type valueType = value.GetType();
+
+            if (targetType.IsAssignableFrom(valueType))
+            {
+                return true;
+            }
+
+            if (targetType.IsEnum)
+            {
+                return CanConvertTo(value, targetType, out _);
+            }
+
+            if (targetType.IsValueType)
+            {
+                return valueType == targetType;
+            }
+
+            return false;
+        }
+
+        public static bool TryConvertWithAsSemantics(object value, Type targetType, out object converted)
+        {
+            converted = null;
+
+            if (targetType == null)
+            {
+                return false;
+            }
+
+            Type nullableType = Nullable.GetUnderlyingType(targetType);
+
+            if (targetType.IsValueType && nullableType == null)
+            {
+                throw new ScriptException($"The 'as' operator requires a reference or nullable type, got '{targetType.Name}'.");
+            }
+
+            if (value == null)
+            {
+                return true;
+            }
+
+            Type effectiveTargetType = nullableType ?? targetType;
+            Type valueType = value.GetType();
+
+            if (effectiveTargetType.IsAssignableFrom(valueType))
+            {
+                converted = nullableType != null ? ConvertTo(value, targetType) : value;
+                return true;
+            }
+
+            if (nullableType != null && valueType == nullableType)
+            {
+                converted = ConvertTo(value, targetType);
+                return true;
+            }
+
+            return false;
+        }
+        private static bool TryCanConvertCollection(object value, Type targetType, out int score)
+        {
+            score = int.MaxValue;
+
+            if (!(value is IEnumerable enumerable) || value is string)
+            {
+                return false;
+            }
+
+            if (targetType.IsArray)
+            {
+                Type elementType = targetType.GetElementType();
+                Type sourceElementType = TryGetEnumerableElementType(value.GetType());
+
+                if (sourceElementType != null && elementType.IsAssignableFrom(sourceElementType))
+                {
+                    score = sourceElementType == elementType ? 1 : 2;
+                    return true;
+                }
+
+                return CanConvertEnumerableElements(enumerable, elementType, out score);
+            }
+
+            if (targetType.IsGenericType &&
+                targetType.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                Type elementType = targetType.GetGenericArguments()[0];
+                Type sourceElementType = TryGetEnumerableElementType(value.GetType());
+
+                if (sourceElementType != null && elementType.IsAssignableFrom(sourceElementType))
+                {
+                    score = sourceElementType == elementType ? 2 : 3;
+                    return true;
+                }
+
+                if (CanConvertEnumerableElements(enumerable, elementType, out int elementScore))
+                {
+                    score = elementScore + 1;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryConvertCollection(object value, Type targetType, out object convertedCollection)
+        {
+            convertedCollection = null;
+
+            if (!(value is IEnumerable enumerable) || value is string)
+            {
+                return false;
+            }
+
+            if (targetType.IsArray)
+            {
+                Type elementType = targetType.GetElementType();
+                if (enumerable is ICollection collection)
+                {
+                    Array array = Array.CreateInstance(elementType, collection.Count);
+                    int index = 0;
+
+                    foreach (object item in enumerable)
+                    {
+                        array.SetValue(ConvertTo(item, elementType), index++);
+                    }
+
+                    convertedCollection = array;
+                    return true;
+                }
+
+                convertedCollection = ToArray(enumerable, elementType);
+                return true;
+            }
+
+            if (targetType.IsGenericType &&
+                targetType.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                Type elementType = targetType.GetGenericArguments()[0];
+                IList list = enumerable is ICollection collection
+                    ? (IList)Activator.CreateInstance(targetType, collection.Count)
+                    : (IList)Activator.CreateInstance(targetType);
+
+                CopyConvertedElements(enumerable, elementType, list);
+
+                convertedCollection = list;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool CanConvertEnumerableElements(IEnumerable enumerable, Type elementType, out int score)
+        {
+            score = 0;
+
+            foreach (object item in enumerable)
+            {
+                if (!CanConvertTo(item, elementType, out int elementScore))
+                {
+                    score = int.MaxValue;
+                    return false;
+                }
+
+                score += elementScore;
+            }
+
+            return true;
+        }
+
+        private static Array ToArray(IEnumerable enumerable, Type elementType)
+        {
+            if (enumerable is ICollection collection)
+            {
+                Array array = Array.CreateInstance(elementType, collection.Count);
+                int index = 0;
+
+                foreach (object item in enumerable)
+                {
+                    array.SetValue(ConvertTo(item, elementType), index++);
+                }
+
+                return array;
+            }
+
+            var items = new List<object>();
+
+            foreach (object item in enumerable)
+            {
+                items.Add(ConvertTo(item, elementType));
+            }
+
+            Array result = Array.CreateInstance(elementType, items.Count);
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                result.SetValue(items[i], i);
+            }
+
+            return result;
+        }
+
+        private static void CopyConvertedElements(IEnumerable enumerable, Type elementType, IList destination)
+        {
+            foreach (object item in enumerable)
+            {
+                destination.Add(ConvertTo(item, elementType));
+            }
+        }
+
+        private static Type TryGetEnumerableElementType(Type enumerableType)
+        {
+            if (enumerableType == null)
+            {
+                return null;
+            }
+
+            if (enumerableType.IsArray)
+            {
+                return enumerableType.GetElementType();
+            }
+
+            if (enumerableType.IsGenericType)
+            {
+                Type genericDefinition = enumerableType.GetGenericTypeDefinition();
+
+                if (genericDefinition == typeof(IEnumerable<>) ||
+                    genericDefinition == typeof(IList<>) ||
+                    genericDefinition == typeof(ICollection<>) ||
+                    genericDefinition == typeof(List<>))
+                {
+                    return enumerableType.GetGenericArguments()[0];
+                }
+            }
+
+            Type[] interfaces = enumerableType.GetInterfaces();
+
+            for (int i = 0; i < interfaces.Length; i++)
+            {
+                Type interfaceType = interfaces[i];
+
+                if (interfaceType.IsGenericType &&
+                    interfaceType.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                {
+                    return interfaceType.GetGenericArguments()[0];
+                }
+            }
+
+            return null;
         }
     }
 

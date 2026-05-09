@@ -3,6 +3,12 @@ namespace LegendaryTools.MiniCSharp
     internal abstract class Statement
     {
         public abstract void Execute(ScriptContext context);
+
+        public virtual System.Collections.IEnumerator ExecuteCoroutine(ScriptContext context)
+        {
+            Execute(context);
+            yield break;
+        }
     }
 
     internal sealed class WhileStatement : Statement
@@ -40,6 +46,53 @@ namespace LegendaryTools.MiniCSharp
                 catch (ScriptBreakException)
                 {
                     break;
+                }
+            }
+        }
+
+        public override System.Collections.IEnumerator ExecuteCoroutine(ScriptContext context)
+        {
+            int iterationCount = 0;
+
+            while (RuntimeConversion.ToBool(_condition.Evaluate(context).Value))
+            {
+                if (++iterationCount > MaxIterations)
+                {
+                    throw new ScriptException($"While loop exceeded the safety limit of {MaxIterations} iterations.");
+                }
+
+                System.Collections.IEnumerator bodyEnumerator = _body.ExecuteCoroutine(context);
+                bool continueLoop = false;
+
+                while (true)
+                {
+                    object yieldedValue;
+
+                    try
+                    {
+                        if (!bodyEnumerator.MoveNext())
+                        {
+                            break;
+                        }
+
+                        yieldedValue = bodyEnumerator.Current;
+                    }
+                    catch (ScriptContinueException)
+                    {
+                        continueLoop = true;
+                        break;
+                    }
+                    catch (ScriptBreakException)
+                    {
+                        yield break;
+                    }
+
+                    yield return yieldedValue;
+                }
+
+                if (continueLoop)
+                {
+                    continue;
                 }
             }
         }
@@ -82,6 +135,47 @@ namespace LegendaryTools.MiniCSharp
         }
     }
 
+    internal sealed class YieldStatement : Statement
+    {
+        private readonly Expression _value;
+        private readonly bool _isBreak;
+
+        private YieldStatement(Expression value, bool isBreak)
+        {
+            _value = value;
+            _isBreak = isBreak;
+        }
+
+        public static YieldStatement CreateReturn(Expression value)
+        {
+            return new YieldStatement(value, false);
+        }
+
+        public static YieldStatement CreateBreak()
+        {
+            return new YieldStatement(null, true);
+        }
+
+        public override void Execute(ScriptContext context)
+        {
+            throw new ScriptException("'yield' can only be executed inside coroutine functions.");
+        }
+
+        public override System.Collections.IEnumerator ExecuteCoroutine(ScriptContext context)
+        {
+            if (_isBreak)
+            {
+                throw new ScriptYieldBreakException();
+            }
+
+            RuntimeValue yieldedValue = _value != null
+                ? _value.Evaluate(context)
+                : RuntimeValue.From(null);
+
+            yield return yieldedValue.Value;
+        }
+    }
+
     internal sealed class ScriptBreakException : System.Exception
     {
     }
@@ -101,5 +195,9 @@ namespace LegendaryTools.MiniCSharp
         public RuntimeValue ReturnValue { get; }
 
         public bool HasExpression { get; }
+    }
+
+    internal sealed class ScriptYieldBreakException : System.Exception
+    {
     }
 }

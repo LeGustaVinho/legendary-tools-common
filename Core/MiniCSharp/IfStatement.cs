@@ -24,5 +24,24 @@
                 _elseBranch?.Execute(context);
             }
         }
+
+        public override System.Collections.IEnumerator ExecuteCoroutine(ScriptContext context)
+        {
+            Statement branch = RuntimeConversion.ToBool(_condition.Evaluate(context).Value)
+                ? _thenBranch
+                : _elseBranch;
+
+            if (branch == null)
+            {
+                yield break;
+            }
+
+            System.Collections.IEnumerator enumerator = branch.ExecuteCoroutine(context);
+
+            while (enumerator.MoveNext())
+            {
+                yield return enumerator.Current;
+            }
+        }
     }
 }

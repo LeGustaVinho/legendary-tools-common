@@ -128,6 +128,67 @@ namespace LegendaryTools.MiniCSharp
         }
 
         /// <summary>
+        /// Returns true when a script-declared function with the provided name exists in the current context.
+        /// </summary>
+        public bool HasFunction(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return false;
+            }
+
+            return _context.TryGetVariable(name, out VariableSlot slot) && slot.Value is IScriptCallable;
+        }
+
+        /// <summary>
+        /// Invokes a script-declared function by name.
+        /// The function must already exist in the current interpreter context.
+        /// </summary>
+        public object InvokeFunction(string name, params object[] arguments)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException("Function name cannot be null or empty.", nameof(name));
+            }
+
+            VariableSlot slot = _context.GetVariable(name);
+
+            if (!(slot.Value is IScriptCallable scriptCallable))
+            {
+                throw new ScriptException($"'{name}' is not a script function.");
+            }
+
+            RuntimeValue result = scriptCallable.Invoke(_context, arguments ?? Array.Empty<object>());
+            return result.Type == typeof(void) ? null : result.Value;
+        }
+
+        /// <summary>
+        /// Invokes a script-declared function by name and converts the returned value.
+        /// </summary>
+        public T InvokeFunction<T>(string name, params object[] arguments)
+        {
+            object value = InvokeFunction(name, arguments);
+            return (T)RuntimeConversion.ConvertTo(value, typeof(T));
+        }
+
+        /// <summary>
+        /// Tries to invoke a script-declared function by name.
+        /// Returns false when the function does not exist.
+        /// </summary>
+        public bool TryInvokeFunction(string name, out object result, params object[] arguments)
+        {
+            result = null;
+
+            if (!HasFunction(name))
+            {
+                return false;
+            }
+
+            result = InvokeFunction(name, arguments);
+            return true;
+        }
+
+        /// <summary>
         /// Compiles a script from source text.
         /// The returned script can be executed repeatedly without lexing or parsing again.
         /// </summary>

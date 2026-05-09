@@ -54,5 +54,72 @@
                 context.PopScope();
             }
         }
+
+        public override System.Collections.IEnumerator ExecuteCoroutine(ScriptContext context)
+        {
+            context.PushScope();
+
+            try
+            {
+                _initializer?.Execute(context);
+
+                int iterationCount = 0;
+
+                while (_condition == null || RuntimeConversion.ToBool(_condition.Evaluate(context).Value))
+                {
+                    if (++iterationCount > MaxIterations)
+                    {
+                        throw new ScriptException($"For loop exceeded the safety limit of {MaxIterations} iterations.");
+                    }
+
+                    System.Collections.IEnumerator bodyEnumerator = _body.ExecuteCoroutine(context);
+                    bool continueLoop = false;
+                    bool breakLoop = false;
+
+                    while (true)
+                    {
+                        object yieldedValue;
+
+                        try
+                        {
+                            if (!bodyEnumerator.MoveNext())
+                            {
+                                break;
+                            }
+
+                            yieldedValue = bodyEnumerator.Current;
+                        }
+                        catch (ScriptContinueException)
+                        {
+                            continueLoop = true;
+                            break;
+                        }
+                        catch (ScriptBreakException)
+                        {
+                            breakLoop = true;
+                            break;
+                        }
+
+                        yield return yieldedValue;
+                    }
+
+                    if (breakLoop)
+                    {
+                        yield break;
+                    }
+
+                    _increment?.Evaluate(context);
+
+                    if (continueLoop)
+                    {
+                        continue;
+                    }
+                }
+            }
+            finally
+            {
+                context.PopScope();
+            }
+        }
     }
 }

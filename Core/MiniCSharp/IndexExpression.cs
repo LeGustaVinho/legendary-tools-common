@@ -8,6 +8,8 @@ namespace LegendaryTools.MiniCSharp
     {
         private readonly Expression _target;
         private readonly Expression _index;
+        private readonly object[] _readIndexerArguments = new object[1];
+        private readonly object[] _writeIndexerArguments = new object[2];
 
         public IndexExpression(Expression target, Expression index)
         {
@@ -66,7 +68,17 @@ namespace LegendaryTools.MiniCSharp
             if (indexer != null && indexer.CanRead)
             {
                 object convertedIndex = RuntimeConversion.ConvertTo(indexValue, indexer.GetIndexParameters()[0].ParameterType);
-                object value = indexer.GetValue(targetObject, new[] { convertedIndex });
+                _readIndexerArguments[0] = convertedIndex;
+                object value;
+
+                if (ExecutableInvokerCache.TryGetMethodInvoker(indexer.GetMethod, out Func<object, object[], object> getterInvoker))
+                {
+                    value = getterInvoker(targetObject, _readIndexerArguments);
+                }
+                else
+                {
+                    value = indexer.GetValue(targetObject, _readIndexerArguments);
+                }
 
                 context.EnsureValueAllowed(value, $"read indexer on '{targetType.Name}'");
                 return new RuntimeValue(value, indexer.PropertyType);
@@ -119,7 +131,20 @@ namespace LegendaryTools.MiniCSharp
             {
                 object convertedIndex = RuntimeConversion.ConvertTo(indexValue, indexer.GetIndexParameters()[0].ParameterType);
                 object convertedValue = RuntimeConversion.ConvertTo(value, indexer.PropertyType);
-                indexer.SetValue(targetObject, convertedValue, new[] { convertedIndex });
+
+                _readIndexerArguments[0] = convertedIndex;
+                _writeIndexerArguments[0] = convertedIndex;
+                _writeIndexerArguments[1] = convertedValue;
+
+                if (ExecutableInvokerCache.TryGetMethodInvoker(indexer.SetMethod, out Func<object, object[], object> setterInvoker))
+                {
+                    setterInvoker(targetObject, _writeIndexerArguments);
+                }
+                else
+                {
+                    indexer.SetValue(targetObject, convertedValue, _readIndexerArguments);
+                }
+
                 return;
             }
 

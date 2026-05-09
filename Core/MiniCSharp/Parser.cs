@@ -10,6 +10,8 @@ namespace LegendaryTools.MiniCSharp
         private readonly Func<string, Type> _resolveType;
         private int _current;
         private int _loopDepth;
+        private int _switchDepth;
+        private int _coroutineFunctionDepth;
 
         public Parser(List<Token> tokens, Func<string, Type> resolveType)
         {
@@ -41,6 +43,21 @@ namespace LegendaryTools.MiniCSharp
                 return ParseForStatement();
             }
 
+            if (Match(TokenType.Try))
+            {
+                return ParseTryStatement();
+            }
+
+            if (Match(TokenType.Switch))
+            {
+                return ParseSwitchStatement();
+            }
+
+            if (Match(TokenType.Foreach))
+            {
+                return ParseForeachStatement();
+            }
+
             if (Match(TokenType.While))
             {
                 return ParseWhileStatement();
@@ -59,6 +76,11 @@ namespace LegendaryTools.MiniCSharp
             if (Match(TokenType.Return))
             {
                 return ParseReturnStatement();
+            }
+
+            if (Match(TokenType.Yield))
+            {
+                return ParseYieldStatement();
             }
 
             if (Match(TokenType.LeftBrace))
@@ -174,11 +196,172 @@ namespace LegendaryTools.MiniCSharp
             return new WhileStatement(condition, body);
         }
 
+        private TryStatement ParseTryStatement()
+        {
+            Statement tryBlock = ParseRequiredBlock("Expected '{' after 'try'.");
+            Type catchType = null;
+            string catchVariableName = null;
+            Statement catchBlock = null;
+            Statement finallyBlock = null;
+
+            if (Match(TokenType.Catch))
+            {
+                if (Match(TokenType.LeftParen))
+                {
+                    string catchTypeName;
+                    catchType = ParseTypeName(out catchTypeName, "Expected exception type in catch clause.");
+
+                    if (catchType == null)
+                    {
+                        throw Error(Previous(), $"Unknown type '{catchTypeName}'.");
+                    }
+
+                    if (Check(TokenType.Identifier))
+                    {
+                        catchVariableName = Advance().Lexeme;
+                    }
+
+                    Consume(TokenType.RightParen, "Expected ')' after catch clause.");
+                }
+
+                catchBlock = ParseRequiredBlock("Expected '{' after 'catch'.");
+            }
+
+            if (Match(TokenType.Finally))
+            {
+                finallyBlock = ParseRequiredBlock("Expected '{' after 'finally'.");
+            }
+
+            if (catchBlock == null && finallyBlock == null)
+            {
+                throw Error(Peek(), "A try statement requires at least one catch or finally block.");
+            }
+
+            return new TryStatement(tryBlock, catchType, catchVariableName, catchBlock, finallyBlock);
+        }
+
+        private Statement ParseRequiredBlock(string message)
+        {
+            if (!Match(TokenType.LeftBrace))
+            {
+                throw Error(Peek(), message);
+            }
+
+            return new BlockStatement(ParseBlockStatements());
+        }
+
+        private SwitchStatement ParseSwitchStatement()
+        {
+            Consume(TokenType.LeftParen, "Expected '(' after 'switch'.");
+            Expression target = ParseExpression();
+            Consume(TokenType.RightParen, "Expected ')' after switch expression.");
+            Consume(TokenType.LeftBrace, "Expected '{' after switch expression.");
+
+            var sections = new List<SwitchSection>();
+            bool hasDefaultSection = false;
+            _switchDepth++;
+
+            try
+            {
+                while (!Check(TokenType.RightBrace) && !IsAtEnd())
+                {
+                    var labels = new List<SwitchLabel>();
+
+                    while (true)
+                    {
+                        if (Match(TokenType.Case))
+                        {
+                            Expression caseExpression = ParseExpression();
+                            Consume(TokenType.Colon, "Expected ':' after case label.");
+                            labels.Add(SwitchLabel.ForCase(caseExpression));
+                        }
+                        else if (Match(TokenType.Default))
+                        {
+                            if (hasDefaultSection)
+                            {
+                                throw Error(Previous(), "A switch statement can only contain one default label.");
+                            }
+
+                            Consume(TokenType.Colon, "Expected ':' after default label.");
+                            labels.Add(SwitchLabel.ForDefault());
+                            hasDefaultSection = true;
+                        }
+                        else
+                        {
+                            throw Error(Peek(), "Expected 'case' or 'default' inside switch statement.");
+                        }
+
+                        if (!Check(TokenType.Case) && !Check(TokenType.Default))
+                        {
+                            break;
+                        }
+                    }
+
+                    var statements = new List<Statement>();
+
+                    while (!Check(TokenType.Case) &&
+                           !Check(TokenType.Default) &&
+                           !Check(TokenType.RightBrace) &&
+                           !IsAtEnd())
+                    {
+                        statements.Add(ParseStatement());
+                    }
+
+                    sections.Add(new SwitchSection(labels, statements));
+                }
+            }
+            finally
+            {
+                _switchDepth--;
+            }
+
+            Consume(TokenType.RightBrace, "Expected '}' after switch body.");
+            return new SwitchStatement(target, sections);
+        }
+
+        private ForeachStatement ParseForeachStatement()
+        {
+            Consume(TokenType.LeftParen, "Expected '(' after 'foreach'.");
+
+            bool inferType = Match(TokenType.Var);
+            Type declaredType = null;
+
+            if (!inferType)
+            {
+                string typeName;
+                declaredType = ParseTypeName(out typeName, "Expected foreach variable type.");
+
+                if (declaredType == null)
+                {
+                    throw Error(Previous(), $"Unknown type '{typeName}'.");
+                }
+            }
+
+            Token name = Consume(TokenType.Identifier, "Expected foreach variable name.");
+            Consume(TokenType.In, "Expected 'in' after foreach variable.");
+            Expression enumerableExpression = ParseExpression();
+            Consume(TokenType.RightParen, "Expected ')' after foreach clauses.");
+
+            _loopDepth++;
+            Statement body;
+
+            try
+            {
+                body = ParseStatement();
+            }
+            finally
+            {
+                _loopDepth--;
+            }
+
+            return new ForeachStatement(inferType, declaredType, name.Lexeme, enumerableExpression, body);
+        }
+
         private BreakStatement ParseBreakStatement()
         {
-            if (_loopDepth == 0)
+            if (_loopDepth == 0 && _switchDepth == 0)
             {
-                throw Error(Previous(), "'break' can only be used inside loops.");
+                throw Error(Previous(), "'break' can only be used inside loops or switch statements.");
             }
 
             Consume(TokenType.Semicolon, "Expected ';' after 'break'.");
@@ -198,6 +381,11 @@ namespace LegendaryTools.MiniCSharp
 
         private ReturnStatement ParseReturnStatement()
         {
+            if (_coroutineFunctionDepth > 0 && !Check(TokenType.Semicolon))
+            {
+                throw Error(Peek(), "Coroutine functions cannot return a value. Use 'yield return' or 'yield break'.");
+            }
+
             Expression value = null;
             bool hasExpression = !Check(TokenType.Semicolon);
 
@@ -208,6 +396,35 @@ namespace LegendaryTools.MiniCSharp
 
             Consume(TokenType.Semicolon, "Expected ';' after 'return'.");
             return new ReturnStatement(value, hasExpression);
+        }
+
+        private YieldStatement ParseYieldStatement()
+        {
+            if (_coroutineFunctionDepth == 0)
+            {
+                throw Error(Previous(), "'yield' can only be used inside functions returning IEnumerator.");
+            }
+
+            if (Match(TokenType.Break))
+            {
+                Consume(TokenType.Semicolon, "Expected ';' after 'yield break'.");
+                return YieldStatement.CreateBreak();
+            }
+
+            if (Match(TokenType.Return))
+            {
+                Expression value = null;
+
+                if (!Check(TokenType.Semicolon))
+                {
+                    value = ParseExpression();
+                }
+
+                Consume(TokenType.Semicolon, "Expected ';' after 'yield return'.");
+                return YieldStatement.CreateReturn(value);
+            }
+
+            throw Error(Peek(), "Expected 'return' or 'break' after 'yield'.");
         }
 
         private FunctionDeclarationStatement ParseFunctionDeclaration()
@@ -249,9 +466,32 @@ namespace LegendaryTools.MiniCSharp
             }
 
             Consume(TokenType.RightParen, "Expected ')' after parameter list.");
-            Statement body = ParseStatement();
+            bool isCoroutineFunction = IsCoroutineReturnType(returnType);
+            Statement body;
+
+            if (isCoroutineFunction)
+            {
+                _coroutineFunctionDepth++;
+            }
+
+            try
+            {
+                body = ParseStatement();
+            }
+            finally
+            {
+                if (isCoroutineFunction)
+                {
+                    _coroutineFunctionDepth--;
+                }
+            }
 
             return new FunctionDeclarationStatement(name.Lexeme, returnType, parameters, body);
+        }
+
+        private static bool IsCoroutineReturnType(Type type)
+        {
+            return type != null && typeof(System.Collections.IEnumerator).IsAssignableFrom(type);
         }
 
         private List<Statement> ParseBlockStatements()
@@ -314,12 +554,71 @@ namespace LegendaryTools.MiniCSharp
 
         private Expression ParseExpression()
         {
+            if (TryParseLambdaExpression(out Expression lambdaExpression))
+            {
+                return lambdaExpression;
+            }
+
             return ParseAssignment();
+        }
+
+        private bool TryParseLambdaExpression(out Expression expression)
+        {
+            expression = null;
+
+            if (!Check(TokenType.LeftParen))
+            {
+                return false;
+            }
+
+            int savedCurrent = _current;
+            Advance();
+            var parameterNames = new List<string>();
+
+            if (!Check(TokenType.RightParen))
+            {
+                while (true)
+                {
+                    if (!Check(TokenType.Identifier))
+                    {
+                        _current = savedCurrent;
+                        return false;
+                    }
+
+                    parameterNames.Add(Advance().Lexeme);
+
+                    if (Match(TokenType.Comma))
+                    {
+                        continue;
+                    }
+
+                    break;
+                }
+            }
+
+            if (!Match(TokenType.RightParen) || !Match(TokenType.Arrow))
+            {
+                _current = savedCurrent;
+                return false;
+            }
+
+            Expression body = ParseExpression();
+            expression = new LambdaExpression(parameterNames, body);
+            return true;
         }
 
         private Expression ParseAssignment()
         {
-            Expression expression = ParseOr();
+            Expression expression;
+
+            if (TryParseLambdaExpression(out Expression lambdaExpression))
+            {
+                expression = lambdaExpression;
+            }
+            else
+            {
+                expression = ParseNullCoalescing();
+            }
 
             if (Match(TokenType.Equal))
             {
@@ -345,6 +644,19 @@ namespace LegendaryTools.MiniCSharp
                 }
 
                 throw Error(compoundOperator, "Invalid assignment target.");
+            }
+
+            return expression;
+        }
+
+        private Expression ParseNullCoalescing()
+        {
+            Expression expression = ParseOr();
+
+            while (Match(TokenType.QuestionQuestion))
+            {
+                Expression right = ParseOr();
+                expression = new NullCoalescingExpression(expression, right);
             }
 
             return expression;
@@ -396,11 +708,45 @@ namespace LegendaryTools.MiniCSharp
         {
             Expression expression = ParseTerm();
 
-            while (Match(TokenType.Greater, TokenType.GreaterEqual, TokenType.Less, TokenType.LessEqual))
+            while (true)
             {
-                Token op = Previous();
-                Expression right = ParseTerm();
-                expression = new BinaryExpression(expression, op, right);
+                if (Match(TokenType.Greater, TokenType.GreaterEqual, TokenType.Less, TokenType.LessEqual))
+                {
+                    Token op = Previous();
+                    Expression right = ParseTerm();
+                    expression = new BinaryExpression(expression, op, right);
+                    continue;
+                }
+
+                if (Match(TokenType.Is))
+                {
+                    string typeName;
+                    Type targetType = ParseTypeName(out typeName, "Expected type after 'is'.");
+
+                    if (targetType == null)
+                    {
+                        throw Error(Previous(), $"Unknown type '{typeName}'.");
+                    }
+
+                    expression = new IsExpression(expression, targetType);
+                    continue;
+                }
+
+                if (Match(TokenType.As))
+                {
+                    string typeName;
+                    Type targetType = ParseTypeName(out typeName, "Expected type after 'as'.");
+
+                    if (targetType == null)
+                    {
+                        throw Error(Previous(), $"Unknown type '{typeName}'.");
+                    }
+
+                    expression = new AsExpression(expression, targetType);
+                    continue;
+                }
+
+                break;
             }
 
             return expression;
@@ -436,6 +782,22 @@ namespace LegendaryTools.MiniCSharp
 
         private Expression ParseUnary()
         {
+            if (IsExplicitCastStart())
+            {
+                Consume(TokenType.LeftParen, "Expected '(' before cast type.");
+                string typeName;
+                Type targetType = ParseTypeName(out typeName, "Expected cast target type.");
+                Consume(TokenType.RightParen, "Expected ')' after cast type.");
+
+                if (targetType == null)
+                {
+                    throw Error(Previous(), $"Unknown type '{typeName}'.");
+                }
+
+                Expression operand = ParseUnary();
+                return new CastExpression(targetType, operand);
+            }
+
             if (Match(TokenType.Bang, TokenType.Minus))
             {
                 Token op = Previous();
@@ -480,6 +842,50 @@ namespace LegendaryTools.MiniCSharp
             return expression;
         }
 
+        private bool IsExplicitCastStart()
+        {
+            if (!Check(TokenType.LeftParen))
+            {
+                return false;
+            }
+
+            int savedCurrent = _current;
+            Advance();
+            bool isType = TryReadTypeReference(_current, out _, out int endIndex, out _, out _);
+            _current = savedCurrent;
+
+            return isType &&
+                   endIndex < _tokens.Count &&
+                   _tokens[endIndex].Type == TokenType.RightParen &&
+                   endIndex + 1 < _tokens.Count &&
+                   IsCastOperandStart(_tokens[endIndex + 1].Type);
+        }
+
+        private static bool IsCastOperandStart(TokenType tokenType)
+        {
+            switch (tokenType)
+            {
+                case TokenType.LeftParen:
+                case TokenType.LeftBracket:
+                case TokenType.Identifier:
+                case TokenType.Number:
+                case TokenType.String:
+                case TokenType.InterpolatedString:
+                case TokenType.True:
+                case TokenType.False:
+                case TokenType.Null:
+                case TokenType.New:
+                case TokenType.Bang:
+                case TokenType.Minus:
+                case TokenType.PlusPlus:
+                case TokenType.MinusMinus:
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
         private Expression ParseCallAndMemberAccess()
         {
             Expression expression = ParsePrimary();
@@ -491,10 +897,31 @@ namespace LegendaryTools.MiniCSharp
                     Token name = Consume(TokenType.Identifier, "Expected member name after '.'.");
                     expression = new MemberExpression(expression, name);
                 }
+                else if (Match(TokenType.QuestionDot))
+                {
+                    Token name = Consume(TokenType.Identifier, "Expected member name after '?.'.");
+
+                    if (Match(TokenType.LeftParen))
+                    {
+                        List<Expression> arguments = ParseArgumentsAfterOpeningParenthesis();
+                        expression = new NullConditionalCallExpression(expression, name, arguments);
+                    }
+                    else
+                    {
+                        expression = new NullConditionalMemberExpression(expression, name);
+                    }
+                }
                 else if (Match(TokenType.LeftParen))
                 {
                     List<Expression> arguments = ParseArgumentsAfterOpeningParenthesis();
                     expression = new CallExpression(expression, arguments);
+                }
+                else if (Match(TokenType.Question))
+                {
+                    Consume(TokenType.LeftBracket, "Expected '[' after '?' for null-conditional index access.");
+                    Expression index = ParseExpression();
+                    Consume(TokenType.RightBracket, "Expected ']' after index expression.");
+                    expression = new NullConditionalIndexExpression(expression, index);
                 }
                 else if (Match(TokenType.LeftBracket))
                 {
@@ -533,9 +960,24 @@ namespace LegendaryTools.MiniCSharp
                 return new LiteralExpression(Previous().Literal);
             }
 
+            if (Match(TokenType.InterpolatedString))
+            {
+                return new InterpolatedStringExpression((InterpolatedStringTemplate)Previous().Literal, _resolveType);
+            }
+
             if (Match(TokenType.New))
             {
                 return ParseNewExpression();
+            }
+
+            if (Match(TokenType.Typeof))
+            {
+                return ParseTypeOfExpression();
+            }
+
+            if (Match(TokenType.LeftBracket))
+            {
+                return ParseArrayLiteralExpression();
             }
 
             if (TryParseTypeExpression(out Expression typeExpression))
@@ -579,6 +1021,40 @@ namespace LegendaryTools.MiniCSharp
             List<Expression> arguments = ParseArgumentsAfterOpeningParenthesis();
 
             return new NewExpression(typeName, type, arguments);
+        }
+
+        private ArrayLiteralExpression ParseArrayLiteralExpression()
+        {
+            var elements = new List<Expression>();
+
+            if (!Check(TokenType.RightBracket))
+            {
+                do
+                {
+                    elements.Add(ParseExpression());
+                }
+                while (Match(TokenType.Comma));
+            }
+
+            Consume(TokenType.RightBracket, "Expected ']' after array literal.");
+            return new ArrayLiteralExpression(elements);
+        }
+
+        private TypeExpression ParseTypeOfExpression()
+        {
+            Token typeofToken = Previous();
+            Consume(TokenType.LeftParen, "Expected '(' after 'typeof'.");
+
+            string typeName;
+            Type type = ParseTypeName(out typeName, "Expected type name inside 'typeof'.");
+            Consume(TokenType.RightParen, "Expected ')' after typeof type.");
+
+            if (type == null)
+            {
+                throw Error(Previous(), $"Unknown type '{typeName}'.");
+            }
+
+            return new TypeExpression(typeofToken, type);
         }
 
         private List<Expression> ParseArgumentsAfterOpeningParenthesis()
@@ -871,6 +1347,25 @@ namespace LegendaryTools.MiniCSharp
         private ScriptException Error(Token token, string message)
         {
             return new ScriptException($"Parser error at line {token.Line}, column {token.Column}: {message}");
+        }
+
+        internal static Expression ParseInlineExpression(string source, Func<string, Type> resolveType)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            var tokens = new Lexer(source).ScanTokens();
+            var parser = new Parser(tokens, resolveType);
+            Expression expression = parser.ParseExpression();
+
+            if (!parser.IsAtEnd())
+            {
+                throw parser.Error(parser.Peek(), "Expected end of interpolation expression.");
+            }
+
+            return expression;
         }
     }
 }

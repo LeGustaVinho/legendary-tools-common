@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 
 namespace LegendaryTools.MiniCSharp
@@ -16,6 +17,7 @@ namespace LegendaryTools.MiniCSharp
         private readonly Statement _body;
         private readonly ScriptContext _declaringContext;
         private readonly Dictionary<Type, Delegate> _delegateCache = new Dictionary<Type, Delegate>();
+        private readonly bool _isCoroutine;
 
         public ScriptFunction(
             string name,
@@ -29,6 +31,7 @@ namespace LegendaryTools.MiniCSharp
             _parameters = parameters;
             _body = body;
             _declaringContext = declaringContext;
+            _isCoroutine = typeof(IEnumerator).IsAssignableFrom(returnType);
         }
 
         public RuntimeValue Invoke(ScriptContext context, object[] arguments)
@@ -43,6 +46,12 @@ namespace LegendaryTools.MiniCSharp
             if (arguments.Length != _parameters.Count)
             {
                 throw new ScriptException($"Function '{_name}' expected {_parameters.Count} arguments, got {arguments.Length}.");
+            }
+
+            if (_isCoroutine)
+            {
+                IEnumerator coroutine = new ScriptCoroutineEnumerator(_name, _parameters, _body, executionContext, arguments);
+                return new RuntimeValue(coroutine, _returnType);
             }
 
             executionContext.PushScope();
@@ -147,6 +156,11 @@ namespace LegendaryTools.MiniCSharp
         }
 
         public override void Execute(ScriptContext context)
+        {
+            Declare(context);
+        }
+
+        public void Declare(ScriptContext context)
         {
             context.DefineVariable(
                 _name,

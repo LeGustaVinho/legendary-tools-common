@@ -21,11 +21,23 @@ namespace LegendaryTools.MiniCSharp
             { "null", TokenType.Null },
             { "if", TokenType.If },
             { "else", TokenType.Else },
+            { "try", TokenType.Try },
+            { "catch", TokenType.Catch },
+            { "finally", TokenType.Finally },
+            { "switch", TokenType.Switch },
+            { "case", TokenType.Case },
+            { "default", TokenType.Default },
             { "for", TokenType.For },
+            { "foreach", TokenType.Foreach },
+            { "in", TokenType.In },
+            { "is", TokenType.Is },
+            { "as", TokenType.As },
             { "while", TokenType.While },
             { "break", TokenType.Break },
             { "continue", TokenType.Continue },
             { "return", TokenType.Return },
+            { "yield", TokenType.Yield },
+            { "typeof", TokenType.Typeof },
             { "var", TokenType.Var },
             { "new", TokenType.New }
         };
@@ -86,8 +98,27 @@ namespace LegendaryTools.MiniCSharp
                     AddToken(TokenType.Comma);
                     break;
 
+                case ':':
+                    AddToken(TokenType.Colon);
+                    break;
+
                 case '.':
                     AddToken(TokenType.Dot);
+                    break;
+
+                case '?':
+                    if (Match('.'))
+                    {
+                        AddToken(TokenType.QuestionDot);
+                    }
+                    else if (Match('?'))
+                    {
+                        AddToken(TokenType.QuestionQuestion);
+                    }
+                    else
+                    {
+                        AddToken(TokenType.Question);
+                    }
                     break;
 
                 case '+':
@@ -133,7 +164,19 @@ namespace LegendaryTools.MiniCSharp
                     break;
 
                 case '=':
-                    AddToken(Match('=') ? TokenType.EqualEqual : TokenType.Equal);
+                    if (Match('='))
+                    {
+                        AddToken(TokenType.EqualEqual);
+                    }
+                    else if (Match('>'))
+                    {
+                        AddToken(TokenType.Arrow);
+                    }
+                    else
+                    {
+                        AddToken(TokenType.Equal);
+                    }
+
                     break;
 
                 case '<':
@@ -194,6 +237,15 @@ namespace LegendaryTools.MiniCSharp
                 case '"':
                     ScanString();
                     break;
+
+                case '$':
+                    if (Match('"'))
+                    {
+                        ScanInterpolatedString();
+                        break;
+                    }
+
+                    throw Error("Unexpected character '$'.");
 
                 default:
                     if (IsDigit(c))
@@ -301,6 +353,186 @@ namespace LegendaryTools.MiniCSharp
             }
 
             throw Error("Unterminated string.");
+        }
+
+        private void ScanInterpolatedString()
+        {
+            var template = new InterpolatedStringTemplate();
+            var currentText = new StringBuilder();
+
+            while (!IsAtEnd())
+            {
+                char c = Advance();
+
+                if (c == '"')
+                {
+                    if (currentText.Length > 0)
+                    {
+                        template.AddText(currentText.ToString());
+                    }
+
+                    AddToken(TokenType.InterpolatedString, template);
+                    return;
+                }
+
+                if (c == '{')
+                {
+                    if (Peek() == '{')
+                    {
+                        Advance();
+                        currentText.Append('{');
+                        continue;
+                    }
+
+                    if (currentText.Length > 0)
+                    {
+                        template.AddText(currentText.ToString());
+                        currentText.Length = 0;
+                    }
+
+                    template.AddExpression(ReadInterpolatedExpression());
+                    continue;
+                }
+
+                if (c == '}')
+                {
+                    if (Peek() == '}')
+                    {
+                        Advance();
+                        currentText.Append('}');
+                        continue;
+                    }
+
+                    throw Error("Unexpected '}' in interpolated string.");
+                }
+
+                if (c == '\\')
+                {
+                    if (IsAtEnd())
+                    {
+                        throw Error("Unterminated string escape.");
+                    }
+
+                    char escaped = Advance();
+
+                    switch (escaped)
+                    {
+                        case 'n':
+                            currentText.Append('\n');
+                            break;
+
+                        case 'r':
+                            currentText.Append('\r');
+                            break;
+
+                        case 't':
+                            currentText.Append('\t');
+                            break;
+
+                        case '\\':
+                            currentText.Append('\\');
+                            break;
+
+                        case '"':
+                            currentText.Append('"');
+                            break;
+
+                        default:
+                            throw Error($"Unsupported string escape '\\{escaped}'.");
+                    }
+
+                    continue;
+                }
+
+                if (c == '\n')
+                {
+                    _line++;
+                    _column = 1;
+                }
+
+                currentText.Append(c);
+            }
+
+            throw Error("Unterminated interpolated string.");
+        }
+
+        private string ReadInterpolatedExpression()
+        {
+            var expression = new StringBuilder();
+            int braceDepth = 0;
+            bool inString = false;
+            bool escaping = false;
+
+            while (!IsAtEnd())
+            {
+                char c = Advance();
+
+                if (inString)
+                {
+                    expression.Append(c);
+
+                    if (escaping)
+                    {
+                        escaping = false;
+                        continue;
+                    }
+
+                    if (c == '\\')
+                    {
+                        escaping = true;
+                        continue;
+                    }
+
+                    if (c == '"')
+                    {
+                        inString = false;
+                    }
+
+                    if (c == '\n')
+                    {
+                        _line++;
+                        _column = 1;
+                    }
+
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    inString = true;
+                    expression.Append(c);
+                    continue;
+                }
+
+                if (c == '{')
+                {
+                    braceDepth++;
+                    expression.Append(c);
+                    continue;
+                }
+
+                if (c == '}')
+                {
+                    if (braceDepth == 0)
+                    {
+                        return expression.ToString();
+                    }
+
+                    braceDepth--;
+                    expression.Append(c);
+                    continue;
+                }
+
+                if (c == '\n')
+                {
+                    _line++;
+                    _column = 1;
+                }
+
+                expression.Append(c);
+            }
+
+            throw Error("Unterminated interpolation expression.");
         }
 
         private void ScanNumber()

@@ -156,6 +156,16 @@ namespace LegendaryTools.MiniCSharp
                 return true;
             }
 
+            if (_allowByDefault &&
+                _blacklistedTypes.Count == 0 &&
+                _blacklistedTypeNames.Count == 0 &&
+                _blacklistedNamespaces.Count == 0 &&
+                _blacklistedAssemblies.Count == 0 &&
+                _customBlacklistRules.Count == 0)
+            {
+                return true;
+            }
+
             type = NormalizeType(type);
 
             if (_allowedTypeCache.TryGetValue(type, out bool cachedResult))

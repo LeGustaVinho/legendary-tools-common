@@ -20,6 +20,9 @@ namespace LegendaryTools.MiniCSharp
         private static readonly Dictionary<MemberLookupKey, EventInfo> EventCache =
             new Dictionary<MemberLookupKey, EventInfo>();
 
+        private static readonly Dictionary<Type, PropertyInfo> IndexerCache =
+            new Dictionary<Type, PropertyInfo>();
+
         private static readonly Dictionary<MethodGroupLookupKey, MethodInfo[]> MethodGroupCache =
             new Dictionary<MethodGroupLookupKey, MethodInfo[]>();
 
@@ -39,6 +42,7 @@ namespace LegendaryTools.MiniCSharp
                 FieldCache.Clear();
                 PropertyCache.Clear();
                 EventCache.Clear();
+                IndexerCache.Clear();
                 MethodGroupCache.Clear();
                 ConstructorCache.Clear();
                 MethodOverloadCache.Clear();
@@ -119,7 +123,16 @@ namespace LegendaryTools.MiniCSharp
 
         public static PropertyInfo GetIndexer(Type type, TypeAccessPolicy accessPolicy)
         {
+            lock (CacheLock)
+            {
+                if (IndexerCache.TryGetValue(type, out PropertyInfo cachedIndexer))
+                {
+                    return IsIndexerAllowed(cachedIndexer, accessPolicy) ? cachedIndexer : null;
+                }
+            }
+
             PropertyInfo[] properties = type.GetProperties(InstanceFlags);
+            PropertyInfo resolvedIndexer = null;
 
             for (int i = 0; i < properties.Length; i++)
             {
@@ -131,16 +144,16 @@ namespace LegendaryTools.MiniCSharp
                     continue;
                 }
 
-                if (!accessPolicy.IsAllowed(property.PropertyType) ||
-                    !accessPolicy.IsAllowed(indexParameters[0].ParameterType))
-                {
-                    continue;
-                }
-
-                return property;
+                resolvedIndexer = property;
+                break;
             }
 
-            return null;
+            lock (CacheLock)
+            {
+                IndexerCache[type] = resolvedIndexer;
+            }
+
+            return IsIndexerAllowed(resolvedIndexer, accessPolicy) ? resolvedIndexer : null;
         }
 
         public static RuntimeValue CreateInstance(Type type, string typeName, object[] arguments, TypeAccessPolicy accessPolicy)
@@ -182,7 +195,9 @@ namespace LegendaryTools.MiniCSharp
 
             try
             {
-                object instance = ((ConstructorInfo)constructor).Invoke(convertedArguments);
+                ConstructorInfo constructorInfo = (ConstructorInfo)constructor;
+                Func<object, object[], object> invoker = ExecutableInvokerCache.GetConstructorInvoker(constructorInfo);
+                object instance = invoker(null, convertedArguments);
 
                 accessPolicy.ThrowIfDenied(instance.GetType(), $"create instance of '{typeName}'");
 
@@ -229,7 +244,16 @@ namespace LegendaryTools.MiniCSharp
 
                 accessPolicy.ThrowIfDenied(method.ReturnType, $"call method '{methodName}' return type");
 
-                object result = method.Invoke(targetObject, convertedArguments);
+                object result;
+
+                if (ExecutableInvokerCache.TryGetMethodInvoker(method, out Func<object, object[], object> invoker))
+                {
+                    result = invoker(targetObject, convertedArguments);
+                }
+                else
+                {
+                    result = method.Invoke(targetObject, convertedArguments);
+                }
 
                 if (method.ReturnType == typeof(void))
                 {
@@ -468,6 +492,19 @@ namespace LegendaryTools.MiniCSharp
             }
 
             return true;
+        }
+
+        private static bool IsIndexerAllowed(PropertyInfo indexer, TypeAccessPolicy accessPolicy)
+        {
+            if (indexer == null)
+            {
+                return false;
+            }
+
+            ParameterInfo[] indexParameters = indexer.GetIndexParameters();
+            return indexParameters.Length == 1 &&
+                   accessPolicy.IsAllowed(indexer.PropertyType) &&
+                   accessPolicy.IsAllowed(indexParameters[0].ParameterType);
         }
 
         private readonly struct MemberLookupKey : IEquatable<MemberLookupKey>

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections;
 using NUnit.Framework;
 using LegendaryTools.MiniCSharp;
 using UnityEngine;
@@ -19,6 +20,37 @@ namespace LegendaryTools.Tests.MiniCSharp
             Idle = 0,
             Running = 1,
             Completed = 2
+        }
+
+        public static class ScriptStateUtility
+        {
+            public static ScriptState Promote(ScriptState state)
+            {
+                switch (state)
+                {
+                    case ScriptState.Idle:
+                        return ScriptState.Running;
+
+                    case ScriptState.Running:
+                        return ScriptState.Completed;
+
+                    default:
+                        return ScriptState.Completed;
+                }
+            }
+        }
+
+        public static class ScriptTypeUtility
+        {
+            public static bool AreSame(System.Type left, System.Type right)
+            {
+                return left == right;
+            }
+
+            public static string GetFriendlyName(System.Type type)
+            {
+                return type == null ? "null" : (type.FullName ?? type.Name);
+            }
         }
 
         public sealed class ScriptCharacter
@@ -243,6 +275,92 @@ namespace LegendaryTools.Tests.MiniCSharp
         }
 
         [Test]
+        public void Execute_WhenUsingStringInterpolation_ProducesExpectedText()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.SetVariable("playerName", "Ada");
+            interpreter.SetVariable("health", 75);
+
+            interpreter.Execute(@"
+                string message = $""Player {playerName} has {health} HP."";
+            ");
+
+            Assert.AreEqual("Player Ada has 75 HP.", interpreter.GetVariable<string>("message"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingStringInterpolationWithExpressionsAndEscapedBraces_ProducesExpectedText()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                var character = new ScriptCharacter(""Hero"", 10);
+                int[] values = new int[2];
+                values[0] = 3;
+                values[1] = 4;
+
+                string message = $""{{Name={character.Name}, Total={values[0] + values[1]}}}"";
+            ");
+
+            Assert.AreEqual("{Name=Hero, Total=7}", interpreter.GetVariable<string>("message"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingNullCoalescing_ReturnsExpectedFallbacks()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                string missingName = null ?? ""Unknown"";
+                string presentName = ""Ada"" ?? ""Unknown"";
+                int score = null ?? 10;
+            ");
+
+            Assert.AreEqual("Unknown", interpreter.GetVariable<string>("missingName"));
+            Assert.AreEqual("Ada", interpreter.GetVariable<string>("presentName"));
+            Assert.AreEqual(10, interpreter.GetVariable<int>("score"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingNullConditionalMemberAndMethod_ReturnsExpectedValues()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                ScriptCharacter missing = null;
+                ScriptCharacter present = new ScriptCharacter(""Hero"", 10);
+
+                string missingName = missing?.Name ?? ""Unknown"";
+                string presentName = present?.Name ?? ""Unknown"";
+                bool missingAlive = missing?.IsAlive() ?? false;
+                bool presentAlive = present?.IsAlive() ?? false;
+            ");
+
+            Assert.AreEqual("Unknown", interpreter.GetVariable<string>("missingName"));
+            Assert.AreEqual("Hero", interpreter.GetVariable<string>("presentName"));
+            Assert.IsFalse(interpreter.GetVariable<bool>("missingAlive"));
+            Assert.IsTrue(interpreter.GetVariable<bool>("presentAlive"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingNullConditionalIndexAccess_ReturnsExpectedValues()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                List<int> missing = null;
+                List<int> present = [3, 4, 5];
+
+                int missingFirst = missing?[0] ?? -1;
+                int presentFirst = present?[0] ?? -1;
+            ");
+
+            Assert.AreEqual(-1, interpreter.GetVariable<int>("missingFirst"));
+            Assert.AreEqual(3, interpreter.GetVariable<int>("presentFirst"));
+        }
+
+        [Test]
         public void Execute_WhenUsingIfTrueBranch_ExecutesThenBranch()
         {
             MiniCSharpInterpreter interpreter = new();
@@ -313,6 +431,164 @@ namespace LegendaryTools.Tests.MiniCSharp
         }
 
         [Test]
+        public void Execute_WhenUsingTryCatch_HandlesScriptExceptionAndContinues()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int value = 0;
+                string message = """";
+
+                try
+                {
+                    int result = 10 / 0;
+                    value = 99;
+                }
+                catch (Exception ex)
+                {
+                    value = 1;
+                    message = ex.Message;
+                }
+
+                value += 1;
+            ");
+
+            Assert.AreEqual(2, interpreter.GetVariable<int>("value"));
+            StringAssert.Contains("Division by zero", interpreter.GetVariable<string>("message"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingTryCatchFinally_RunsFinallyAfterCatch()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                string trace = """";
+
+                try
+                {
+                    trace += ""try;"";
+                    int result = 10 / 0;
+                }
+                catch (Exception ex)
+                {
+                    trace += ""catch;"";
+                }
+                finally
+                {
+                    trace += ""finally;"";
+                }
+            ");
+
+            Assert.AreEqual("try;catch;finally;", interpreter.GetVariable<string>("trace"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingTryFinallyWithReturn_RunsFinallyBeforeStoppingScript()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int value = 0;
+
+                try
+                {
+                    value = 1;
+                    return;
+                }
+                finally
+                {
+                    value = 2;
+                }
+
+                value = 999;
+            ");
+
+            Assert.AreEqual(2, interpreter.GetVariable<int>("value"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingSwitchCase_ExecutesMatchingSection()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int level = 2;
+                int score = 0;
+
+                switch (level)
+                {
+                    case 1:
+                        score = 10;
+                        break;
+
+                    case 2:
+                        score = 20;
+                        break;
+
+                    default:
+                        score = -1;
+                        break;
+                }
+            ");
+
+            Assert.AreEqual(20, interpreter.GetVariable<int>("score"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingSwitchDefault_ExecutesFallbackSection()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                string state = ""Paused"";
+                int score = 0;
+
+                switch (state)
+                {
+                    case ""Idle"":
+                        score = 1;
+                        break;
+
+                    case ""Running"":
+                        score = 2;
+                        break;
+
+                    default:
+                        score = 99;
+                        break;
+                }
+            ");
+
+            Assert.AreEqual(99, interpreter.GetVariable<int>("score"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingSwitchWithMultipleCaseLabels_MatchesExpectedSharedSection()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                ScriptState state = ScriptState.Running;
+                int score = 0;
+
+                switch (state)
+                {
+                    case ScriptState.Idle:
+                    case ScriptState.Running:
+                        score = 7;
+                        break;
+
+                    default:
+                        score = -1;
+                        break;
+                }
+            ");
+
+            Assert.AreEqual(7, interpreter.GetVariable<int>("score"));
+        }
+
+        [Test]
         public void Execute_WhenUsingScriptDeclaredFunction_ReturnsExpectedValue()
         {
             MiniCSharpInterpreter interpreter = new();
@@ -373,6 +649,88 @@ namespace LegendaryTools.Tests.MiniCSharp
         }
 
         [Test]
+        public void Execute_WhenUsingLambdaAssignedToFunc_ReturnsExpectedValue()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                System.Func<int, int> doubleValue = (value) => value * 2;
+                int result = doubleValue(6);
+            ");
+
+            Assert.AreEqual(12, interpreter.GetVariable<int>("result"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingLambdaWithCapturedVariable_ReflectsUpdatedState()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int total = 5;
+                System.Func<int> readTotal = () => total;
+
+                total += 3;
+                int result = readTotal();
+            ");
+
+            Assert.AreEqual(8, interpreter.GetVariable<int>("result"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingLambdaCapturingBlockScopedVariable_PreservesCapturedValueAfterScopeEnds()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                System.Func<int> readValue;
+
+                {
+                    int localValue = 7;
+                    readValue = () => localValue;
+                }
+
+                int result = readValue();
+            ");
+
+            Assert.AreEqual(7, interpreter.GetVariable<int>("result"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingLambdaAssignedToAction_MutatesExpectedState()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int total = 1;
+                System.Action<int> addToTotal = (value) => total += value;
+
+                addToTotal(4);
+                addToTotal(5);
+            ");
+
+            Assert.AreEqual(10, interpreter.GetVariable<int>("total"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingLambdaWithWaitUntil_CreatesExpectedPredicate()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int health = 2;
+                UnityEngine.WaitUntil wait = new UnityEngine.WaitUntil(() => health <= 0);
+
+                bool before = wait.keepWaiting;
+                health = 0;
+                bool after = wait.keepWaiting;
+            ");
+
+            Assert.IsTrue(interpreter.GetVariable<bool>("before"));
+            Assert.IsFalse(interpreter.GetVariable<bool>("after"));
+        }
+
+        [Test]
         public void Execute_WhenUsingForLoop_CalculatesExpectedTotal()
         {
             MiniCSharpInterpreter interpreter = new();
@@ -424,6 +782,89 @@ namespace LegendaryTools.Tests.MiniCSharp
 
             Assert.AreEqual(15, interpreter.GetVariable<int>("total"));
             Assert.AreEqual(6, interpreter.GetVariable<int>("i"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingForeachWithArray_CalculatesExpectedTotal()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int[] values = new int[4];
+                values[0] = 1;
+                values[1] = 2;
+                values[2] = 3;
+                values[3] = 4;
+
+                int total = 0;
+
+                foreach (int value in values)
+                {
+                    total += value;
+                }
+            ");
+
+            Assert.AreEqual(10, interpreter.GetVariable<int>("total"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingForeachWithListAndVar_SupportsContinueAndBreak()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                List<int> values = new List<int>();
+                values.Add(1);
+                values.Add(2);
+                values.Add(3);
+                values.Add(4);
+                values.Add(5);
+
+                int total = 0;
+
+                foreach (var value in values)
+                {
+                    if (value == 2)
+                    {
+                        continue;
+                    }
+
+                    if (value == 5)
+                    {
+                        break;
+                    }
+
+                    total += value;
+                }
+            ");
+
+            Assert.AreEqual(8, interpreter.GetVariable<int>("total"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingForeachWithDictionary_KeyValuePairsAreAccessible()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                Dictionary<string, int> values = new Dictionary<string, int>();
+                values[""hp""] = 10;
+                values[""mp""] = 5;
+
+                int total = 0;
+                string keys = """";
+
+                foreach (System.Collections.Generic.KeyValuePair<string, int> pair in values)
+                {
+                    total += pair.Value;
+                    keys += pair.Key;
+                }
+            ");
+
+            Assert.AreEqual(15, interpreter.GetVariable<int>("total"));
+            string keys = interpreter.GetVariable<string>("keys");
+            Assert.IsTrue(keys.Contains("hp"));
+            Assert.IsTrue(keys.Contains("mp"));
         }
 
         [Test]
@@ -571,6 +1012,70 @@ namespace LegendaryTools.Tests.MiniCSharp
             Assert.AreEqual("Ada", names[0]);
             Assert.AreEqual("Grace", names[1]);
             Assert.AreEqual("Ada & Grace", interpreter.GetVariable<string>("combined"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingArrayLiteral_StoresExpectedValues()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int[] values = [1, 2, 3];
+                int total = values[0] + values[1] + values[2];
+            ");
+
+            int[] values = interpreter.GetVariable<int[]>("values");
+
+            Assert.AreEqual(3, values.Length);
+            Assert.AreEqual(1, values[0]);
+            Assert.AreEqual(2, values[1]);
+            Assert.AreEqual(3, values[2]);
+            Assert.AreEqual(6, interpreter.GetVariable<int>("total"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingVarWithArrayLiteral_InfersArrayType()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                var values = [1, 2, 3];
+                int total = 0;
+
+                foreach (int value in values)
+                {
+                    total += value;
+                }
+            ");
+
+            int[] values = interpreter.GetVariable<int[]>("values");
+
+            Assert.AreEqual(3, values.Length);
+            Assert.AreEqual(6, interpreter.GetVariable<int>("total"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingListLiteral_ConvertsToExpectedList()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                List<int> values = [1, 2, 3];
+                values.Add(4);
+
+                int total = 0;
+
+                foreach (int value in values)
+                {
+                    total += value;
+                }
+            ");
+
+            System.Collections.Generic.List<int> values =
+                interpreter.GetVariable<System.Collections.Generic.List<int>>("values");
+
+            Assert.AreEqual(4, values.Count);
+            Assert.AreEqual(10, interpreter.GetVariable<int>("total"));
         }
 
         [Test]
@@ -731,6 +1236,157 @@ namespace LegendaryTools.Tests.MiniCSharp
             Assert.IsTrue(interpreter.GetVariable<bool>("isRunning"));
             Assert.IsTrue(interpreter.GetVariable<bool>("isCompleted"));
             Assert.AreEqual(2, interpreter.GetVariable<int>("numericValue"));
+        }
+
+        [Test]
+        public void Execute_WhenAssigningEnumFromStringAndInteger_ConvertsExpectedValues()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                ScriptState fromString = ""Running"";
+                ScriptState fromInteger = 2;
+
+                bool stringMatched = fromString == ScriptState.Running;
+                bool integerMatched = fromInteger == ScriptState.Completed;
+            ");
+
+            Assert.AreEqual(ScriptState.Running, interpreter.GetVariable<ScriptState>("fromString"));
+            Assert.AreEqual(ScriptState.Completed, interpreter.GetVariable<ScriptState>("fromInteger"));
+            Assert.IsTrue(interpreter.GetVariable<bool>("stringMatched"));
+            Assert.IsTrue(interpreter.GetVariable<bool>("integerMatched"));
+        }
+
+        [Test]
+        public void Execute_WhenPassingAndReturningEnumThroughMethods_ReturnsExpectedValues()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                ScriptState promotedFromIdle = ScriptStateUtility.Promote(ScriptState.Idle);
+                ScriptState promotedFromRunning = ScriptStateUtility.Promote(ScriptState.Running);
+
+                bool idlePromoted = promotedFromIdle == ScriptState.Running;
+                bool runningPromoted = promotedFromRunning == ScriptState.Completed;
+            ");
+
+            Assert.AreEqual(ScriptState.Running, interpreter.GetVariable<ScriptState>("promotedFromIdle"));
+            Assert.AreEqual(ScriptState.Completed, interpreter.GetVariable<ScriptState>("promotedFromRunning"));
+            Assert.IsTrue(interpreter.GetVariable<bool>("idlePromoted"));
+            Assert.IsTrue(interpreter.GetVariable<bool>("runningPromoted"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingExplicitCast_ReturnsExpectedValues()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                object value = new ScriptWarrior(""Rhea"", 20);
+                ScriptEntityBase asBase = (ScriptEntityBase)value;
+                IScriptEntity asInterface = (IScriptEntity)value;
+                int enumNumber = (int)ScriptState.Completed;
+            ");
+
+            Assert.IsInstanceOf<ScriptWarrior>(interpreter.GetVariable<ScriptEntityBase>("asBase"));
+            Assert.IsInstanceOf<ScriptWarrior>(interpreter.GetVariable<IScriptEntity>("asInterface"));
+            Assert.AreEqual(2, interpreter.GetVariable<int>("enumNumber"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingIsOperator_ReturnsExpectedBooleans()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                object warrior = new ScriptWarrior(""Rhea"", 20);
+                object missing = null;
+
+                bool isBase = warrior is ScriptEntityBase;
+                bool isInterface = warrior is IScriptEntity;
+                bool isCharacter = warrior is ScriptCharacter;
+                bool isNullBase = missing is ScriptEntityBase;
+            ");
+
+            Assert.IsTrue(interpreter.GetVariable<bool>("isBase"));
+            Assert.IsTrue(interpreter.GetVariable<bool>("isInterface"));
+            Assert.IsFalse(interpreter.GetVariable<bool>("isCharacter"));
+            Assert.IsFalse(interpreter.GetVariable<bool>("isNullBase"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingAsOperator_ReturnsExpectedValues()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                object warrior = new ScriptWarrior(""Rhea"", 20);
+                object character = new ScriptCharacter(""Hero"", 10);
+                object missing = null;
+
+                ScriptEntityBase baseValue = warrior as ScriptEntityBase;
+                IScriptEntity interfaceValue = warrior as IScriptEntity;
+                ScriptEntityBase incompatibleValue = character as ScriptEntityBase;
+                ScriptEntityBase missingValue = missing as ScriptEntityBase;
+            ");
+
+            Assert.IsInstanceOf<ScriptWarrior>(interpreter.GetVariable<ScriptEntityBase>("baseValue"));
+            Assert.IsInstanceOf<ScriptWarrior>(interpreter.GetVariable<IScriptEntity>("interfaceValue"));
+            Assert.IsNull(interpreter.GetVariable<ScriptEntityBase>("incompatibleValue"));
+            Assert.IsNull(interpreter.GetVariable<ScriptEntityBase>("missingValue"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingAsOperatorWithNonNullableValueType_ThrowsScriptException()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            ScriptException exception = Assert.Throws<ScriptException>(() =>
+                interpreter.Execute(@"
+                    object value = 5;
+                    int converted = value as int;
+                "));
+
+            StringAssert.Contains("requires a reference or nullable type", exception.Message);
+        }
+
+        [Test]
+        public void Execute_WhenUsingTypeOf_ReturnsExpectedTypes()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                Type intType = typeof(int);
+                Type listType = typeof(List<int>);
+                Type arrayType = typeof(ScriptCharacter[]);
+
+                bool intMatches = intType == typeof(int);
+                bool listMatches = listType == typeof(System.Collections.Generic.List<int>);
+                bool arrayMatches = arrayType == typeof(ScriptCharacter[]);
+            ");
+
+            Assert.AreEqual(typeof(int), interpreter.GetVariable<System.Type>("intType"));
+            Assert.AreEqual(typeof(System.Collections.Generic.List<int>), interpreter.GetVariable<System.Type>("listType"));
+            Assert.AreEqual(typeof(ScriptCharacter[]), interpreter.GetVariable<System.Type>("arrayType"));
+            Assert.IsTrue(interpreter.GetVariable<bool>("intMatches"));
+            Assert.IsTrue(interpreter.GetVariable<bool>("listMatches"));
+            Assert.IsTrue(interpreter.GetVariable<bool>("arrayMatches"));
+        }
+
+        [Test]
+        public void Execute_WhenPassingTypeOfToMethod_ReturnsExpectedValue()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                string intName = ScriptTypeUtility.GetFriendlyName(typeof(int));
+                bool sameWarriorType = ScriptTypeUtility.AreSame(typeof(ScriptWarrior), typeof(ScriptWarrior));
+                bool differentTypes = ScriptTypeUtility.AreSame(typeof(ScriptWarrior), typeof(ScriptCharacter));
+            ");
+
+            Assert.AreEqual(typeof(int).FullName, interpreter.GetVariable<string>("intName"));
+            Assert.IsTrue(interpreter.GetVariable<bool>("sameWarriorType"));
+            Assert.IsFalse(interpreter.GetVariable<bool>("differentTypes"));
         }
 
         [Test]
@@ -925,6 +1581,137 @@ namespace LegendaryTools.Tests.MiniCSharp
         }
 
         [Test]
+        public void Execute_WhenUsingLocalFunctionBeforeDeclaration_ReturnsExpectedValue()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int Calculate(int value)
+                {
+                    return DoubleValue(value) + 1;
+
+                    int DoubleValue(int current)
+                    {
+                        return current * 2;
+                    }
+                }
+
+                int result = Calculate(3);
+            ");
+
+            Assert.AreEqual(7, interpreter.GetVariable<int>("result"));
+        }
+
+        [Test]
+        public void Execute_WhenUsingNestedLocalFunction_CapturesOuterVariables()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int Calculate(int value)
+                {
+                    int bonus = 4;
+                    return AddBonus(value);
+
+                    int AddBonus(int current)
+                    {
+                        return current + bonus;
+                    }
+                }
+
+                int result = Calculate(6);
+            ");
+
+            Assert.AreEqual(10, interpreter.GetVariable<int>("result"));
+        }
+
+        [Test]
+        public void InvokeFunction_WhenCallingScriptDeclaredFunctionFromCSharp_ReturnsExpectedValue()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int Sum(int left, int right)
+                {
+                    return left + right;
+                }
+            ");
+
+            int result = interpreter.InvokeFunction<int>("Sum", 3, 4);
+
+            Assert.AreEqual(7, result);
+        }
+
+        [Test]
+        public void InvokeFunction_WhenCallingVoidScriptDeclaredFunctionFromCSharp_UpdatesExpectedState()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                int total = 0;
+
+                void AddToTotal(int value)
+                {
+                    total += value;
+                }
+            ");
+
+            object result = interpreter.InvokeFunction("AddToTotal", 5);
+
+            Assert.IsNull(result);
+            Assert.AreEqual(5, interpreter.GetVariable<int>("total"));
+        }
+
+        [Test]
+        public void InvokeFunction_WhenCallingCoroutineFunction_ReturnsExpectedEnumerator()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                IEnumerator Routine()
+                {
+                    yield return 3;
+                    yield return null;
+                    yield break;
+                }
+            ");
+
+            IEnumerator routine = interpreter.InvokeFunction<IEnumerator>("Routine");
+
+            Assert.IsTrue(routine.MoveNext());
+            Assert.AreEqual(3, routine.Current);
+            Assert.IsTrue(routine.MoveNext());
+            Assert.IsNull(routine.Current);
+            Assert.IsFalse(routine.MoveNext());
+        }
+
+        [Test]
+        public void InvokeFunction_WhenCallingCoroutineFunctionWithLoop_YieldsExpectedSequence()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                IEnumerator CountToThree()
+                {
+                    for (int i = 1; i <= 3; i += 1)
+                    {
+                        yield return i;
+                    }
+                }
+            ");
+
+            IEnumerator routine = interpreter.InvokeFunction<IEnumerator>("CountToThree");
+
+            Assert.IsTrue(routine.MoveNext());
+            Assert.AreEqual(1, routine.Current);
+            Assert.IsTrue(routine.MoveNext());
+            Assert.AreEqual(2, routine.Current);
+            Assert.IsTrue(routine.MoveNext());
+            Assert.AreEqual(3, routine.Current);
+            Assert.IsFalse(routine.MoveNext());
+        }
+
+        [Test]
         public void Execute_WhenCallingRegisteredDelegates_ReturnsExpectedValues()
         {
             MiniCSharpInterpreter interpreter = new();
@@ -983,6 +1770,27 @@ namespace LegendaryTools.Tests.MiniCSharp
                 source.ValueChanged += HandleValueChanged;
                 source.RaiseValueChanged(4);
                 source.ValueChanged -= HandleValueChanged;
+                source.RaiseValueChanged(7);
+            ");
+
+            Assert.AreEqual(4, interpreter.GetVariable<int>("total"));
+        }
+
+        [Test]
+        public void Execute_WhenSubscribingLambdaToInstanceEvent_HandlesAndUnsubscribesExpectedHandler()
+        {
+            MiniCSharpInterpreter interpreter = new();
+            ScriptEventSource source = new();
+
+            interpreter.RegisterObject("source", source);
+
+            interpreter.Execute(@"
+                int total = 0;
+                System.Action<int> handler = (value) => total += value;
+
+                source.ValueChanged += handler;
+                source.RaiseValueChanged(4);
+                source.ValueChanged -= handler;
                 source.RaiseValueChanged(7);
             ");
 
@@ -1435,6 +2243,38 @@ namespace LegendaryTools.Tests.MiniCSharp
             {
                 interpreter.Compile(@"
                     continue;
+                ");
+            });
+        }
+
+        [Test]
+        public void Compile_WhenUsingTryWithoutCatchOrFinally_ThrowsScriptException()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            Assert.Throws<ScriptException>(() =>
+            {
+                interpreter.Compile(@"
+                    try
+                    {
+                        int value = 1;
+                    }
+                ");
+            });
+        }
+
+        [Test]
+        public void Compile_WhenUsingBreakOutsideLoopOrSwitch_ThrowsScriptException()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            Assert.Throws<ScriptException>(() =>
+            {
+                interpreter.Compile(@"
+                    if (true)
+                    {
+                        break;
+                    }
                 ");
             });
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 
@@ -7,8 +8,12 @@ namespace LegendaryTools.MiniCSharp
     internal sealed class ScriptContext
     {
         private readonly List<Dictionary<string, VariableSlot>> _scopes = new List<Dictionary<string, VariableSlot>>();
+        private readonly Stack<Dictionary<string, VariableSlot>> _scopePool = new Stack<Dictionary<string, VariableSlot>>();
         private readonly Dictionary<string, Type> _registeredTypes = new Dictionary<string, Type>(StringComparer.Ordinal);
         private readonly Dictionary<string, TypeResolutionResult> _resolutionCache = new Dictionary<string, TypeResolutionResult>(StringComparer.Ordinal);
+        private readonly Dictionary<string, VariableLookupCacheEntry> _variableLookupCache =
+            new Dictionary<string, VariableLookupCacheEntry>(StringComparer.Ordinal);
+        private int _scopeVersion;
 
         public ScriptContext()
         {
@@ -22,9 +27,29 @@ namespace LegendaryTools.MiniCSharp
 
         public bool AutoResolveTypesFromAppDomain { get; set; } = true;
 
+        private ScriptContext(
+            List<Dictionary<string, VariableSlot>> scopes,
+            Dictionary<string, Type> registeredTypes,
+            Dictionary<string, TypeResolutionResult> resolutionCache,
+            TypeAccessPolicy accessPolicy,
+            bool autoResolveTypesFromAppDomain)
+        {
+            _scopes = scopes;
+            _registeredTypes = registeredTypes;
+            _resolutionCache = resolutionCache;
+            AccessPolicy = accessPolicy ?? throw new ArgumentNullException(nameof(accessPolicy));
+            AutoResolveTypesFromAppDomain = autoResolveTypesFromAppDomain;
+            _scopeVersion = 0;
+        }
+
         public void PushScope()
         {
-            _scopes.Add(new Dictionary<string, VariableSlot>(StringComparer.Ordinal));
+            Dictionary<string, VariableSlot> scope = _scopePool.Count > 0
+                ? _scopePool.Pop()
+                : new Dictionary<string, VariableSlot>(StringComparer.Ordinal);
+
+            _scopes.Add(scope);
+            InvalidateVariableLookupCache();
         }
 
         public void PopScope()
@@ -34,7 +59,12 @@ namespace LegendaryTools.MiniCSharp
                 throw new ScriptException("Cannot pop the global scope.");
             }
 
-            _scopes.RemoveAt(_scopes.Count - 1);
+            int lastIndex = _scopes.Count - 1;
+            Dictionary<string, VariableSlot> scope = _scopes[lastIndex];
+            _scopes.RemoveAt(lastIndex);
+            scope.Clear();
+            _scopePool.Push(scope);
+            InvalidateVariableLookupCache();
         }
 
         public Type ResolveType(string name)
@@ -117,6 +147,7 @@ namespace LegendaryTools.MiniCSharp
             }
 
             scope[name] = new VariableSlot(type, RuntimeConversion.ConvertTo(value, type));
+            InvalidateVariableLookupCache();
         }
 
         public void SetOrDefineGlobal(string name, Type type, object value)
@@ -137,14 +168,15 @@ namespace LegendaryTools.MiniCSharp
             else
             {
                 globals[name] = new VariableSlot(type, RuntimeConversion.ConvertTo(value, type));
+                InvalidateVariableLookupCache();
             }
         }
 
         public VariableSlot GetVariable(string name)
         {
-            for (int i = _scopes.Count - 1; i >= 0; i--)
+            if (TryResolveVariableSlot(name, out VariableSlot slot, out bool found))
             {
-                if (_scopes[i].TryGetValue(name, out VariableSlot slot))
+                if (found)
                 {
                     EnsureTypeAllowed(slot.Type, $"read variable '{name}'");
 
@@ -155,9 +187,35 @@ namespace LegendaryTools.MiniCSharp
 
                     return slot;
                 }
+
+                throw new ScriptException($"Variable '{name}' is not defined.");
             }
 
             throw new ScriptException($"Variable '{name}' is not defined.");
+        }
+
+        public bool TryGetVariable(string name, out VariableSlot slot)
+        {
+            if (TryResolveVariableSlot(name, out slot, out bool found))
+            {
+                if (found)
+                {
+                    EnsureTypeAllowed(slot.Type, $"read variable '{name}'");
+
+                    if (slot.Value != null)
+                    {
+                        EnsureTypeAllowed(slot.Value.GetType(), $"read variable '{name}'");
+                    }
+
+                    return true;
+                }
+
+                slot = null;
+                return false;
+            }
+
+            slot = null;
+            return false;
         }
 
         public void AssignVariable(string name, object value)
@@ -172,6 +230,34 @@ namespace LegendaryTools.MiniCSharp
             }
 
             slot.Value = RuntimeConversion.ConvertTo(value, slot.Type);
+        }
+
+        public ScriptContext CaptureClosureContext()
+        {
+            var capturedVisibleVariables = new Dictionary<string, VariableSlot>(StringComparer.Ordinal);
+
+            for (int scopeIndex = _scopes.Count - 1; scopeIndex >= 0; scopeIndex--)
+            {
+                foreach (KeyValuePair<string, VariableSlot> entry in _scopes[scopeIndex])
+                {
+                    if (!capturedVisibleVariables.ContainsKey(entry.Key))
+                    {
+                        capturedVisibleVariables[entry.Key] = entry.Value;
+                    }
+                }
+            }
+
+            var capturedScopes = new List<Dictionary<string, VariableSlot>>(1)
+            {
+                capturedVisibleVariables
+            };
+
+            return new ScriptContext(
+                capturedScopes,
+                _registeredTypes,
+                _resolutionCache,
+                AccessPolicy,
+                AutoResolveTypesFromAppDomain);
         }
 
         public void EnsureTypeAllowed(Type type, string action)
@@ -284,7 +370,11 @@ namespace LegendaryTools.MiniCSharp
             RegisterType("float", typeof(float));
             RegisterType("double", typeof(double));
             RegisterType("decimal", typeof(decimal));
+            RegisterType("Type", typeof(Type));
+            RegisterType("Exception", typeof(Exception));
             RegisterType("void", typeof(void));
+            RegisterType("IEnumerator", typeof(IEnumerator));
+            RegisterType("IEnumerable", typeof(IEnumerable));
             RegisterType("List", typeof(List<>));
             RegisterType("Dictionary", typeof(Dictionary<,>));
         }
@@ -316,6 +406,38 @@ namespace LegendaryTools.MiniCSharp
             }
         }
 
+        private bool TryResolveVariableSlot(string name, out VariableSlot slot, out bool found)
+        {
+            if (_variableLookupCache.TryGetValue(name, out VariableLookupCacheEntry cacheEntry) &&
+                cacheEntry.ScopeVersion == _scopeVersion)
+            {
+                slot = cacheEntry.Slot;
+                found = cacheEntry.Found;
+                return true;
+            }
+
+            for (int i = _scopes.Count - 1; i >= 0; i--)
+            {
+                if (_scopes[i].TryGetValue(name, out slot))
+                {
+                    _variableLookupCache[name] = new VariableLookupCacheEntry(_scopeVersion, slot, true);
+                    found = true;
+                    return true;
+                }
+            }
+
+            slot = null;
+            found = false;
+            _variableLookupCache[name] = new VariableLookupCacheEntry(_scopeVersion, null, false);
+            return true;
+        }
+
+        private void InvalidateVariableLookupCache()
+        {
+            _scopeVersion++;
+            _variableLookupCache.Clear();
+        }
+
         private readonly struct TypeResolutionResult
         {
             private TypeResolutionResult(Type type, bool isBlocked)
@@ -342,6 +464,22 @@ namespace LegendaryTools.MiniCSharp
             {
                 return new TypeResolutionResult(null, false);
             }
+        }
+
+        private readonly struct VariableLookupCacheEntry
+        {
+            public VariableLookupCacheEntry(int scopeVersion, VariableSlot slot, bool found)
+            {
+                ScopeVersion = scopeVersion;
+                Slot = slot;
+                Found = found;
+            }
+
+            public int ScopeVersion { get; }
+
+            public VariableSlot Slot { get; }
+
+            public bool Found { get; }
         }
     }
 }
