@@ -79,13 +79,19 @@ namespace LegendaryTools.MiniCSharp
         private readonly string _methodName;
         private readonly System.Collections.Generic.List<Expression> _arguments;
         private readonly object[] _argumentValues;
+        private readonly Type[] _genericTypeArguments;
 
-        public NullConditionalCallExpression(Expression target, Token methodName, System.Collections.Generic.List<Expression> arguments)
+        public NullConditionalCallExpression(
+            Expression target,
+            Token methodName,
+            System.Collections.Generic.List<Expression> arguments,
+            Type[] genericTypeArguments = null)
         {
             _target = target;
             _methodName = methodName.Lexeme;
             _arguments = arguments;
             _argumentValues = new object[arguments.Count];
+            _genericTypeArguments = genericTypeArguments;
         }
 
         public override RuntimeValue Evaluate(ScriptContext context)
@@ -112,7 +118,8 @@ namespace LegendaryTools.MiniCSharp
                 _methodName,
                 _argumentValues,
                 isStatic: false,
-                context.AccessPolicy);
+                context.AccessPolicy,
+                _genericTypeArguments);
         }
     }
 

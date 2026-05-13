@@ -216,15 +216,22 @@ namespace LegendaryTools.MiniCSharp
             string methodName,
             object[] arguments,
             bool isStatic,
-            TypeAccessPolicy accessPolicy)
+            TypeAccessPolicy accessPolicy,
+            Type[] genericTypeArguments = null)
         {
             accessPolicy.ThrowIfDenied(targetType, $"call method '{methodName}' on '{targetType.Name}'");
 
             MethodInfo[] matchingMethods = GetMatchingMethods(targetType, methodName, isStatic);
-            var overloadKey = new MethodOverloadResolutionKey(targetType, methodName, isStatic, BuildArgumentSignature(arguments));
+            MethodBase[] candidateMethods = BindGenericMethods(matchingMethods, genericTypeArguments, accessPolicy, methodName);
+            var overloadKey = new MethodOverloadResolutionKey(
+                targetType,
+                methodName,
+                isStatic,
+                BuildArgumentSignature(arguments),
+                BuildTypeSignature(genericTypeArguments));
 
             MethodBase selectedMethod = SelectBestExecutable(
-                matchingMethods,
+                candidateMethods,
                 arguments,
                 $"method '{methodName}' on '{targetType.Name}'",
                 accessPolicy,
@@ -319,11 +326,6 @@ namespace LegendaryTools.MiniCSharp
                     continue;
                 }
 
-                if (method.IsGenericMethodDefinition)
-                {
-                    continue;
-                }
-
                 matchingMethods.Add(method);
             }
 
@@ -405,6 +407,61 @@ namespace LegendaryTools.MiniCSharp
             return bestExecutable;
         }
 
+        private static MethodBase[] BindGenericMethods(
+            MethodInfo[] methods,
+            Type[] genericTypeArguments,
+            TypeAccessPolicy accessPolicy,
+            string methodName)
+        {
+            bool hasExplicitGenericArguments = genericTypeArguments != null && genericTypeArguments.Length > 0;
+            var resolvedMethods = new List<MethodBase>(methods.Length);
+
+            if (hasExplicitGenericArguments)
+            {
+                for (int i = 0; i < genericTypeArguments.Length; i++)
+                {
+                    accessPolicy.ThrowIfDenied(genericTypeArguments[i], $"use generic type argument on method '{methodName}'");
+                }
+            }
+
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+
+                if (!hasExplicitGenericArguments)
+                {
+                    if (!method.IsGenericMethodDefinition)
+                    {
+                        resolvedMethods.Add(method);
+                    }
+
+                    continue;
+                }
+
+                if (!method.IsGenericMethodDefinition)
+                {
+                    continue;
+                }
+
+                Type[] genericParameters = method.GetGenericArguments();
+
+                if (genericParameters.Length != genericTypeArguments.Length)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    resolvedMethods.Add(method.MakeGenericMethod(genericTypeArguments));
+                }
+                catch (ArgumentException)
+                {
+                }
+            }
+
+            return resolvedMethods.ToArray();
+        }
+
         private static ArgumentSignature BuildArgumentSignature(object[] arguments)
         {
             Type[] argumentTypes = new Type[arguments.Length];
@@ -415,6 +472,11 @@ namespace LegendaryTools.MiniCSharp
             }
 
             return new ArgumentSignature(argumentTypes);
+        }
+
+        private static ArgumentSignature BuildTypeSignature(Type[] types)
+        {
+            return new ArgumentSignature(types);
         }
 
         private static bool TryGetCachedResolution(object key, out CachedExecutableResolution resolution)
@@ -647,13 +709,20 @@ namespace LegendaryTools.MiniCSharp
             private readonly string _methodName;
             private readonly bool _isStatic;
             private readonly ArgumentSignature _argumentSignature;
+            private readonly ArgumentSignature _genericTypeSignature;
 
-            public MethodOverloadResolutionKey(Type targetType, string methodName, bool isStatic, ArgumentSignature argumentSignature)
+            public MethodOverloadResolutionKey(
+                Type targetType,
+                string methodName,
+                bool isStatic,
+                ArgumentSignature argumentSignature,
+                ArgumentSignature genericTypeSignature)
             {
                 _targetType = targetType;
                 _methodName = methodName;
                 _isStatic = isStatic;
                 _argumentSignature = argumentSignature;
+                _genericTypeSignature = genericTypeSignature;
             }
 
             public bool Equals(MethodOverloadResolutionKey other)
@@ -661,6 +730,7 @@ namespace LegendaryTools.MiniCSharp
                 return _targetType == other._targetType &&
                        _isStatic == other._isStatic &&
                        _argumentSignature.Equals(other._argumentSignature) &&
+                       _genericTypeSignature.Equals(other._genericTypeSignature) &&
                        string.Equals(_methodName, other._methodName, StringComparison.Ordinal);
             }
 
@@ -678,6 +748,7 @@ namespace LegendaryTools.MiniCSharp
                     hash = hash * 31 + (_methodName != null ? StringComparer.Ordinal.GetHashCode(_methodName) : 0);
                     hash = hash * 31 + (_isStatic ? 1 : 0);
                     hash = hash * 31 + _argumentSignature.GetHashCode();
+                    hash = hash * 31 + _genericTypeSignature.GetHashCode();
                     return hash;
                 }
             }

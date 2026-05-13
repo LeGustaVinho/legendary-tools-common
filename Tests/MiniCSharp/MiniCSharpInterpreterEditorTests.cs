@@ -227,6 +227,19 @@ namespace LegendaryTools.Tests.MiniCSharp
             }
         }
 
+        public sealed class GenericTarget
+        {
+            public T Echo<T>(T value)
+            {
+                return value;
+            }
+
+            public static T Identity<T>(T value)
+            {
+                return value;
+            }
+        }
+
         [SetUp]
         public void SetUp()
         {
@@ -1957,6 +1970,47 @@ namespace LegendaryTools.Tests.MiniCSharp
             Assert.AreEqual(33, created.Health);
             Assert.AreEqual("CreatedByFactory", interpreter.GetVariable<string>("createdName"));
             Assert.AreEqual(33, interpreter.GetVariable<int>("createdHealth"));
+        }
+
+        [Test]
+        public void Execute_WhenCallingExplicitGenericMethods_ReturnsExpectedValues()
+        {
+            MiniCSharpInterpreter interpreter = new();
+
+            interpreter.Execute(@"
+                var target = new GenericTarget();
+                int echoedValue = target.Echo<int>(7);
+                string echoedName = GenericTarget.Identity<string>(""Ada"");
+            ");
+
+            Assert.AreEqual(7, interpreter.GetVariable<int>("echoedValue"));
+            Assert.AreEqual("Ada", interpreter.GetVariable<string>("echoedName"));
+        }
+
+        [Test]
+        public void Execute_WhenCallingUnityStyleGenericMethods_ReturnsExpectedComponent()
+        {
+            MiniCSharpInterpreter interpreter = new();
+            MiniCSharpBehaviour.RegisterCommonUnityTypes(interpreter);
+            GameObject gameObject = new("MiniCSharpGenericHost");
+
+            try
+            {
+                BoxCollider collider = gameObject.AddComponent<BoxCollider>();
+                interpreter.RegisterObject("go", gameObject);
+
+                interpreter.Execute(@"
+                    UnityEngine.BoxCollider foundCollider = go.GetComponent<UnityEngine.BoxCollider>();
+                    bool hasCollider = foundCollider != null;
+                ");
+
+                Assert.IsTrue(interpreter.GetVariable<bool>("hasCollider"));
+                Assert.AreSame(collider, interpreter.GetVariable<object>("foundCollider"));
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
         }
 
         [Test]

@@ -895,13 +895,25 @@ namespace LegendaryTools.MiniCSharp
                 if (Match(TokenType.Dot))
                 {
                     Token name = Consume(TokenType.Identifier, "Expected member name after '.'.");
-                    expression = new MemberExpression(expression, name);
+
+                    if (TryParseGenericMemberCall(expression, name, out Expression genericCallExpression))
+                    {
+                        expression = genericCallExpression;
+                    }
+                    else
+                    {
+                        expression = new MemberExpression(expression, name);
+                    }
                 }
                 else if (Match(TokenType.QuestionDot))
                 {
                     Token name = Consume(TokenType.Identifier, "Expected member name after '?.'.");
 
-                    if (Match(TokenType.LeftParen))
+                    if (TryParseNullConditionalGenericMemberCall(expression, name, out Expression genericNullConditionalCall))
+                    {
+                        expression = genericNullConditionalCall;
+                    }
+                    else if (Match(TokenType.LeftParen))
                     {
                         List<Expression> arguments = ParseArgumentsAfterOpeningParenthesis();
                         expression = new NullConditionalCallExpression(expression, name, arguments);
@@ -936,6 +948,72 @@ namespace LegendaryTools.MiniCSharp
             }
 
             return expression;
+        }
+
+        private bool TryParseGenericMemberCall(Expression target, Token memberName, out Expression expression)
+        {
+            expression = null;
+            int savedCurrent = _current;
+
+            if (!TryParseGenericTypeArgumentList(out Type[] genericTypeArguments) || !Match(TokenType.LeftParen))
+            {
+                _current = savedCurrent;
+                return false;
+            }
+
+            List<Expression> arguments = ParseArgumentsAfterOpeningParenthesis();
+            expression = new CallExpression(new MemberExpression(target, memberName, genericTypeArguments), arguments);
+            return true;
+        }
+
+        private bool TryParseNullConditionalGenericMemberCall(Expression target, Token memberName, out Expression expression)
+        {
+            expression = null;
+            int savedCurrent = _current;
+
+            if (!TryParseGenericTypeArgumentList(out Type[] genericTypeArguments) || !Match(TokenType.LeftParen))
+            {
+                _current = savedCurrent;
+                return false;
+            }
+
+            List<Expression> arguments = ParseArgumentsAfterOpeningParenthesis();
+            expression = new NullConditionalCallExpression(target, memberName, arguments, genericTypeArguments);
+            return true;
+        }
+
+        private bool TryParseGenericTypeArgumentList(out Type[] genericTypeArguments)
+        {
+            genericTypeArguments = null;
+
+            if (!Match(TokenType.Less))
+            {
+                return false;
+            }
+
+            var resolvedTypeArguments = new List<Type>();
+
+            do
+            {
+                int startIndex = _current;
+
+                if (!TryReadTypeReference(startIndex, out Type resolvedType, out int endIndex, out _, out _))
+                {
+                    return false;
+                }
+
+                resolvedTypeArguments.Add(resolvedType);
+                _current = endIndex;
+            }
+            while (Match(TokenType.Comma));
+
+            if (!Match(TokenType.Greater))
+            {
+                return false;
+            }
+
+            genericTypeArguments = resolvedTypeArguments.ToArray();
+            return true;
         }
 
         private Expression ParsePrimary()

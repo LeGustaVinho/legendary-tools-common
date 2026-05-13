@@ -7,11 +7,13 @@ namespace LegendaryTools.MiniCSharp
     {
         private readonly Expression _target;
         private readonly Token _memberName;
+        private readonly Type[] _genericTypeArguments;
 
-        public MemberExpression(Expression target, Token memberName)
+        public MemberExpression(Expression target, Token memberName, Type[] genericTypeArguments = null)
         {
             _target = target;
             _memberName = memberName;
+            _genericTypeArguments = genericTypeArguments;
         }
 
         public override RuntimeValue Evaluate(ScriptContext context)
@@ -100,7 +102,8 @@ namespace LegendaryTools.MiniCSharp
                 _memberName.Lexeme,
                 arguments,
                 isStatic,
-                context.AccessPolicy);
+                context.AccessPolicy,
+                _genericTypeArguments);
 
             PersistValueTypeTarget(context, targetType, targetObject, isStatic);
 
