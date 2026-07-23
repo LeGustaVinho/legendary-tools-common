@@ -11,7 +11,8 @@ namespace LegendaryTools.ViewBinding
         IBindingMemberBackend,
         IBindingMemberSearchBackend,
         IBindingMemberCacheInvalidator,
-        IBindingEndpointAvailabilityBackend
+        IBindingEndpointAvailabilityBackend,
+        IBindingEndpointIdentityBackend
     {
         private readonly Dictionary<string, MemberInfo[]> pathCache = new Dictionary<string, MemberInfo[]>();
         private readonly Dictionary<string, IReadOnlyList<BindingMemberDescriptor>> memberTreeCache =
@@ -409,119 +410,169 @@ namespace LegendaryTools.ViewBinding
 
         public bool TryRead(BindingEndpoint endpoint, out object value, out string error)
         {
-            value = null;
-
-            if (!TryResolveEndpoint(endpoint, out BindingInstanceHandle root, out MemberInfo[] members, out _, out error))
+#if UNITY_2020_2_OR_NEWER
+            using (BindingRuntimeProfiler.Read.Auto())
+#endif
             {
-                return false;
-            }
+                value = null;
 
-            object current = root.Instance;
-
-            try
-            {
-                for (int i = 0; i < members.Length; i++)
+                if (!TryResolveEndpoint(
+                        endpoint,
+                        out BindingInstanceHandle root,
+                        out MemberInfo[] members,
+                        out EndpointResolutionEntry cacheEntry,
+                        out error))
                 {
-                    current = GetValue(members[i], current);
-
-                    if (IsNullValue(current) && i < members.Length - 1)
-                    {
-                        value = null;
-                        error = string.Empty;
-                        return true;
-                    }
+                    return false;
                 }
 
-                value = current;
-                error = string.Empty;
-                return true;
-            }
-            catch (Exception exception)
-            {
-                error = $"Failed to read '{endpoint.MemberPath}': {GetInnermostMessage(exception)}";
-                return false;
+                if (cacheEntry.TryReadGenerated(
+                        root.Instance,
+                        out value,
+                        out bool generatedReadHandled,
+                        out error))
+                {
+                    return true;
+                }
+
+                if (generatedReadHandled)
+                {
+                    return false;
+                }
+
+                object current = root.Instance;
+
+                try
+                {
+                    for (int i = 0; i < members.Length; i++)
+                    {
+                        current = GetValue(members[i], current);
+
+                        if (IsNullValue(current) && i < members.Length - 1)
+                        {
+                            value = null;
+                            error = string.Empty;
+                            return true;
+                        }
+                    }
+
+                    value = current;
+                    error = string.Empty;
+                    return true;
+                }
+                catch (Exception exception)
+                {
+                    error = $"Failed to read '{endpoint.MemberPath}': {GetInnermostMessage(exception)}";
+                    return false;
+                }
+
             }
         }
 
         public bool TryWrite(BindingEndpoint endpoint, object value, out string error)
         {
-            if (!TryResolveEndpoint(endpoint, out BindingInstanceHandle root, out MemberInfo[] members, out _, out error))
+#if UNITY_2020_2_OR_NEWER
+            using (BindingRuntimeProfiler.Write.Auto())
+#endif
             {
-                return false;
-            }
-
-            if (!CanWrite(members[members.Length - 1]))
-            {
-                error = $"Member '{members[members.Length - 1].Name}' is not writable.";
-                return false;
-            }
-
-            Type targetType = GetMemberType(members[members.Length - 1]);
-            Type nullableUnderlyingType = Nullable.GetUnderlyingType(targetType);
-            if (value != null &&
-                value.GetType() != targetType &&
-                value.GetType() != nullableUnderlyingType)
-            {
-                error = $"Value type '{value.GetType().FullName}' does not exactly match target type '{targetType.FullName}'.";
-                return false;
-            }
-
-            if (value == null && targetType.IsValueType && Nullable.GetUnderlyingType(targetType) == null)
-            {
-                error = $"Cannot assign null to non-nullable value type '{targetType.FullName}'.";
-                return false;
-            }
-
-            try
-            {
-                if (members.Length == 1)
+                if (!TryResolveEndpoint(
+                        endpoint,
+                        out BindingInstanceHandle root,
+                        out MemberInfo[] members,
+                        out EndpointResolutionEntry cacheEntry,
+                        out error))
                 {
-                    SetValue(members[0], root.Instance, value);
-                    error = string.Empty;
+                    return false;
+                }
+
+                if (!CanWrite(members[members.Length - 1]))
+                {
+                    error = $"Member '{members[members.Length - 1].Name}' is not writable.";
+                    return false;
+                }
+
+                Type targetType = GetMemberType(members[members.Length - 1]);
+                Type nullableUnderlyingType = Nullable.GetUnderlyingType(targetType);
+                if (value != null &&
+                    value.GetType() != targetType &&
+                    value.GetType() != nullableUnderlyingType)
+                {
+                    error = $"Value type '{value.GetType().FullName}' does not exactly match target type '{targetType.FullName}'.";
+                    return false;
+                }
+
+                if (value == null && targetType.IsValueType && Nullable.GetUnderlyingType(targetType) == null)
+                {
+                    error = $"Cannot assign null to non-nullable value type '{targetType.FullName}'.";
+                    return false;
+                }
+
+                if (cacheEntry.TryWriteGenerated(root.Instance, value, out bool handled, out error))
+                {
                     return true;
                 }
 
-                var containers = new object[members.Length];
-                containers[0] = root.Instance;
-
-                for (int i = 0; i < members.Length - 1; i++)
+                if (handled)
                 {
-                    object next = GetValue(members[i], containers[i]);
-                    if (next == null)
-                    {
-                        error = $"Member '{members[i].Name}' returned null before the target member could be reached.";
-                        return false;
-                    }
-
-                    containers[i + 1] = next;
+                    return false;
                 }
 
-                SetValue(members[members.Length - 1], containers[members.Length - 1], value);
-
-                for (int i = members.Length - 2; i >= 0; i--)
+                try
                 {
-                    Type childType = GetMemberType(members[i]);
-                    if (!childType.IsValueType)
+                    if (members.Length == 1)
                     {
-                        break;
+                        SetValue(members[0], root.Instance, value);
+                        error = string.Empty;
+                        return true;
                     }
 
-                    if (!CanWrite(members[i]))
+                    object[] containers = cacheEntry.GetWriteContainers(members.Length);
+                    containers[0] = root.Instance;
+
+                    for (int i = 0; i < members.Length - 1; i++)
                     {
-                        error = $"Cannot write through value-type member '{members[i].Name}' because it is read-only.";
-                        return false;
+                        object next = GetValue(members[i], containers[i]);
+                        if (next == null)
+                        {
+                            cacheEntry.ClearWriteContainers(members.Length);
+                            error = $"Member '{members[i].Name}' returned null before the target member could be reached.";
+                            return false;
+                        }
+
+                        containers[i + 1] = next;
                     }
 
-                    SetValue(members[i], containers[i], containers[i + 1]);
+                    SetValue(members[members.Length - 1], containers[members.Length - 1], value);
+
+                    for (int i = members.Length - 2; i >= 0; i--)
+                    {
+                        Type childType = GetMemberType(members[i]);
+                        if (!childType.IsValueType)
+                        {
+                            break;
+                        }
+
+                        if (!CanWrite(members[i]))
+                        {
+                            cacheEntry.ClearWriteContainers(members.Length);
+                            error = $"Cannot write through value-type member '{members[i].Name}' because it is read-only.";
+                            return false;
+                        }
+
+                        SetValue(members[i], containers[i], containers[i + 1]);
+                    }
+
+                    cacheEntry.ClearWriteContainers(members.Length);
+                    error = string.Empty;
+                    return true;
+                }
+                catch (Exception exception)
+                {
+                    cacheEntry.ClearWriteContainers(members.Length);
+                    error = $"Failed to write '{endpoint.MemberPath}': {GetInnermostMessage(exception)}";
+                    return false;
                 }
 
-                error = string.Empty;
-                return true;
-            }
-            catch (Exception exception)
-            {
-                error = $"Failed to write '{endpoint.MemberPath}': {GetInnermostMessage(exception)}";
-                return false;
             }
         }
 
@@ -616,6 +667,13 @@ namespace LegendaryTools.ViewBinding
                 return BindingEndpointAvailability.Missing;
             }
 
+            if (endpointCache.TryGetValue(endpoint, out EndpointResolutionCache resolutionCache) &&
+                resolutionCache.TryGet(root, endpoint.MemberPath, out _))
+            {
+                error = string.Empty;
+                return BindingEndpointAvailability.Available;
+            }
+
             if (!ComponentBindingPath.TryParse(
                     endpoint.MemberPath,
                     out string componentTypeName,
@@ -653,6 +711,32 @@ namespace LegendaryTools.ViewBinding
             return BindingEndpointAvailability.Available;
         }
 
+        bool IBindingEndpointIdentityBackend.TryGetEndpointIdentity(
+            BindingEndpoint endpoint,
+            out object identity,
+            out Type resolvedType,
+            out bool isStatic,
+            out string error)
+        {
+            if (!TryResolveEndpoint(
+                    endpoint,
+                    out BindingInstanceHandle root,
+                    out _,
+                    out _,
+                    out error))
+            {
+                identity = null;
+                resolvedType = null;
+                isStatic = false;
+                return false;
+            }
+
+            identity = root.Instance;
+            resolvedType = root.Type;
+            isStatic = root.IsStatic;
+            return true;
+        }
+
         private bool TryResolveEndpoint(
             BindingEndpoint endpoint,
             out BindingInstanceHandle root,
@@ -660,45 +744,51 @@ namespace LegendaryTools.ViewBinding
             out EndpointResolutionEntry cacheEntry,
             out string error)
         {
-            root = default;
-            members = null;
-            cacheEntry = null;
-
-            if (endpoint == null)
+#if UNITY_2020_2_OR_NEWER
+            using (BindingRuntimeProfiler.ResolveEndpoint.Auto())
+#endif
             {
-                error = "The endpoint is null.";
-                return false;
-            }
+                root = default;
+                members = null;
+                cacheEntry = null;
 
-            if (endpoint.Instance == null)
-            {
-                error = "The endpoint instance reference is null.";
-                return false;
-            }
+                if (endpoint == null)
+                {
+                    error = "The endpoint is null.";
+                    return false;
+                }
 
-            if (!endpoint.Instance.TryResolve(out BindingInstanceHandle initialRoot, out error))
-            {
-                return false;
-            }
+                if (endpoint.Instance == null)
+                {
+                    error = "The endpoint instance reference is null.";
+                    return false;
+                }
 
-            EndpointResolutionCache cache = endpointCache.GetOrCreateValue(endpoint);
-            if (cache.TryGet(initialRoot, endpoint.MemberPath, out cacheEntry))
-            {
-                root = cacheEntry.ResolvedRoot;
-                members = cacheEntry.Members;
-                error = string.Empty;
+                if (!endpoint.Instance.TryResolve(out BindingInstanceHandle initialRoot, out error))
+                {
+                    return false;
+                }
+
+                EndpointResolutionCache cache = endpointCache.GetOrCreateValue(endpoint);
+                if (cache.TryGet(initialRoot, endpoint.MemberPath, out cacheEntry))
+                {
+                    root = cacheEntry.ResolvedRoot;
+                    members = cacheEntry.Members;
+                    error = string.Empty;
+                    return true;
+                }
+
+                root = initialRoot;
+                if (!TryResolvePath(ref root, endpoint.MemberPath, out members, out error))
+                {
+                    cache.Remove(initialRoot);
+                    return false;
+                }
+
+                cacheEntry = cache.Update(initialRoot, endpoint.MemberPath, root, members);
                 return true;
-            }
 
-            root = initialRoot;
-            if (!TryResolvePath(ref root, endpoint.MemberPath, out members, out error))
-            {
-                cache.Remove(initialRoot);
-                return false;
             }
-
-            cacheEntry = cache.Update(initialRoot, endpoint.MemberPath, root, members);
-            return true;
         }
 
         private bool TryResolvePath(
@@ -1108,6 +1198,9 @@ namespace LegendaryTools.ViewBinding
             private readonly string memberPath;
             private BindingMemberMetadata metadata;
             private bool hasMetadata;
+            private object[] writeContainers = Array.Empty<object>();
+            private readonly Func<object, object> generatedGetter;
+            private readonly Action<object, object> generatedSetter;
 
             public EndpointResolutionEntry(
                 BindingInstanceHandle initialRoot,
@@ -1122,6 +1215,36 @@ namespace LegendaryTools.ViewBinding
                 Members = members;
                 metadata = CreateMetadata(members);
                 hasMetadata = true;
+
+                string resolvedPath = BuildResolvedPath(members);
+                BindingGeneratedAccessorRegistry.TryGet(
+                    resolvedRoot.Type,
+                    resolvedPath,
+                    resolvedRoot.IsStatic,
+                    out Func<object, object> getter,
+                    out Action<object, object> setter);
+
+                if (members.Length == 1)
+                {
+                    if (getter == null)
+                    {
+                        BindingReflectionAccessorFactory.TryCreateGetter(
+                            members[0],
+                            resolvedRoot.IsStatic,
+                            out getter);
+                    }
+
+                    if (setter == null)
+                    {
+                        BindingReflectionAccessorFactory.TryCreateSetter(
+                            members[0],
+                            resolvedRoot.IsStatic,
+                            out setter);
+                    }
+                }
+
+                generatedGetter = getter;
+                generatedSetter = setter;
             }
 
             public BindingInstanceHandle ResolvedRoot { get; }
@@ -1153,6 +1276,102 @@ namespace LegendaryTools.ViewBinding
             {
                 metadata = value;
                 hasMetadata = true;
+            }
+
+            public bool TryReadGenerated(
+                object instance,
+                out object value,
+                out bool handled,
+                out string error)
+            {
+                handled = generatedGetter != null;
+                if (!handled)
+                {
+                    value = null;
+                    error = string.Empty;
+                    return false;
+                }
+
+                try
+                {
+                    value = generatedGetter(instance);
+                    error = string.Empty;
+                    return true;
+                }
+                catch (Exception exception)
+                {
+                    value = null;
+                    error = $"Generated getter failed: {GetInnermostMessage(exception)}";
+                    return false;
+                }
+            }
+
+            public bool TryWriteGenerated(
+                object instance,
+                object value,
+                out bool handled,
+                out string error)
+            {
+                handled = generatedSetter != null;
+                if (!handled)
+                {
+                    error = string.Empty;
+                    return false;
+                }
+
+                try
+                {
+                    generatedSetter(instance, value);
+                    error = string.Empty;
+                    return true;
+                }
+                catch (Exception exception)
+                {
+                    error = $"Generated setter failed: {GetInnermostMessage(exception)}";
+                    return false;
+                }
+            }
+
+            private static string BuildResolvedPath(MemberInfo[] members)
+            {
+                if (members == null || members.Length == 0)
+                {
+                    return string.Empty;
+                }
+
+                if (members.Length == 1)
+                {
+                    return members[0].Name;
+                }
+
+                var builder = new System.Text.StringBuilder();
+                for (int i = 0; i < members.Length; i++)
+                {
+                    if (i > 0)
+                    {
+                        builder.Append('.');
+                    }
+
+                    builder.Append(members[i].Name);
+                }
+
+                return builder.ToString();
+            }
+
+            public object[] GetWriteContainers(int count)
+            {
+                if (writeContainers.Length < count)
+                {
+                    writeContainers = new object[count];
+                }
+
+                return writeContainers;
+            }
+
+            public void ClearWriteContainers(int count)
+            {
+                int clearCount = Math.Min(count, writeContainers.Length);
+                Array.Clear(writeContainers, 0, clearCount);
             }
         }
 

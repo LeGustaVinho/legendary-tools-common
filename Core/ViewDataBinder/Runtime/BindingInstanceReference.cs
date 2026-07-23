@@ -85,7 +85,7 @@ namespace LegendaryTools.ViewBinding
 
         public bool TryResolve(out BindingInstanceHandle handle, out string error)
         {
-            return BindingBackendRegistry.InstanceResolver.TryResolve(this, out handle, out error);
+            return BindingResolutionScope.TryResolveInstance(this, out handle, out error);
         }
 
         public bool TryGetDeclaredType(out Type type)

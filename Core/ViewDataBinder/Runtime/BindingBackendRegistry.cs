@@ -8,6 +8,13 @@ namespace LegendaryTools.ViewBinding
         private static IBindingMemberBackend memberBackend = new ReflectionBindingMemberBackend();
         private static IBindingSourceBackend sourceBackend = new SingleSourceBindingSourceBackend();
 
+        [UnityEngine.RuntimeInitializeOnLoadMethod(
+            UnityEngine.RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetRuntimeState()
+        {
+            DefaultBindingInstanceResolver.ClearTypeCache();
+        }
+
         public static IBindingInstanceResolver InstanceResolver
         {
             get => instanceResolver;
@@ -31,6 +38,7 @@ namespace LegendaryTools.ViewBinding
             instanceResolver = new DefaultBindingInstanceResolver();
             memberBackend = new ReflectionBindingMemberBackend();
             sourceBackend = new SingleSourceBindingSourceBackend();
+            DefaultBindingInstanceResolver.ClearTypeCache();
             BindingFormatterRegistry.ResetDefaults();
         }
     }

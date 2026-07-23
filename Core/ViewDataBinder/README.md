@@ -465,3 +465,45 @@ The selected parameter mode determines whether zero, one or two arguments are re
 `Prevent Concurrent` skips a new invocation while the previous Task is running. When disabled, concurrent Tasks are tracked and all exceptions are observed. The Event Binder invokes methods on Unity's main thread, never blocks while waiting, and monitors only bindings with active Tasks. It reports asynchronous failures through `BindingSyncResult` and applies the binding's Error Policy on the main thread. Disabling or invalidating a binding releases its tracking state but does not cancel the underlying Task; cancellation remains the responsibility of the invoked method.
 
 `ProcessEventBindingDetailed(index, out triggered)` returns a `BindingSyncResult` that distinguishes no change, invalid endpoints, read failures, condition evaluation failures and action exceptions. `TryGetLastResult(index, out result)` exposes the most recent polling result while the original boolean `ProcessEventBinding(index)` API remains available.
+
+## Runtime performance
+
+The runtime compiles bindings into execution buckets by update timing. A single hidden scheduler drives `Update`, `LateUpdate` and `FixedUpdate` for all active binders, so individual binder components do not execute empty Unity callbacks or scan bindings assigned to another timing.
+
+Each binding keeps a reusable execution plan containing resolved metadata, formatter selection, endpoint identities and direct references to its runtime state. Plans are rebuilt only when configuration or endpoint identity changes. Provider and context roots are resolved once per synchronization scope, and component/member resolution is cached by endpoint.
+
+For `When Value Changes` bindings, raw inputs are compared before formatters and converters run. Formatted output, fallback values, comparison values, type lookups, nested-write containers and Task argument buffers are reused. Set `Always Evaluate Transformation` only for converters or formatters that intentionally depend on external mutable state.
+
+Missing endpoints use an exponential retry delay bounded by `Missing Endpoint Retry Interval` and `Maximum Missing Endpoint Retry Interval`. The previous lifetime-policy result is reused between attempts. A named `BindingDataContext` change invalidates only resolutions that requested the changed context name.
+
+Disabling a binder resets synchronization baselines but preserves allocated states, execution entries and buffers for pooling. Call `ReleaseRuntimeResources()` when an object will not be reused and its cached memory should be released. Call `RebuildExecutionPlan()` after changing binding definitions through code.
+
+Runtime counters are available through `ViewDataBinder.Statistics` and `ViewDataEventBinder.Statistics`. They include evaluated/skipped/failed bindings, writes, avoided writes, endpoint retries, execution-plan cache hits/builds, generated direct synchronizations and observed Tasks. `Reset()` clears the accumulated counters.
+
+Detailed timing and allocation sampling is disabled by default so diagnostics do not add cost to the normal hot path:
+
+```csharp
+binder.Statistics.DetailedMeasurementsEnabled = true;
+```
+
+When the current scripting runtime exposes per-thread allocation counters, the statistics include total and highest sampled allocations. Timing statistics include average duration, the longest duration and the associated binding name. Unity Profiler markers separate timing, synchronization, endpoint resolution, reads, conversion, formatting, writes, condition evaluation and Task observation.
+
+### Generated accessors
+
+Use **Tools > Legendary Tools > View Data Binder > Generate Runtime Accessors** before profiling a player build. The generator scans prefabs, enabled build scenes and binding profiles, then creates:
+
+```text
+Assets/Generated/ViewDataBindingGeneratedAccessors.cs
+```
+
+Generated accessors remove reflective getter/setter invocation for supported public paths. Eligible direct `SourceToTarget` bindings additionally use a typed fast path that avoids boxing the bound value. A direct plan is generated when all of the following are true:
+
+- exactly one Source;
+- Source and Target have the same non-nullable value type;
+- no Formatter, Converter or Fallback is enabled;
+- the Source is readable and the Target is writable;
+- intermediate members in the Target path are reference types.
+
+Unsupported or dynamically created bindings automatically use the cached reflection backend. Expression-compiled direct member access is used in Mono builds when generated code is unavailable; IL2CPP uses generated accessors or the reflection fallback.
+
+The build preprocessor regenerates the file. When its contents change, the first build stops so Unity can compile the generated source; start the build again after compilation completes.

@@ -8,7 +8,6 @@ namespace LegendaryTools.ViewBinding
     {
         private readonly Dictionary<string, HierarchicalContextCacheEntry> hierarchyCache =
             new Dictionary<string, HierarchicalContextCacheEntry>(StringComparer.Ordinal);
-        private int observedGlobalVersion = -1;
 
         public bool TryResolve(
             Component owner,
@@ -40,8 +39,9 @@ namespace LegendaryTools.ViewBinding
                 return false;
             }
 
-            RefreshCacheVersion();
+            int contextVersion = BindingDataContext.GetVersion(normalizedName);
             if (hierarchyCache.TryGetValue(normalizedName, out HierarchicalContextCacheEntry cached) &&
+                cached.Version == contextVersion &&
                 cached.Context != null &&
                 cached.Context.isActiveAndEnabled &&
                 cached.Context.TryResolveContext(normalizedName, out handle, out error))
@@ -58,7 +58,8 @@ namespace LegendaryTools.ViewBinding
                 {
                     if (dataContext.TryResolveContext(normalizedName, out handle, out error))
                     {
-                        hierarchyCache[normalizedName] = new HierarchicalContextCacheEntry(dataContext);
+                        hierarchyCache[normalizedName] =
+                            new HierarchicalContextCacheEntry(dataContext, contextVersion);
                         return true;
                     }
 
@@ -112,29 +113,21 @@ namespace LegendaryTools.ViewBinding
         public void Invalidate()
         {
             hierarchyCache.Clear();
-            observedGlobalVersion = BindingDataContext.GlobalVersion;
-        }
-
-        private void RefreshCacheVersion()
-        {
-            int currentVersion = BindingDataContext.GlobalVersion;
-            if (observedGlobalVersion == currentVersion)
-            {
-                return;
-            }
-
-            hierarchyCache.Clear();
-            observedGlobalVersion = currentVersion;
         }
 
         private readonly struct HierarchicalContextCacheEntry
         {
-            public HierarchicalContextCacheEntry(BindingDataContext context)
+            public HierarchicalContextCacheEntry(
+                BindingDataContext context,
+                int version)
             {
                 Context = context;
+                Version = version;
             }
 
             public BindingDataContext Context { get; }
+
+            public int Version { get; }
         }
     }
 }

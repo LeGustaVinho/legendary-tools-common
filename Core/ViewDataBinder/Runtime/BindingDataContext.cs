@@ -13,26 +13,54 @@ namespace LegendaryTools.ViewBinding
 
         private readonly Dictionary<string, BindingInstanceHandle> runtimeContexts =
             new Dictionary<string, BindingInstanceHandle>(StringComparer.Ordinal);
+        private readonly Dictionary<string, BindingDataContextEntry> serializedContextLookup =
+            new Dictionary<string, BindingDataContextEntry>(StringComparer.Ordinal);
+        private readonly HashSet<string> publishedNames =
+            new HashSet<string>(StringComparer.Ordinal);
+        private bool serializedContextLookupDirty = true;
 
-        private static int globalVersion;
+        private static readonly Dictionary<string, int> ContextVersions =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        private static readonly object ContextVersionsLock = new object();
 
         public IReadOnlyList<BindingDataContextEntry> Contexts => contexts;
 
-        internal static int GlobalVersion => globalVersion;
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStaticState()
+        {
+            lock (ContextVersionsLock)
+            {
+                ContextVersions.Clear();
+            }
+        }
+
+        internal static int GetVersion(string name)
+        {
+            string normalizedName = NormalizeName(name);
+            lock (ContextVersionsLock)
+            {
+                return ContextVersions.TryGetValue(normalizedName, out int version)
+                    ? version
+                    : 0;
+            }
+        }
 
         public void SetContext(string name, object instance, Type declaredType = null)
         {
             string normalizedName = NormalizeName(name);
             if (instance == null)
             {
-                runtimeContexts.Remove(normalizedName);
-                IncrementVersion();
+                if (runtimeContexts.Remove(normalizedName))
+                {
+                    PublishNameChange(normalizedName);
+                }
+
                 return;
             }
 
             Type resolvedType = instance.GetType() ?? declaredType;
             runtimeContexts[normalizedName] = new BindingInstanceHandle(instance, resolvedType, false);
-            IncrementVersion();
+            PublishNameChange(normalizedName);
         }
 
         public bool RemoveRuntimeContext(string name)
@@ -40,7 +68,7 @@ namespace LegendaryTools.ViewBinding
             bool removed = runtimeContexts.Remove(NormalizeName(name));
             if (removed)
             {
-                IncrementVersion();
+                PublishNameChange(NormalizeName(name));
             }
 
             return removed;
@@ -53,8 +81,13 @@ namespace LegendaryTools.ViewBinding
                 return;
             }
 
+            string[] changedNames = new string[runtimeContexts.Count];
+            runtimeContexts.Keys.CopyTo(changedNames, 0);
             runtimeContexts.Clear();
-            IncrementVersion();
+            for (int i = 0; i < changedNames.Length; i++)
+            {
+                PublishNameChange(changedNames[i]);
+            }
         }
 
         public bool TryResolveContext(
@@ -73,17 +106,12 @@ namespace LegendaryTools.ViewBinding
                 }
 
                 runtimeContexts.Remove(normalizedName);
+                PublishNameChange(normalizedName);
             }
 
-            for (int i = 0; i < contexts.Count; i++)
+            EnsureSerializedContextLookup();
+            if (serializedContextLookup.TryGetValue(normalizedName, out BindingDataContextEntry entry))
             {
-                BindingDataContextEntry entry = contexts[i];
-                if (entry == null ||
-                    !string.Equals(NormalizeName(entry.Name), normalizedName, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
                 if (entry.Value == null)
                 {
                     handle = default;
@@ -109,15 +137,9 @@ namespace LegendaryTools.ViewBinding
                 return true;
             }
 
-            for (int i = 0; i < contexts.Count; i++)
+            EnsureSerializedContextLookup();
+            if (serializedContextLookup.TryGetValue(normalizedName, out BindingDataContextEntry entry))
             {
-                BindingDataContextEntry entry = contexts[i];
-                if (entry == null ||
-                    !string.Equals(NormalizeName(entry.Name), normalizedName, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
                 type = entry.Value?.GetDeclaredType();
                 return type != null;
             }
@@ -135,31 +157,117 @@ namespace LegendaryTools.ViewBinding
 
         private void OnEnable()
         {
-            IncrementVersion();
+            serializedContextLookupDirty = true;
+            PublishAllNameChanges();
         }
 
         private void OnDisable()
         {
-            IncrementVersion();
+            PublishPublishedNameChanges();
         }
 
         private void OnTransformParentChanged()
         {
-            IncrementVersion();
+            PublishPublishedNameChanges();
         }
 
 #if UNITY_EDITOR
         private void OnValidate()
         {
-            IncrementVersion();
+            serializedContextLookupDirty = true;
+            PublishAllNameChanges();
         }
 #endif
 
-        private static void IncrementVersion()
+        private void EnsureSerializedContextLookup()
         {
-            unchecked
+            if (!serializedContextLookupDirty)
             {
-                globalVersion++;
+                return;
+            }
+
+            serializedContextLookup.Clear();
+            for (int i = 0; i < contexts.Count; i++)
+            {
+                BindingDataContextEntry entry = contexts[i];
+                if (entry == null)
+                {
+                    continue;
+                }
+
+                string normalizedName = NormalizeName(entry.Name);
+                if (!serializedContextLookup.ContainsKey(normalizedName))
+                {
+                    serializedContextLookup.Add(normalizedName, entry);
+                }
+            }
+
+            serializedContextLookupDirty = false;
+        }
+
+        private void PublishAllNameChanges()
+        {
+            EnsureSerializedContextLookup();
+            var currentNames = new HashSet<string>(runtimeContexts.Keys, StringComparer.Ordinal);
+            foreach (string serializedName in serializedContextLookup.Keys)
+            {
+                currentNames.Add(serializedName);
+            }
+
+            foreach (string previousName in publishedNames)
+            {
+                IncrementVersion(previousName);
+            }
+
+            foreach (string currentName in currentNames)
+            {
+                if (!publishedNames.Contains(currentName))
+                {
+                    IncrementVersion(currentName);
+                }
+            }
+
+            publishedNames.Clear();
+            foreach (string currentName in currentNames)
+            {
+                publishedNames.Add(currentName);
+            }
+        }
+
+        private void PublishPublishedNameChanges()
+        {
+            foreach (string publishedName in publishedNames)
+            {
+                IncrementVersion(publishedName);
+            }
+        }
+
+        private void PublishNameChange(string name)
+        {
+            string normalizedName = NormalizeName(name);
+            IncrementVersion(normalizedName);
+
+            EnsureSerializedContextLookup();
+            if (runtimeContexts.ContainsKey(normalizedName) ||
+                serializedContextLookup.ContainsKey(normalizedName))
+            {
+                publishedNames.Add(normalizedName);
+            }
+            else
+            {
+                publishedNames.Remove(normalizedName);
+            }
+        }
+
+        private static void IncrementVersion(string name)
+        {
+            lock (ContextVersionsLock)
+            {
+                ContextVersions.TryGetValue(name, out int version);
+                unchecked
+                {
+                    ContextVersions[name] = version + 1;
+                }
             }
         }
     }

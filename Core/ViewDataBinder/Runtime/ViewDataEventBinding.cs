@@ -14,6 +14,8 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private bool triggerOnInitialize;
         [SerializeField] private BindingErrorPolicy errorPolicy = BindingErrorPolicy.ReportOnly;
         [SerializeField] private MissingEndpointPolicy sourceMissingPolicy = MissingEndpointPolicy.ReportError;
+        [SerializeField, Min(0.01f)] private float missingEndpointRetryInterval = 0.1f;
+        [SerializeField, Min(0.01f)] private float maximumMissingEndpointRetryInterval = 2f;
         [SerializeField] private List<BindingSource> sources =
             new List<BindingSource> { new BindingSource() };
         [SerializeField] private List<EventBindingCondition> conditions =
@@ -32,6 +34,11 @@ namespace LegendaryTools.ViewBinding
         public BindingErrorPolicy ErrorPolicy => errorPolicy;
 
         public MissingEndpointPolicy SourceMissingPolicy => sourceMissingPolicy;
+
+        public float MissingEndpointRetryInterval => Math.Max(0.01f, missingEndpointRetryInterval);
+
+        public float MaximumMissingEndpointRetryInterval =>
+            Math.Max(MissingEndpointRetryInterval, maximumMissingEndpointRetryInterval);
 
         public IReadOnlyList<BindingSource> Sources => sources;
 

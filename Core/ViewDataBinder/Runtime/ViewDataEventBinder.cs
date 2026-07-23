@@ -12,11 +12,21 @@ namespace LegendaryTools.ViewBinding
 
         private readonly Dictionary<string, EventBindingRuntimeState> runtimeStates =
             new Dictionary<string, EventBindingRuntimeState>();
-        private readonly HashSet<string> activeTaskBindingIds = new HashSet<string>();
-        private readonly List<string> completedTaskBindingIds = new List<string>();
+        private readonly HashSet<EventBindingExecutionEntry> activeTaskBindings =
+            new HashSet<EventBindingExecutionEntry>();
+        private readonly List<EventBindingExecutionEntry> completedTaskBindings =
+            new List<EventBindingExecutionEntry>();
+        private readonly Dictionary<string, EventBindingExecutionEntry> executionEntriesById =
+            new Dictionary<string, EventBindingExecutionEntry>(StringComparer.Ordinal);
+        private readonly List<EventBindingExecutionEntry>[] executionBuckets =
+            new List<EventBindingExecutionEntry>[6];
         private readonly BindingContextResolver contextResolver = new BindingContextResolver();
+        private bool executionBucketsBuilt;
+        private readonly BindingRuntimeStatistics statistics = new BindingRuntimeStatistics();
 
         public IReadOnlyList<ViewDataEventBinding> EventBindings => eventBindings;
+
+        public BindingRuntimeStatistics Statistics => statistics;
 
         public void ProcessManualBindings()
         {
@@ -120,11 +130,15 @@ namespace LegendaryTools.ViewBinding
             if (runtimeStates.TryGetValue(binding.Id, out EventBindingRuntimeState state))
             {
                 state.Reset();
+                state.InvalidatePlan();
             }
 
             ResetActionRuntimeState(binding);
             InvalidateBindingCaches(binding);
-            activeTaskBindingIds.Remove(binding.Id);
+            if (executionEntriesById.TryGetValue(binding.Id, out EventBindingExecutionEntry entry))
+            {
+                activeTaskBindings.Remove(entry);
+            }
             return true;
         }
 
@@ -179,44 +193,77 @@ namespace LegendaryTools.ViewBinding
                     $"Event binding index {bindingIndex} is outside the valid range.");
             }
 
+            EnsureExecutionBuckets();
             ViewDataEventBinding binding = eventBindings[bindingIndex];
-            if (binding == null)
+            if (binding == null ||
+                !executionEntriesById.TryGetValue(binding.Id, out EventBindingExecutionEntry entry))
             {
                 return new BindingSyncResult(
                     BindingSyncStatus.InvalidMemberPath,
-                    "The event binding is null.");
+                    "The event binding is null or has no execution entry.");
             }
 
-            binding.EnsureId();
-            EventBindingRuntimeState state = GetOrCreateState(binding.Id);
-            using (BindingResolutionScope.Push(this, contextResolver, null))
+            return ProcessEventBindingDetailed(entry, out triggered);
+        }
+
+        private BindingSyncResult ProcessEventBindingDetailed(
+            EventBindingExecutionEntry entry,
+            out bool triggered)
+        {
+            triggered = false;
+            ViewDataEventBinding binding = entry.Binding;
+            EventBindingRuntimeState state = entry.State;
+            BindingPerformanceSample performanceSample = statistics.BeginSample();
+
+            try
             {
-                PrepareMissingEndpointRecovery(binding, state);
+                using (BindingResolutionScope.Push(this, contextResolver, null))
+                {
+                    if (!PrepareMissingEndpointRecovery(
+                            binding,
+                            state,
+                            out BindingSyncResult cachedResult))
+                    {
+                        statistics.AvoidedEndpointRetries++;
+                        statistics.Record(cachedResult);
+                        return ApplyErrorPolicy(binding, state, cachedResult);
+                    }
 
-                BindingSyncResult result = ProcessEventBinding(binding, state, out triggered);
-                if (result.Status == BindingSyncStatus.UnresolvedInstance &&
-                    result.EndpointRole == BindingEndpointRole.Source)
-                {
-                    result = ApplyMissingEndpointPolicy(binding, state, result, out bool retryTriggered);
-                    triggered |= retryTriggered;
-                }
-                else
-                {
-                    state.ClearMissingEndpoint();
-                }
+                    BindingSyncResult result = ProcessEventBinding(binding, state, out triggered);
+                    if (result.Status == BindingSyncStatus.UnresolvedInstance &&
+                        result.EndpointRole == BindingEndpointRole.Source)
+                    {
+                        result = ApplyMissingEndpointPolicy(
+                            binding,
+                            state,
+                            result,
+                            out bool retryTriggered);
+                        triggered |= retryTriggered;
+                    }
+                    else
+                    {
+                        state.ClearMissingEndpoint();
+                    }
 
-                if (state.HasRunningTasks)
-                {
-                    activeTaskBindingIds.Add(binding.Id);
-                }
-                else
-                {
-                    activeTaskBindingIds.Remove(binding.Id);
-                }
+                    if (state.HasRunningTasks)
+                    {
+                        activeTaskBindings.Add(entry);
+                    }
+                    else
+                    {
+                        activeTaskBindings.Remove(entry);
+                    }
 
-                return ApplyErrorPolicy(binding, state, result);
+                    statistics.Record(result);
+                    return ApplyErrorPolicy(binding, state, result);
+                }
+            }
+            finally
+            {
+                statistics.EndSample(binding.Name, performanceSample);
             }
         }
+
 
         public bool TryGetLastResult(int bindingIndex, out BindingSyncResult result)
         {
@@ -243,29 +290,139 @@ namespace LegendaryTools.ViewBinding
             return true;
         }
 
-        protected override void Update()
+        protected override void PrepareRuntime()
         {
-            base.Update();
-            ObserveActiveTaskBindings();
+            EnsureExecutionBuckets();
+        }
+
+        protected override bool HasBindingsForTiming(BindingUpdateTiming timing)
+        {
+            EnsureExecutionBuckets();
+            List<EventBindingExecutionEntry> bucket = executionBuckets[(int)timing];
+            return bucket != null && bucket.Count > 0;
+        }
+
+        protected override bool HasAdditionalScheduledWork(BindingUpdateTiming timing)
+        {
+            return timing == BindingUpdateTiming.Update && activeTaskBindings.Count > 0;
+        }
+
+        protected override void AfterScheduledTiming(BindingUpdateTiming timing)
+        {
+            if (timing == BindingUpdateTiming.Update)
+            {
+                ObserveActiveTaskBindings();
+            }
         }
 
         protected override void ProcessBindingTiming(BindingUpdateTiming timing)
         {
+            EnsureExecutionBuckets();
+            List<EventBindingExecutionEntry> bucket = executionBuckets[(int)timing];
+            if (bucket == null)
+            {
+                return;
+            }
+
+#if UNITY_2020_2_OR_NEWER
+            using (BindingRuntimeProfiler.ProcessTiming.Auto())
+#endif
+            {
+                for (int i = 0; i < bucket.Count; i++)
+                {
+                    ProcessEventBindingDetailed(bucket[i], out _);
+                }
+            }
+        }
+
+        public void RebuildExecutionPlan()
+        {
+            InvalidateConditionRuntimeCaches();
+            foreach (EventBindingRuntimeState state in runtimeStates.Values)
+            {
+                state.InvalidatePlan();
+            }
+
+            executionBucketsBuilt = false;
+            RebuildExecutionBuckets();
+        }
+
+        public void ReleaseRuntimeResources()
+        {
+            for (int i = 0; i < eventBindings.Count; i++)
+            {
+                ReleaseActionRuntimeResources(eventBindings[i]);
+            }
+
+            foreach (EventBindingRuntimeState state in runtimeStates.Values)
+            {
+                state.ReleaseResources();
+            }
+
+            runtimeStates.Clear();
+            activeTaskBindings.Clear();
+            completedTaskBindings.Clear();
+            executionEntriesById.Clear();
+            executionBucketsBuilt = false;
+            contextResolver.Invalidate();
+        }
+
+        private void EnsureExecutionBuckets()
+        {
+            if (!executionBucketsBuilt)
+            {
+                RebuildExecutionBuckets();
+            }
+        }
+
+        private void RebuildExecutionBuckets()
+        {
             EnsureBindingIds();
+            executionEntriesById.Clear();
+            for (int i = 0; i < executionBuckets.Length; i++)
+            {
+                if (executionBuckets[i] == null)
+                {
+                    executionBuckets[i] = new List<EventBindingExecutionEntry>();
+                }
+                else
+                {
+                    executionBuckets[i].Clear();
+                }
+            }
 
             for (int i = 0; i < eventBindings.Count; i++)
             {
                 ViewDataEventBinding binding = eventBindings[i];
-                if (binding == null || binding.UpdateTiming != timing)
+                if (binding == null)
                 {
                     continue;
                 }
 
-                ProcessEventBinding(i);
+                EventBindingExecutionEntry entry = new EventBindingExecutionEntry(
+                    i,
+                    binding,
+                    GetOrCreateState(binding.Id));
+                executionEntriesById[binding.Id] = entry;
+                executionBuckets[(int)binding.UpdateTiming].Add(entry);
             }
+
+            executionBucketsBuilt = true;
         }
 
-        private static BindingSyncResult ProcessEventBinding(
+#if UNITY_EDITOR
+        private void OnValidate()
+        {
+            InvalidateConditionRuntimeCaches();
+            executionBucketsBuilt = false;
+            foreach (EventBindingRuntimeState state in runtimeStates.Values)
+            {
+                state.InvalidatePlan();
+            }
+        }
+#endif
+
+        private BindingSyncResult ProcessEventBinding(
             ViewDataEventBinding binding,
             EventBindingRuntimeState state,
             out bool triggered)
@@ -287,18 +444,6 @@ namespace LegendaryTools.ViewBinding
             }
 
             bool taskRunning = state.HasRunningTasks;
-            if (taskRunning)
-            {
-                bool observationSucceeded = TryObserveAsyncActions(
-                    binding,
-                    out taskRunning,
-                    out string taskError);
-                state.HasRunningTasks = taskRunning;
-                if (!observationSucceeded)
-                {
-                    return new BindingSyncResult(BindingSyncStatus.ActionFailed, taskError);
-                }
-            }
 
             int sourceCount = binding.Sources?.Count ?? 0;
             if (sourceCount == 0)
@@ -310,38 +455,68 @@ namespace LegendaryTools.ViewBinding
             }
 
             state.EnsureSourceCount(sourceCount);
+            if (state.MetadataInitialized)
+            {
+                if (!state.MatchesResolution(binding))
+                {
+                    state.ResetObservation(true);
+                }
+                else
+                {
+                    statistics.ExecutionPlanCacheHits++;
+                }
+            }
+
             object[] currentValues = state.CurrentValues;
             BindingMemberMetadata[] sourceMetadata = state.SourceMetadata;
+
+            if (!state.MetadataInitialized)
+            {
+                statistics.ExecutionPlanBuilds++;
+                for (int i = 0; i < sourceCount; i++)
+                {
+                    BindingSource source = binding.Sources[i];
+                    if (source == null || source.Endpoint == null)
+                    {
+                        return new BindingSyncResult(
+                            BindingSyncStatus.InvalidMemberPath,
+                            $"Source {i + 1} is null.");
+                    }
+
+                    if (!BindingBackendRegistry.MemberBackend.TryGetMetadata(
+                            source.Endpoint,
+                            out sourceMetadata[i],
+                            out string metadataError))
+                    {
+                        return new BindingSyncResult(
+                            ClassifyEndpointFailure(source.Endpoint),
+                            $"Source {i + 1}: {metadataError}",
+                            BindingEndpointRole.Source);
+                    }
+
+                    if (!sourceMetadata[i].CanRead)
+                    {
+                        return new BindingSyncResult(
+                            BindingSyncStatus.ReadFailed,
+                            $"Source {i + 1} is not readable.",
+                            BindingEndpointRole.Source);
+                    }
+                }
+
+                if (!state.TryCaptureResolution(binding, out string resolutionError))
+                {
+                    return new BindingSyncResult(
+                        BindingSyncStatus.UnresolvedInstance,
+                        resolutionError,
+                        BindingEndpointRole.Source);
+                }
+
+                state.MetadataInitialized = true;
+            }
 
             for (int i = 0; i < sourceCount; i++)
             {
                 BindingSource source = binding.Sources[i];
-                if (source == null || source.Endpoint == null)
-                {
-                    return new BindingSyncResult(
-                        BindingSyncStatus.InvalidMemberPath,
-                        $"Source {i + 1} is null.");
-                }
-
-                if (!BindingBackendRegistry.MemberBackend.TryGetMetadata(
-                        source.Endpoint,
-                        out sourceMetadata[i],
-                        out string metadataError))
-                {
-                    return new BindingSyncResult(
-                        ClassifyEndpointFailure(source.Endpoint),
-                        $"Source {i + 1}: {metadataError}",
-                        BindingEndpointRole.Source);
-                }
-
-                if (!sourceMetadata[i].CanRead)
-                {
-                    return new BindingSyncResult(
-                        BindingSyncStatus.ReadFailed,
-                        $"Source {i + 1} is not readable.",
-                        BindingEndpointRole.Source);
-                }
-
                 if (!BindingBackendRegistry.MemberBackend.TryRead(
                         source.Endpoint,
                         out currentValues[i],
@@ -619,67 +794,58 @@ namespace LegendaryTools.ViewBinding
                 ResetActionRuntimeState(eventBindings[i]);
             }
 
-            runtimeStates.Clear();
-            activeTaskBindingIds.Clear();
-            completedTaskBindingIds.Clear();
+            foreach (EventBindingRuntimeState state in runtimeStates.Values)
+            {
+                state.Reset();
+            }
+
+            activeTaskBindings.Clear();
+            completedTaskBindings.Clear();
             contextResolver.Invalidate();
         }
 
         private void ObserveActiveTaskBindings()
         {
-            if (activeTaskBindingIds.Count == 0)
+            if (activeTaskBindings.Count == 0)
             {
                 return;
             }
 
-            completedTaskBindingIds.Clear();
-            foreach (string bindingId in activeTaskBindingIds)
+#if UNITY_2020_2_OR_NEWER
+            using (BindingRuntimeProfiler.ObserveTasks.Auto())
+#endif
             {
-                if (!TryGetBindingById(bindingId, out ViewDataEventBinding binding) ||
-                    !runtimeStates.TryGetValue(bindingId, out EventBindingRuntimeState state))
+                completedTaskBindings.Clear();
+                foreach (EventBindingExecutionEntry entry in activeTaskBindings)
                 {
-                    completedTaskBindingIds.Add(bindingId);
-                    continue;
-                }
+                    ViewDataEventBinding binding = entry.Binding;
+                    EventBindingRuntimeState state = entry.State;
 
-                bool observationSucceeded = TryObserveAsyncActions(
-                    binding,
-                    out bool taskRunning,
-                    out string error);
-                state.HasRunningTasks = taskRunning;
-                if (!observationSucceeded)
-                {
-                    ApplyErrorPolicy(
+                    statistics.ObservedTasks++;
+                    bool observationSucceeded = TryObserveAsyncActions(
                         binding,
-                        state,
-                        new BindingSyncResult(BindingSyncStatus.ActionFailed, error));
+                        out bool taskRunning,
+                        out string error);
+                    state.HasRunningTasks = taskRunning;
+                    if (!observationSucceeded)
+                    {
+                        ApplyErrorPolicy(
+                            binding,
+                            state,
+                            new BindingSyncResult(BindingSyncStatus.ActionFailed, error));
+                    }
+
+                    if (!taskRunning)
+                    {
+                        completedTaskBindings.Add(entry);
+                    }
                 }
 
-                if (!taskRunning)
+                for (int i = 0; i < completedTaskBindings.Count; i++)
                 {
-                    completedTaskBindingIds.Add(bindingId);
+                    activeTaskBindings.Remove(completedTaskBindings[i]);
                 }
             }
-
-            for (int i = 0; i < completedTaskBindingIds.Count; i++)
-            {
-                activeTaskBindingIds.Remove(completedTaskBindingIds[i]);
-            }
-        }
-
-        private bool TryGetBindingById(string bindingId, out ViewDataEventBinding binding)
-        {
-            for (int i = 0; i < eventBindings.Count; i++)
-            {
-                binding = eventBindings[i];
-                if (binding != null && string.Equals(binding.Id, bindingId, StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-
-            binding = null;
-            return false;
         }
 
         private bool TryGetBindingIndex(string bindingIdOrName, out int bindingIndex)
@@ -706,19 +872,49 @@ namespace LegendaryTools.ViewBinding
             return false;
         }
 
-        private void PrepareMissingEndpointRecovery(
+        private bool PrepareMissingEndpointRecovery(
             ViewDataEventBinding binding,
-            EventBindingRuntimeState state)
+            EventBindingRuntimeState state,
+            out BindingSyncResult cachedResult)
         {
-            if (state.RuntimeDisabled || !state.SourceEndpointMissing ||
-                !AreSourceEndpointsAvailable(binding.Sources))
+            cachedResult = default;
+            if (state.RuntimeDisabled || !state.SourceEndpointMissing)
             {
-                return;
+                return true;
+            }
+
+            float currentTime = Time.unscaledTime;
+            if (state.HasCachedMissingEndpointResult && currentTime < state.NextMissingEndpointRetryTime)
+            {
+                cachedResult = state.CachedMissingEndpointResult;
+                return false;
+            }
+
+            if (!AreSourceEndpointsAvailable(binding.Sources))
+            {
+                BindingSyncResult result = state.HasCachedMissingEndpointResult
+                    ? state.CachedMissingEndpointResult
+                    : BindingSyncResult.NoChange("Waiting for the missing Source endpoint.");
+                state.CacheMissingEndpointResult(
+                    result,
+                    currentTime + GetMissingEndpointRetryDelay(binding, state));
+                cachedResult = result;
+                return false;
             }
 
             InvalidateBindingCaches(binding);
-            state.ResetObservation();
+            state.InvalidatePlan();
             state.ClearMissingEndpoint();
+            return true;
+        }
+
+        private static float GetMissingEndpointRetryDelay(
+            ViewDataEventBinding binding,
+            EventBindingRuntimeState state)
+        {
+            int exponent = Math.Min(state.MissingEndpointRetryAttempt, 8);
+            float delay = binding.MissingEndpointRetryInterval * (1 << exponent);
+            return Math.Min(delay, binding.MaximumMissingEndpointRetryInterval);
         }
 
         private BindingSyncResult ApplyMissingEndpointPolicy(
@@ -735,54 +931,70 @@ namespace LegendaryTools.ViewBinding
             }
 
             state.MarkSourceEndpointMissing(binding.SourceMissingPolicy);
-
+            BindingSyncResult policyResult;
             switch (binding.SourceMissingPolicy)
             {
                 case MissingEndpointPolicy.Wait:
-                    return BindingSyncResult.NoChange(
+                    policyResult = BindingSyncResult.NoChange(
                         "Waiting for the missing Source endpoint. " + result.Message);
+                    break;
 
                 case MissingEndpointPolicy.Disable:
                     state.RuntimeDisabled = true;
-                    return new BindingSyncResult(
+                    policyResult = new BindingSyncResult(
                         BindingSyncStatus.Disabled,
                         "Event binding disabled because a Source endpoint is missing. Invalidate it to retry.",
                         BindingEndpointRole.Source);
+                    break;
 
                 case MissingEndpointPolicy.ClearTarget:
-                    return BindingSyncResult.NoChange(
+                    policyResult = BindingSyncResult.NoChange(
                         "Event bindings have no Target to clear; waiting for the Source endpoint.");
+                    break;
 
                 case MissingEndpointPolicy.UseFallback:
-                    return new BindingSyncResult(
+                    policyResult = new BindingSyncResult(
                         BindingSyncStatus.FallbackFailed,
                         "Event bindings do not define a fallback value for missing Sources.",
                         BindingEndpointRole.Source);
+                    break;
 
                 case MissingEndpointPolicy.ReResolve:
                     InvalidateBindingCaches(binding);
-                    state.ResetObservation();
+                    state.InvalidatePlan();
                     BindingSyncResult retryResult = ProcessEventBinding(binding, state, out triggered);
                     if (retryResult.Status == BindingSyncStatus.UnresolvedInstance)
                     {
                         state.MarkSourceEndpointMissing(binding.SourceMissingPolicy);
+                        policyResult = retryResult;
                     }
                     else
                     {
                         state.ClearMissingEndpoint();
+                        return retryResult;
                     }
-
-                    return retryResult;
+                    break;
 
                 case MissingEndpointPolicy.ReportError:
-                    return result;
+                    policyResult = result;
+                    break;
 
                 default:
-                    return new BindingSyncResult(
+                    policyResult = new BindingSyncResult(
                         BindingSyncStatus.InvalidMemberPath,
                         $"Unsupported missing endpoint policy: {binding.SourceMissingPolicy}.",
                         BindingEndpointRole.Source);
+                    break;
             }
+
+            if (!state.RuntimeDisabled)
+            {
+                state.CacheMissingEndpointResult(
+                    policyResult,
+                    Time.unscaledTime + GetMissingEndpointRetryDelay(binding, state));
+            }
+
+            return policyResult;
         }
 
         private void InvalidateBindingCaches(ViewDataEventBinding binding)
@@ -888,6 +1100,37 @@ namespace LegendaryTools.ViewBinding
 
             error = firstError ?? string.Empty;
             return firstError == null;
+        }
+
+        private void InvalidateConditionRuntimeCaches()
+        {
+            for (int bindingIndex = 0; bindingIndex < eventBindings.Count; bindingIndex++)
+            {
+                IReadOnlyList<EventBindingCondition> conditions =
+                    eventBindings[bindingIndex]?.Conditions;
+                if (conditions == null)
+                {
+                    continue;
+                }
+
+                for (int conditionIndex = 0; conditionIndex < conditions.Count; conditionIndex++)
+                {
+                    conditions[conditionIndex]?.InvalidateRuntimeCaches();
+                }
+            }
+        }
+
+        private static void ReleaseActionRuntimeResources(ViewDataEventBinding binding)
+        {
+            if (binding?.Conditions == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < binding.Conditions.Count; i++)
+            {
+                binding.Conditions[i]?.ReleaseRuntimeResources();
+            }
         }
 
         private static void ResetActionRuntimeState(ViewDataEventBinding binding)

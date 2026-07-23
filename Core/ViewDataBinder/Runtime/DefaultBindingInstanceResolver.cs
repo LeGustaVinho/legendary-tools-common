@@ -1,9 +1,14 @@
 using System;
+using System.Collections.Generic;
 
 namespace LegendaryTools.ViewBinding
 {
     public sealed class DefaultBindingInstanceResolver : IBindingInstanceResolver
     {
+        private static readonly Dictionary<string, Type> TypeCache =
+            new Dictionary<string, Type>(StringComparer.Ordinal);
+        private static readonly object TypeCacheLock = new object();
+
         public bool TryResolve(BindingInstanceReference reference, out BindingInstanceHandle handle, out string error)
         {
             handle = default;
@@ -46,22 +51,42 @@ namespace LegendaryTools.ViewBinding
                 return null;
             }
 
-            Type type = Type.GetType(assemblyQualifiedName, false);
-            if (type != null)
+            lock (TypeCacheLock)
             {
-                return type;
-            }
-
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                type = assembly.GetType(assemblyQualifiedName, false);
-                if (type != null)
+                if (TypeCache.TryGetValue(assemblyQualifiedName, out Type cachedType))
                 {
-                    return type;
+                    return cachedType;
                 }
             }
 
-            return null;
+            Type type = Type.GetType(assemblyQualifiedName, false);
+            if (type == null)
+            {
+                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                for (int i = 0; i < assemblies.Length; i++)
+                {
+                    type = assemblies[i].GetType(assemblyQualifiedName, false);
+                    if (type != null)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            lock (TypeCacheLock)
+            {
+                TypeCache[assemblyQualifiedName] = type;
+            }
+
+            return type;
+        }
+
+        public static void ClearTypeCache()
+        {
+            lock (TypeCacheLock)
+            {
+                TypeCache.Clear();
+            }
         }
 
         private static bool TryResolveUnityObject(

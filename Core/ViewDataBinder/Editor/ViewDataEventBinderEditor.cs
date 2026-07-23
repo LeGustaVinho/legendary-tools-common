@@ -113,6 +113,8 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty triggerOnInitializeProperty = bindingProperty.FindPropertyRelative("triggerOnInitialize");
             SerializedProperty errorPolicyProperty = bindingProperty.FindPropertyRelative("errorPolicy");
             SerializedProperty sourceMissingPolicyProperty = bindingProperty.FindPropertyRelative("sourceMissingPolicy");
+            SerializedProperty retryIntervalProperty = bindingProperty.FindPropertyRelative("missingEndpointRetryInterval");
+            SerializedProperty maximumRetryIntervalProperty = bindingProperty.FindPropertyRelative("maximumMissingEndpointRetryInterval");
             SerializedProperty sourcesProperty = bindingProperty.FindPropertyRelative("sources");
             SerializedProperty conditionsProperty = bindingProperty.FindPropertyRelative("conditions");
 
@@ -191,6 +193,12 @@ namespace LegendaryTools.ViewBinding.Editor
                 EditorGUILayout.PropertyField(
                     sourceMissingPolicyProperty,
                     new GUIContent("Missing Source", "Controls behavior when a Source instance or context disappears."));
+                EditorGUILayout.PropertyField(
+                    retryIntervalProperty,
+                    new GUIContent("Missing Retry Interval", "Initial delay between endpoint recovery attempts."));
+                EditorGUILayout.PropertyField(
+                    maximumRetryIntervalProperty,
+                    new GUIContent("Maximum Retry Interval", "Maximum exponential backoff delay while a Source remains unavailable."));
 
                 EditorGUILayout.Space(7f);
                 DrawSectionTitle("SOURCES");

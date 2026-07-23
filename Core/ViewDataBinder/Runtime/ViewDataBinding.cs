@@ -19,6 +19,9 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private BindingErrorPolicy errorPolicy = BindingErrorPolicy.ReportOnly;
         [SerializeField] private MissingEndpointPolicy sourceMissingPolicy = MissingEndpointPolicy.ReportError;
         [SerializeField] private MissingEndpointPolicy targetMissingPolicy = MissingEndpointPolicy.ReportError;
+        [SerializeField, Min(0.01f)] private float missingEndpointRetryInterval = 0.1f;
+        [SerializeField, Min(0.01f)] private float maximumMissingEndpointRetryInterval = 2f;
+        [SerializeField] private bool alwaysEvaluateTransformation;
         [SerializeField] private BindingFormatterSettings formatter = new BindingFormatterSettings();
         [SerializeField] private BindingConverter converter;
         [SerializeField] private BindingNullHandlingMode nullHandling = BindingNullHandlingMode.PassThrough;
@@ -47,6 +50,13 @@ namespace LegendaryTools.ViewBinding
         public MissingEndpointPolicy SourceMissingPolicy => sourceMissingPolicy;
 
         public MissingEndpointPolicy TargetMissingPolicy => targetMissingPolicy;
+
+        public float MissingEndpointRetryInterval => Math.Max(0.01f, missingEndpointRetryInterval);
+
+        public float MaximumMissingEndpointRetryInterval =>
+            Math.Max(MissingEndpointRetryInterval, maximumMissingEndpointRetryInterval);
+
+        public bool AlwaysEvaluateTransformation => alwaysEvaluateTransformation;
 
         public BindingFormatterSettings Formatter => formatter;
 

@@ -78,13 +78,19 @@ namespace LegendaryTools.ViewBinding
                         break;
 
                     default:
-                        object[] values = new object[sourceValues.Count];
-                        for (int i = 0; i < sourceValues.Count; i++)
+                        if (sourceValues is object[] values)
                         {
-                            values[i] = sourceValues[i];
+                            formattedValue = string.Format(formatProvider, format, values);
+                            break;
                         }
 
-                        formattedValue = string.Format(formatProvider, format, values);
+                        object[] copiedValues = new object[sourceValues.Count];
+                        for (int i = 0; i < sourceValues.Count; i++)
+                        {
+                            copiedValues[i] = sourceValues[i];
+                        }
+
+                        formattedValue = string.Format(formatProvider, format, copiedValues);
                         break;
                 }
                 error = string.Empty;

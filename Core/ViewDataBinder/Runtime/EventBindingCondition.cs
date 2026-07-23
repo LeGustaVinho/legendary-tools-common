@@ -120,6 +120,33 @@ namespace LegendaryTools.ViewBinding
             return firstError == null;
         }
 
+
+        internal void InvalidateRuntimeCaches()
+        {
+            if (clauses == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < clauses.Count; i++)
+            {
+                clauses[i]?.InvalidateRuntimeCache();
+            }
+        }
+
+        public void ReleaseRuntimeResources()
+        {
+            if (actions != null)
+            {
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    actions[i]?.ReleaseRuntimeResources();
+                }
+            }
+
+            InvalidateRuntimeCaches();
+        }
+
         public void ResetRuntimeState()
         {
             if (actions == null)

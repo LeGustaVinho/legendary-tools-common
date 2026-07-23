@@ -1,12 +1,39 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+#if !ENABLE_IL2CPP
+using System.Linq.Expressions;
+#endif
 using UnityEngine;
 
 namespace LegendaryTools.ViewBinding
 {
     public static class EventBindingConditionEvaluator
     {
+        private static readonly Dictionary<string, MethodInfo> OperatorMethodCache =
+            new Dictionary<string, MethodInfo>(StringComparer.Ordinal);
+        private static readonly object OperatorMethodCacheLock = new object();
+        private static readonly Dictionary<string, Func<object, bool>> UnaryInvokerCache =
+            new Dictionary<string, Func<object, bool>>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Func<object, object, bool>> BinaryInvokerCache =
+            new Dictionary<string, Func<object, object, bool>>(StringComparer.Ordinal);
+        [ThreadStatic] private static object[] unaryArguments;
+        [ThreadStatic] private static object[] binaryArguments;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetRuntimeCaches()
+        {
+            lock (OperatorMethodCacheLock)
+            {
+                OperatorMethodCache.Clear();
+                UnaryInvokerCache.Clear();
+                BinaryInvokerCache.Clear();
+            }
+
+            unaryArguments = null;
+            binaryArguments = null;
+        }
+
         public static bool TryEvaluate(
             EventBindingCondition condition,
             IReadOnlyList<object> values,
@@ -14,109 +41,109 @@ namespace LegendaryTools.ViewBinding
             out bool result,
             out string error)
         {
-            result = false;
-            error = string.Empty;
-
-            if (condition == null)
+#if UNITY_2020_2_OR_NEWER
+            using (BindingRuntimeProfiler.EvaluateConditions.Auto())
+#endif
             {
-                error = "Condition is null.";
-                return false;
-            }
+                result = false;
+                error = string.Empty;
 
-            if (condition.Clauses == null || condition.Clauses.Count == 0)
-            {
-                error = "Condition requires at least one clause.";
-                return false;
-            }
-
-            bool andValue = false;
-            bool xorValue = false;
-            bool orValue = false;
-
-            for (int i = 0; i < condition.Clauses.Count; i++)
-            {
-                EventBindingConditionClause clause = condition.Clauses[i];
-                if (clause == null)
+                if (condition == null)
                 {
-                    error = $"Clause {i + 1} is null.";
+                    error = "Condition is null.";
                     return false;
                 }
 
-                if (clause.SourceIndex < 0 || clause.SourceIndex >= values.Count || clause.SourceIndex >= metadata.Count)
+                if (condition.Clauses == null || condition.Clauses.Count == 0)
                 {
-                    error = $"Clause {i + 1} references invalid Source index {clause.SourceIndex}.";
+                    error = "Condition requires at least one clause.";
                     return false;
                 }
 
-                Type valueType = metadata[clause.SourceIndex].ValueType;
-                object comparisonValue = null;
+                bool andValue = false;
+                bool xorValue = false;
+                bool orValue = false;
 
-                if (RequiresComparisonValue(clause.ComparisonOperator))
+                for (int i = 0; i < condition.Clauses.Count; i++)
                 {
-                    if (clause.ComparisonValue == null)
+                    EventBindingConditionClause clause = condition.Clauses[i];
+                    if (clause == null)
                     {
-                        error = $"Clause {i + 1}: comparison value is null.";
+                        error = $"Clause {i + 1} is null.";
                         return false;
                     }
 
-                    if (!clause.ComparisonValue.TryGetValue(
+                    if (clause.SourceIndex < 0 || clause.SourceIndex >= values.Count || clause.SourceIndex >= metadata.Count)
+                    {
+                        error = $"Clause {i + 1} references invalid Source index {clause.SourceIndex}.";
+                        return false;
+                    }
+
+                    Type valueType = metadata[clause.SourceIndex].ValueType;
+                    object comparisonValue = null;
+
+                    if (RequiresComparisonValue(clause.ComparisonOperator))
+                    {
+                        if (!clause.TryGetComparisonValue(
+                                valueType,
+                                out comparisonValue,
+                                out error))
+                        {
+                            error = $"Clause {i + 1}: {error}";
+                            return false;
+                        }
+                    }
+
+                    if (!TryCompare(
+                            values[clause.SourceIndex],
+                            comparisonValue,
                             valueType,
-                            out comparisonValue,
+                            clause.ComparisonOperator,
+                            out bool clauseResult,
                             out error))
                     {
                         error = $"Clause {i + 1}: {error}";
                         return false;
                     }
-                }
 
-                if (!TryCompare(
-                        values[clause.SourceIndex],
-                        comparisonValue,
-                        valueType,
-                        clause.ComparisonOperator,
-                        out bool clauseResult,
-                        out error))
-                {
-                    error = $"Clause {i + 1}: {error}";
-                    return false;
-                }
+                    bool effectiveClauseResult = clause.Negate ? !clauseResult : clauseResult;
 
-                bool effectiveClauseResult = clause.Negate ? !clauseResult : clauseResult;
-
-                if (i == 0)
-                {
-                    andValue = effectiveClauseResult;
-                    continue;
-                }
-
-                switch (clause.LogicalOperator)
-                {
-                    case EventBindingLogicalOperator.And:
-                        andValue = andValue && effectiveClauseResult;
-                        break;
-
-                    case EventBindingLogicalOperator.Xor:
-                        xorValue ^= andValue;
+                    if (i == 0)
+                    {
                         andValue = effectiveClauseResult;
-                        break;
+                        continue;
+                    }
 
-                    case EventBindingLogicalOperator.Or:
-                        xorValue ^= andValue;
-                        orValue |= xorValue;
-                        xorValue = false;
-                        andValue = effectiveClauseResult;
-                        break;
+                    switch (clause.LogicalOperator)
+                    {
+                        case EventBindingLogicalOperator.And:
+                            andValue = andValue && effectiveClauseResult;
+                            break;
 
-                    default:
-                        error = $"Unsupported logical operator: {clause.LogicalOperator}.";
-                        return false;
+                        case EventBindingLogicalOperator.Xor:
+                            xorValue ^= andValue;
+                            andValue = effectiveClauseResult;
+                            break;
+
+                        case EventBindingLogicalOperator.Or:
+                            xorValue ^= andValue;
+                            orValue |= xorValue;
+                            xorValue = false;
+                            andValue = effectiveClauseResult;
+                            break;
+
+                        default:
+                            error = $"Unsupported logical operator: {clause.LogicalOperator}.";
+                            return false;
+                    }
                 }
+
+                xorValue ^= andValue;
+                orValue |= xorValue;
+                result = orValue;
+                return true;
+
             }
-
-            xorValue ^= andValue;
-            orValue |= xorValue;
-            result = orValue;
-            return true;
         }
 
         public static bool RequiresComparisonValue(EventBindingComparisonOperator comparisonOperator)
@@ -564,12 +591,32 @@ namespace LegendaryTools.ViewBinding
 
             try
             {
-                result = (bool)method.Invoke(null, new[] { value });
+                Func<object, bool> invoker = GetUnaryInvoker(effectiveType, methodName, method);
+                if (invoker != null)
+                {
+                    result = invoker(value);
+                    error = string.Empty;
+                    return true;
+                }
+
+                if (unaryArguments == null)
+                {
+                    unaryArguments = new object[1];
+                }
+
+                unaryArguments[0] = value;
+                result = (bool)method.Invoke(null, unaryArguments);
+                unaryArguments[0] = null;
                 error = string.Empty;
                 return true;
             }
             catch (Exception exception)
             {
+                if (unaryArguments != null)
+                {
+                    unaryArguments[0] = null;
+                }
+
                 error = $"Operator execution failed: {exception.GetBaseException().Message}";
                 return false;
             }
@@ -582,16 +629,32 @@ namespace LegendaryTools.ViewBinding
                 return null;
             }
 
+            string cacheKey = valueType.AssemblyQualifiedName + "|1|" + methodName;
+            lock (OperatorMethodCacheLock)
+            {
+                if (OperatorMethodCache.TryGetValue(cacheKey, out MethodInfo cachedMethod))
+                {
+                    return cachedMethod;
+                }
+            }
+
             MethodInfo method = valueType.GetMethod(
                 methodName,
                 BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy,
                 null,
                 new[] { valueType },
                 null);
+            if (method != null && method.ReturnType != typeof(bool))
+            {
+                method = null;
+            }
 
-            return method != null && method.ReturnType == typeof(bool)
-                ? method
-                : null;
+            lock (OperatorMethodCacheLock)
+            {
+                OperatorMethodCache[cacheKey] = method;
+            }
+
+            return method;
         }
 
         private static bool SupportsEquality(
@@ -666,16 +729,32 @@ namespace LegendaryTools.ViewBinding
                 return null;
             }
 
+            string cacheKey = valueType.AssemblyQualifiedName + "|2|" + methodName;
+            lock (OperatorMethodCacheLock)
+            {
+                if (OperatorMethodCache.TryGetValue(cacheKey, out MethodInfo cachedMethod))
+                {
+                    return cachedMethod;
+                }
+            }
+
             MethodInfo method = valueType.GetMethod(
                 methodName,
                 BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy,
                 null,
                 new[] { valueType, valueType },
                 null);
+            if (method != null && method.ReturnType != typeof(bool))
+            {
+                method = null;
+            }
 
-            return method != null && method.ReturnType == typeof(bool)
-                ? method
-                : null;
+            lock (OperatorMethodCacheLock)
+            {
+                OperatorMethodCache[cacheKey] = method;
+            }
+
+            return method;
         }
 
         private static bool TryInvokeBinaryOperator(
@@ -702,14 +781,120 @@ namespace LegendaryTools.ViewBinding
 
             try
             {
-                result = (bool)method.Invoke(null, new[] { left, right });
+                Func<object, object, bool> invoker = GetBinaryInvoker(
+                    valueType,
+                    methodName,
+                    method);
+                if (invoker != null)
+                {
+                    result = invoker(left, right);
+                    return true;
+                }
+
+                if (binaryArguments == null)
+                {
+                    binaryArguments = new object[2];
+                }
+
+                binaryArguments[0] = left;
+                binaryArguments[1] = right;
+                result = (bool)method.Invoke(null, binaryArguments);
+                binaryArguments[0] = null;
+                binaryArguments[1] = null;
                 return true;
             }
             catch (Exception exception)
             {
+                if (binaryArguments != null)
+                {
+                    binaryArguments[0] = null;
+                    binaryArguments[1] = null;
+                }
+
                 error = $"Operator execution failed: {exception.GetBaseException().Message}";
                 return false;
             }
+        }
+
+        private static Func<object, bool> GetUnaryInvoker(
+            Type valueType,
+            string methodName,
+            MethodInfo method)
+        {
+            string cacheKey = valueType.AssemblyQualifiedName + "|1|" + methodName;
+            lock (OperatorMethodCacheLock)
+            {
+                if (UnaryInvokerCache.TryGetValue(cacheKey, out Func<object, bool> cached))
+                {
+                    return cached;
+                }
+            }
+
+            Func<object, bool> invoker = null;
+#if !ENABLE_IL2CPP
+            try
+            {
+                ParameterExpression value = Expression.Parameter(typeof(object), "value");
+                MethodCallExpression call = Expression.Call(
+                    method,
+                    Expression.Convert(value, valueType));
+                invoker = Expression.Lambda<Func<object, bool>>(call, value).Compile();
+            }
+            catch
+            {
+                invoker = null;
+            }
+#endif
+            lock (OperatorMethodCacheLock)
+            {
+                UnaryInvokerCache[cacheKey] = invoker;
+            }
+
+            return invoker;
+        }
+
+        private static Func<object, object, bool> GetBinaryInvoker(
+            Type valueType,
+            string methodName,
+            MethodInfo method)
+        {
+            string cacheKey = valueType.AssemblyQualifiedName + "|2|" + methodName;
+            lock (OperatorMethodCacheLock)
+            {
+                if (BinaryInvokerCache.TryGetValue(
+                        cacheKey,
+                        out Func<object, object, bool> cached))
+                {
+                    return cached;
+                }
+            }
+
+            Func<object, object, bool> invoker = null;
+#if !ENABLE_IL2CPP
+            try
+            {
+                ParameterExpression left = Expression.Parameter(typeof(object), "left");
+                ParameterExpression right = Expression.Parameter(typeof(object), "right");
+                MethodCallExpression call = Expression.Call(
+                    method,
+                    Expression.Convert(left, valueType),
+                    Expression.Convert(right, valueType));
+                invoker = Expression.Lambda<Func<object, object, bool>>(
+                    call,
+                    left,
+                    right).Compile();
+            }
+            catch
+            {
+                invoker = null;
+            }
+#endif
+            lock (OperatorMethodCacheLock)
+            {
+                BinaryInvokerCache[cacheKey] = invoker;
+            }
+
+            return invoker;
         }
 
         private static string GetOperatorMethodName(EventBindingComparisonOperator comparisonOperator)

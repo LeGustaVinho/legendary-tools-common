@@ -224,6 +224,9 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty errorPolicyProperty = bindingProperty.FindPropertyRelative("errorPolicy");
             SerializedProperty sourceMissingPolicyProperty = bindingProperty.FindPropertyRelative("sourceMissingPolicy");
             SerializedProperty targetMissingPolicyProperty = bindingProperty.FindPropertyRelative("targetMissingPolicy");
+            SerializedProperty retryIntervalProperty = bindingProperty.FindPropertyRelative("missingEndpointRetryInterval");
+            SerializedProperty maximumRetryIntervalProperty = bindingProperty.FindPropertyRelative("maximumMissingEndpointRetryInterval");
+            SerializedProperty alwaysEvaluateTransformationProperty = bindingProperty.FindPropertyRelative("alwaysEvaluateTransformation");
             SerializedProperty formatterProperty = bindingProperty.FindPropertyRelative("formatter");
             SerializedProperty converterProperty = bindingProperty.FindPropertyRelative("converter");
             SerializedProperty nullHandlingProperty = bindingProperty.FindPropertyRelative("nullHandling");
@@ -293,7 +296,10 @@ namespace LegendaryTools.ViewBinding.Editor
                     writePolicyProperty,
                     errorPolicyProperty,
                     sourceMissingPolicyProperty,
-                    targetMissingPolicyProperty);
+                    targetMissingPolicyProperty,
+                    retryIntervalProperty,
+                    maximumRetryIntervalProperty,
+                    alwaysEvaluateTransformationProperty);
                 EditorGUILayout.Space(6f);
 
                 BindingSyncDirection direction = (BindingSyncDirection)directionProperty.enumValueIndex;
@@ -383,7 +389,10 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty writePolicyProperty,
             SerializedProperty errorPolicyProperty,
             SerializedProperty sourceMissingPolicyProperty,
-            SerializedProperty targetMissingPolicyProperty)
+            SerializedProperty targetMissingPolicyProperty,
+            SerializedProperty retryIntervalProperty,
+            SerializedProperty maximumRetryIntervalProperty,
+            SerializedProperty alwaysEvaluateTransformationProperty)
         {
             EditorGUILayout.PropertyField(directionProperty, new GUIContent("Direction"));
             EditorGUILayout.PropertyField(updateTimingProperty, new GUIContent("Polling"));
@@ -412,6 +421,17 @@ namespace LegendaryTools.ViewBinding.Editor
             EditorGUILayout.PropertyField(
                 targetMissingPolicyProperty,
                 new GUIContent("Missing Target", "Controls behavior when the Target instance or context disappears."));
+            EditorGUILayout.PropertyField(
+                retryIntervalProperty,
+                new GUIContent("Missing Retry Interval", "Initial delay between endpoint recovery attempts."));
+            EditorGUILayout.PropertyField(
+                maximumRetryIntervalProperty,
+                new GUIContent("Maximum Retry Interval", "Maximum exponential backoff delay while an endpoint remains unavailable."));
+            EditorGUILayout.PropertyField(
+                alwaysEvaluateTransformationProperty,
+                new GUIContent(
+                    "Always Evaluate Transformation",
+                    "Runs the formatter and converter even when raw inputs are unchanged. Enable only for stateful transformations."));
         }
 
         private void DrawOptions(

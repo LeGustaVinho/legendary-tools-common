@@ -5,11 +5,12 @@ using UnityEngine;
 namespace LegendaryTools.ViewBinding
 {
     [Serializable]
-    public sealed class ViewDataBindingProfileReference
+    public sealed class ViewDataBindingProfileReference : ISerializationCallbackReceiver
     {
         [NonSerialized] private Dictionary<string, string> stateKeys;
         [NonSerialized] private Dictionary<string, BindingInstanceHandle> runtimeContexts;
         [NonSerialized] private string stateKeyPrefix;
+        [NonSerialized] private Dictionary<string, BindingContextValue> serializedContextLookup;
         [SerializeField, HideInInspector] private string id;
         [SerializeField] private bool enabled = true;
         [SerializeField] private ViewDataBindingProfile profile;
@@ -52,20 +53,8 @@ namespace LegendaryTools.ViewBinding
                 return true;
             }
 
-            for (int i = 0; i < namedContexts.Count; i++)
-            {
-                BindingNamedContextOverride entry = namedContexts[i];
-                if (entry != null &&
-                    string.Equals(
-                        BindingDataContext.NormalizeName(entry.Name),
-                        normalizedName,
-                        StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            EnsureSerializedContextLookup();
+            return serializedContextLookup.ContainsKey(normalizedName);
         }
 
         internal bool TryResolveContext(
@@ -169,6 +158,48 @@ namespace LegendaryTools.ViewBinding
             return stateKey;
         }
 
+        private void EnsureSerializedContextLookup()
+        {
+            if (serializedContextLookup != null)
+            {
+                return;
+            }
+
+            serializedContextLookup =
+                new Dictionary<string, BindingContextValue>(StringComparer.Ordinal);
+            for (int i = 0; i < namedContexts.Count; i++)
+            {
+                BindingNamedContextOverride entry = namedContexts[i];
+                if (entry == null)
+                {
+                    continue;
+                }
+
+                string normalizedName = BindingDataContext.NormalizeName(entry.Name);
+                if (!serializedContextLookup.ContainsKey(normalizedName))
+                {
+                    serializedContextLookup.Add(normalizedName, entry.Value);
+                }
+            }
+        }
+
+        internal void InvalidateSerializedCaches()
+        {
+            serializedContextLookup = null;
+        }
+
+        public void OnBeforeSerialize()
+        {
+        }
+
+        public void OnAfterDeserialize()
+        {
+            InvalidateSerializedCaches();
+            stateKeys = null;
+            stateKeyPrefix = null;
+            runtimeContexts = null;
+        }
+
         private BindingContextValue FindContextValue(string contextName)
         {
             if (string.Equals(contextName, BindingContextConstants.ProfileSource, StringComparison.Ordinal))
@@ -181,20 +212,10 @@ namespace LegendaryTools.ViewBinding
                 return targetRoot;
             }
 
-            for (int i = 0; i < namedContexts.Count; i++)
-            {
-                BindingNamedContextOverride entry = namedContexts[i];
-                if (entry != null &&
-                    string.Equals(
-                        BindingDataContext.NormalizeName(entry.Name),
-                        contextName,
-                        StringComparison.Ordinal))
-                {
-                    return entry.Value;
-                }
-            }
-
-            return null;
+            EnsureSerializedContextLookup();
+            return serializedContextLookup.TryGetValue(contextName, out BindingContextValue value)
+                ? value
+                : null;
         }
     }
 }

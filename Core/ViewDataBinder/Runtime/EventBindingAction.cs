@@ -176,7 +176,6 @@ namespace LegendaryTools.ViewBinding
             }
 
             runningTask = task;
-            ObserveFault(task);
             if (!TryObserveTask(out taskRunning, out error))
             {
                 return false;
@@ -247,14 +246,41 @@ namespace LegendaryTools.ViewBinding
 
         public void ResetRuntimeState()
         {
-            runningTask = null;
-            concurrentTasks?.Clear();
+            DetachRunningTasks();
+            ClearTaskArguments();
+        }
+
+        public void ReleaseRuntimeResources()
+        {
+            ResetRuntimeState();
             taskArguments = null;
             cachedTaskMethod = null;
             cachedTaskParameters = null;
             cachedTargetType = null;
             cachedSignature = null;
             cachedTargetIsStatic = false;
+            concurrentTasks = null;
+        }
+
+        private void DetachRunningTasks()
+        {
+            if (runningTask != null)
+            {
+                BindingTaskObserver.Observe(runningTask);
+                runningTask = null;
+            }
+
+            if (concurrentTasks == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < concurrentTasks.Count; i++)
+            {
+                BindingTaskObserver.Observe(concurrentTasks[i]);
+            }
+
+            concurrentTasks.Clear();
         }
 
         private void ClearTaskArguments()
@@ -268,17 +294,6 @@ namespace LegendaryTools.ViewBinding
             {
                 taskArguments[i] = null;
             }
-        }
-
-        private static void ObserveFault(Task task)
-        {
-            task.ContinueWith(
-                completedTask =>
-                {
-                    _ = completedTask.Exception;
-                },
-                TaskContinuationOptions.OnlyOnFaulted |
-                TaskContinuationOptions.ExecuteSynchronously);
         }
 
         private void InvokeUnityEvent(object oldValue, object newValue)
