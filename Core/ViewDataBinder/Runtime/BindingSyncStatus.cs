@@ -14,6 +14,8 @@ namespace LegendaryTools.ViewBinding
         FormatterFailed = 9,
         FallbackFailed = 10,
         NullValueRejected = 11,
-        ConverterFailed = 12
+        ConverterFailed = 12,
+        ConditionFailed = 13,
+        ActionFailed = 14
     }
 }

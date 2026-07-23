@@ -19,6 +19,102 @@ namespace LegendaryTools.ViewBinding
             ProcessBindingTiming(BindingUpdateTiming.Manual);
         }
 
+        public BindingSyncResult SynchronizeManualBinding(int bindingIndex)
+        {
+            if (bindingIndex < 0 || bindingIndex >= bindings.Count)
+            {
+                return new BindingSyncResult(
+                    BindingSyncStatus.InvalidMemberPath,
+                    $"Binding index {bindingIndex} is outside the valid range.");
+            }
+
+            ViewDataBinding binding = bindings[bindingIndex];
+            if (binding == null)
+            {
+                return new BindingSyncResult(BindingSyncStatus.InvalidMemberPath, "The binding is null.");
+            }
+
+            if (binding.UpdateTiming != BindingUpdateTiming.Manual)
+            {
+                return BindingSyncResult.NoChange(
+                    $"Binding '{binding.Name}' does not use Manual polling.");
+            }
+
+            return SynchronizeBinding(bindingIndex);
+        }
+
+        public BindingSyncResult SynchronizeManualBinding(string bindingIdOrName)
+        {
+            return TryGetBindingIndex(bindingIdOrName, out int bindingIndex)
+                ? SynchronizeManualBinding(bindingIndex)
+                : new BindingSyncResult(
+                    BindingSyncStatus.InvalidMemberPath,
+                    $"No binding with ID or name '{bindingIdOrName}' was found.");
+        }
+
+        public BindingSyncResult SynchronizeBinding(string bindingIdOrName)
+        {
+            return TryGetBindingIndex(bindingIdOrName, out int bindingIndex)
+                ? SynchronizeBinding(bindingIndex)
+                : new BindingSyncResult(
+                    BindingSyncStatus.InvalidMemberPath,
+                    $"No binding with ID or name '{bindingIdOrName}' was found.");
+        }
+
+        public int SynchronizeManualBindingsForSource(UnityEngine.Object sourceObject)
+        {
+            if (sourceObject == null)
+            {
+                return 0;
+            }
+
+            EnsureBindingIds();
+            int synchronizedCount = 0;
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                ViewDataBinding binding = bindings[i];
+                if (binding == null ||
+                    binding.UpdateTiming != BindingUpdateTiming.Manual ||
+                    !UsesSourceObject(binding, sourceObject))
+                {
+                    continue;
+                }
+
+                SynchronizeBinding(i);
+                synchronizedCount++;
+            }
+
+            return synchronizedCount;
+        }
+
+        public bool InvalidateBinding(int bindingIndex)
+        {
+            if (bindingIndex < 0 || bindingIndex >= bindings.Count)
+            {
+                return false;
+            }
+
+            ViewDataBinding binding = bindings[bindingIndex];
+            if (binding == null)
+            {
+                return false;
+            }
+
+            binding.EnsureId();
+            if (runtimeStates.TryGetValue(binding.Id, out BindingRuntimeState state))
+            {
+                state.ResetValues();
+            }
+
+            return true;
+        }
+
+        public bool InvalidateBinding(string bindingIdOrName)
+        {
+            return TryGetBindingIndex(bindingIdOrName, out int bindingIndex) &&
+                   InvalidateBinding(bindingIndex);
+        }
+
         public void SynchronizeAll()
         {
             EnsureBindingIds();
@@ -47,8 +143,7 @@ namespace LegendaryTools.ViewBinding
             binding.EnsureId();
             BindingRuntimeState state = GetOrCreateState(binding.Id);
             BindingSyncResult result = Synchronize(binding, state);
-            state.LastResult = result;
-            return result;
+            return ApplyErrorPolicy(binding, state, result);
         }
 
         public bool TryEvaluateSourceValue(
@@ -73,6 +168,9 @@ namespace LegendaryTools.ViewBinding
                 return false;
             }
 
+            binding.EnsureId();
+            BindingRuntimeState state = GetOrCreateState(binding.Id);
+
             if (binding.Formatter != null &&
                 binding.Formatter.Enabled &&
                 binding.Direction != BindingSyncDirection.SourceToTarget)
@@ -85,20 +183,23 @@ namespace LegendaryTools.ViewBinding
 
             if (!TryGetSourceOutputMetadata(
                     binding,
+                    state,
                     out BindingMemberMetadata sourceOutputMetadata,
                     out List<BindingMemberMetadata> sourceInputMetadata,
+                    out BindingSyncStatus metadataStatus,
                     out string metadataError))
             {
-                result = CreateMetadataFailureResult(metadataError);
+                result = new BindingSyncResult(metadataStatus, metadataError);
                 return false;
             }
 
-            if (!BindingBackendRegistry.MemberBackend.TryGetMetadata(
+            if (!TryGetEndpointMetadata(
                     binding.Target,
                     out BindingMemberMetadata targetMetadata,
+                    out BindingSyncStatus targetMetadataStatus,
                     out string targetMetadataError))
             {
-                result = CreateMetadataFailureResult(targetMetadataError);
+                result = new BindingSyncResult(targetMetadataStatus, targetMetadataError);
                 return false;
             }
 
@@ -115,6 +216,7 @@ namespace LegendaryTools.ViewBinding
 
             if (!TryReadSourceOutput(
                     binding,
+                    state,
                     sourceOutputMetadata.ValueType,
                     sourceInputMetadata,
                     out object sourceValue,
@@ -156,6 +258,248 @@ namespace LegendaryTools.ViewBinding
             return true;
         }
 
+        public bool TryGetPreview(string bindingIdOrName, out BindingPreview preview)
+        {
+            if (TryGetBindingIndex(bindingIdOrName, out int bindingIndex))
+            {
+                return TryGetPreview(bindingIndex, out preview);
+            }
+
+            preview = CreateFailedPreview(
+                BindingSyncStatus.InvalidMemberPath,
+                $"No binding with ID or name '{bindingIdOrName}' was found.");
+            return false;
+        }
+
+        public bool TryGetPreview(int bindingIndex, out BindingPreview preview)
+        {
+            preview = default;
+
+            if (bindingIndex < 0 || bindingIndex >= bindings.Count)
+            {
+                preview = CreateFailedPreview(
+                    BindingSyncStatus.InvalidMemberPath,
+                    $"Binding index {bindingIndex} is outside the valid range.");
+                return false;
+            }
+
+            ViewDataBinding binding = bindings[bindingIndex];
+            if (binding == null)
+            {
+                preview = CreateFailedPreview(
+                    BindingSyncStatus.InvalidMemberPath,
+                    "The binding is null.");
+                return false;
+            }
+
+            if (binding.Formatter != null &&
+                binding.Formatter.Enabled &&
+                binding.Direction != BindingSyncDirection.SourceToTarget)
+            {
+                preview = CreateFailedPreview(
+                    BindingSyncStatus.FormatterFailed,
+                    "Formatters are supported only for Source -> Target bindings.");
+                return false;
+            }
+
+            binding.EnsureId();
+            BindingRuntimeState state = GetOrCreateState(binding.Id);
+
+            if (!TryGetSourceOutputMetadata(
+                    binding,
+                    state,
+                    out BindingMemberMetadata sourceMetadata,
+                    out List<BindingMemberMetadata> sourceInputMetadata,
+                    out BindingSyncStatus sourceMetadataStatus,
+                    out string sourceMetadataError))
+            {
+                preview = CreateFailedPreview(sourceMetadataStatus, sourceMetadataError);
+                return false;
+            }
+
+            if (!TryGetEndpointMetadata(
+                    binding.Target,
+                    out BindingMemberMetadata targetMetadata,
+                    out BindingSyncStatus targetMetadataStatus,
+                    out string targetMetadataError))
+            {
+                preview = CreateFailedPreview(targetMetadataStatus, targetMetadataError);
+                return false;
+            }
+
+            if (!TryValidateConverter(
+                    binding,
+                    sourceMetadata.ValueType,
+                    targetMetadata.ValueType,
+                    binding.Direction != BindingSyncDirection.SourceToTarget,
+                    out string validationError))
+            {
+                preview = CreateFailedPreview(BindingSyncStatus.TypeMismatch, validationError);
+                return false;
+            }
+
+            object sourceValue = null;
+            object convertedSourceValue = null;
+            object targetValue = null;
+            object convertedTargetValue = null;
+            string informationalMessage = string.Empty;
+
+            bool requiresSourceRead = binding.Direction != BindingSyncDirection.TargetToSource;
+            bool requiresForwardConversion = binding.Direction != BindingSyncDirection.TargetToSource;
+            if (sourceMetadata.CanRead)
+            {
+                bool sourceReadSucceeded = TryReadSourceOutput(
+                    binding,
+                    state,
+                    sourceMetadata.ValueType,
+                    sourceInputMetadata,
+                    out sourceValue,
+                    out bool skipForward,
+                    out BindingSyncStatus sourceReadStatus,
+                    out string sourceReadError);
+                if (!sourceReadSucceeded)
+                {
+                    if (requiresSourceRead)
+                    {
+                        preview = CreateFailedPreview(sourceReadStatus, sourceReadError);
+                        return false;
+                    }
+
+                    informationalMessage = AppendPreviewMessage(
+                        informationalMessage,
+                        "The current Source value could not be read: " + sourceReadError);
+                }
+                else if (requiresForwardConversion &&
+                         !skipForward &&
+                         !TryConvertForward(
+                             binding,
+                             sourceValue,
+                             sourceMetadata.ValueType,
+                             targetMetadata.ValueType,
+                             out convertedSourceValue,
+                             out skipForward,
+                             out BindingSyncStatus forwardStatus,
+                             out string forwardError))
+                {
+                    preview = new BindingPreview(
+                        sourceValue,
+                        null,
+                        null,
+                        null,
+                        new BindingSyncResult(forwardStatus, forwardError));
+                    return false;
+                }
+
+                if (sourceReadSucceeded && requiresForwardConversion && skipForward)
+                {
+                    informationalMessage = AppendPreviewMessage(
+                        informationalMessage,
+                        "Forward preview was skipped by the null handling policy.");
+                }
+            }
+            else if (requiresSourceRead)
+            {
+                preview = CreateFailedPreview(
+                    BindingSyncStatus.ReadFailed,
+                    "The Source output is not readable.");
+                return false;
+            }
+            else
+            {
+                informationalMessage = AppendPreviewMessage(
+                    informationalMessage,
+                    "The Source is write-only; its current value is unavailable.");
+            }
+
+            bool requiresTargetRead = binding.Direction != BindingSyncDirection.SourceToTarget;
+            bool skipReverse = false;
+            if (binding.Direction == BindingSyncDirection.SourceToTarget ||
+                (binding.Direction == BindingSyncDirection.TwoWay && !state.Initialized))
+            {
+                if (targetMetadata.CanRead)
+                {
+                    if (!BindingBackendRegistry.MemberBackend.TryRead(
+                            binding.Target,
+                            out targetValue,
+                            out string targetReadError))
+                    {
+                        if (requiresTargetRead)
+                        {
+                            preview = new BindingPreview(
+                                sourceValue,
+                                convertedSourceValue,
+                                null,
+                                null,
+                                new BindingSyncResult(BindingSyncStatus.ReadFailed, targetReadError));
+                            return false;
+                        }
+
+                        informationalMessage = AppendPreviewMessage(
+                            informationalMessage,
+                            "The current Target value could not be read: " + targetReadError);
+                    }
+                }
+                else if (requiresTargetRead)
+                {
+                    preview = new BindingPreview(
+                        sourceValue,
+                        convertedSourceValue,
+                        null,
+                        null,
+                        new BindingSyncResult(
+                            BindingSyncStatus.ReadFailed,
+                            "The Target path is not readable."));
+                    return false;
+                }
+                else
+                {
+                    informationalMessage = AppendPreviewMessage(
+                        informationalMessage,
+                        "The Target is write-only; its current value is unavailable.");
+                }
+
+                if (binding.Direction == BindingSyncDirection.TwoWay && !state.Initialized)
+                {
+                    informationalMessage = AppendPreviewMessage(
+                        informationalMessage,
+                        "Two-way binding is not initialized; the first synchronization writes Source to Target before reverse conversion.");
+                }
+            }
+            else if (!TryReadReverseValue(
+                         binding,
+                         sourceMetadata.ValueType,
+                         targetMetadata.ValueType,
+                         out targetValue,
+                         out convertedTargetValue,
+                         out skipReverse,
+                         out BindingSyncStatus reverseStatus,
+                         out string reverseError))
+            {
+                preview = new BindingPreview(
+                    sourceValue,
+                    convertedSourceValue,
+                    targetValue,
+                    null,
+                    new BindingSyncResult(reverseStatus, reverseError));
+                return false;
+            }
+
+            if (skipReverse)
+            {
+                informationalMessage = AppendPreviewMessage(
+                    informationalMessage,
+                    "Reverse preview was skipped by the null handling policy.");
+            }
+
+            preview = new BindingPreview(
+                sourceValue,
+                convertedSourceValue,
+                targetValue,
+                convertedTargetValue,
+                BindingSyncResult.Success(informationalMessage));
+            return true;
+        }
+
         public bool TryGetLastResult(int bindingIndex, out BindingSyncResult result)
         {
             result = default;
@@ -171,7 +515,8 @@ namespace LegendaryTools.ViewBinding
                 return false;
             }
 
-            if (!runtimeStates.TryGetValue(binding.Id, out BindingRuntimeState state))
+            if (!runtimeStates.TryGetValue(binding.Id, out BindingRuntimeState state) ||
+                !state.HasResult)
             {
                 return false;
             }
@@ -204,6 +549,13 @@ namespace LegendaryTools.ViewBinding
                 return new BindingSyncResult(BindingSyncStatus.Disabled, "Binding is disabled.");
             }
 
+            if (state.RuntimeDisabled)
+            {
+                return new BindingSyncResult(
+                    BindingSyncStatus.Disabled,
+                    "Binding was disabled by its error policy. Invalidate it to retry.");
+            }
+
             if (binding.Formatter != null &&
                 binding.Formatter.Enabled &&
                 binding.Direction != BindingSyncDirection.SourceToTarget)
@@ -213,23 +565,24 @@ namespace LegendaryTools.ViewBinding
                     "Formatters are supported only for Source -> Target bindings because formatting is not reversible.");
             }
 
-            IBindingMemberBackend memberBackend = BindingBackendRegistry.MemberBackend;
-
             if (!TryGetSourceOutputMetadata(
                     binding,
+                    state,
                     out BindingMemberMetadata sourceMetadata,
                     out List<BindingMemberMetadata> sourceInputMetadata,
+                    out BindingSyncStatus sourceMetadataStatus,
                     out string sourceMetadataError))
             {
-                return CreateMetadataFailureResult(sourceMetadataError);
+                return new BindingSyncResult(sourceMetadataStatus, sourceMetadataError);
             }
 
-            if (!memberBackend.TryGetMetadata(
+            if (!TryGetEndpointMetadata(
                     binding.Target,
                     out BindingMemberMetadata targetMetadata,
+                    out BindingSyncStatus targetMetadataStatus,
                     out string targetMetadataError))
             {
-                return CreateMetadataFailureResult(targetMetadataError);
+                return new BindingSyncResult(targetMetadataStatus, targetMetadataError);
             }
 
             bool requiresReverse = binding.Direction != BindingSyncDirection.SourceToTarget;
@@ -293,6 +646,7 @@ namespace LegendaryTools.ViewBinding
 
             if (!TryReadSourceOutput(
                     binding,
+                    state,
                     sourceMetadata.ValueType,
                     sourceInputMetadata,
                     out object sourceValue,
@@ -324,6 +678,14 @@ namespace LegendaryTools.ViewBinding
             if (skipSynchronization)
             {
                 return BindingSyncResult.NoChange("Synchronization skipped because the converted value is null.");
+            }
+
+            if (binding.WritePolicy == BindingWritePolicy.WhenValueChanges &&
+                state.Initialized &&
+                BindingValueComparer.AreEqual(targetValue, state.LastTargetValue))
+            {
+                state.LastSourceValue = sourceValue;
+                return BindingSyncResult.NoChange("The converted Source value has not changed.");
             }
 
             if (!BindingBackendRegistry.MemberBackend.TryWrite(binding.Target, targetValue, out string writeError))
@@ -369,6 +731,14 @@ namespace LegendaryTools.ViewBinding
             if (skipSynchronization)
             {
                 return BindingSyncResult.NoChange("Synchronization skipped because the Target value is null.");
+            }
+
+            if (binding.WritePolicy == BindingWritePolicy.WhenValueChanges &&
+                state.Initialized &&
+                BindingValueComparer.AreEqual(sourceValue, state.LastSourceValue))
+            {
+                state.LastTargetValue = targetValue;
+                return BindingSyncResult.NoChange("The converted Target value has not changed.");
             }
 
             if (!BindingBackendRegistry.SourceBackend.TryWrite(binding.Sources, sourceValue, out string writeError))
@@ -431,6 +801,31 @@ namespace LegendaryTools.ViewBinding
                 return new BindingSyncResult(forwardStatus, forwardError);
             }
 
+            if (skipForward)
+            {
+                return BindingSyncResult.NoChange("Two-way synchronization skipped by the null handling policy.");
+            }
+
+            // Initialize from Source before attempting reverse conversion. The Target may
+            // contain a value that is not reversible yet, such as an empty input string.
+            if (!state.Initialized)
+            {
+                if (!TryWriteTargetAndCaptureActualValue(
+                        binding,
+                        sourceAsTargetValue,
+                        out object initializedTargetValue,
+                        out BindingSyncStatus initializationStatus,
+                        out string initializationError))
+                {
+                    return new BindingSyncResult(initializationStatus, initializationError);
+                }
+
+                state.Initialized = true;
+                state.LastSourceValue = sourceValue;
+                state.LastTargetValue = initializedTargetValue;
+                return BindingSyncResult.Success("Two-way binding initialized from Source to Target.");
+            }
+
             if (!TryReadReverseValue(
                     binding,
                     sourceMetadata.ValueType,
@@ -444,26 +839,13 @@ namespace LegendaryTools.ViewBinding
                 return new BindingSyncResult(targetReadStatus, targetReadError);
             }
 
-            if (skipForward || skipTarget)
+            if (skipTarget)
             {
                 return BindingSyncResult.NoChange("Two-way synchronization skipped by the null handling policy.");
             }
 
-            if (!state.Initialized)
-            {
-                if (!BindingBackendRegistry.MemberBackend.TryWrite(binding.Target, sourceAsTargetValue, out string initializationError))
-                {
-                    return new BindingSyncResult(BindingSyncStatus.WriteFailed, initializationError);
-                }
-
-                state.Initialized = true;
-                state.LastSourceValue = sourceValue;
-                state.LastTargetValue = sourceAsTargetValue;
-                return BindingSyncResult.Success("Two-way binding initialized from Source to Target.");
-            }
-
-            bool sourceChanged = !ValuesEqual(sourceValue, state.LastSourceValue);
-            bool targetChanged = !ValuesEqual(targetValue, state.LastTargetValue);
+            bool sourceChanged = !BindingValueComparer.AreEqual(sourceValue, state.LastSourceValue);
+            bool targetChanged = !BindingValueComparer.AreEqual(targetValue, state.LastTargetValue);
 
             if (!sourceChanged && !targetChanged)
             {
@@ -472,57 +854,80 @@ namespace LegendaryTools.ViewBinding
 
             if (sourceChanged && !targetChanged)
             {
-                if (!BindingBackendRegistry.MemberBackend.TryWrite(binding.Target, sourceAsTargetValue, out string sourceWriteError))
+                if (!TryWriteTargetAndCaptureActualValue(
+                        binding,
+                        sourceAsTargetValue,
+                        out object writtenTargetValue,
+                        out BindingSyncStatus sourceWriteStatus,
+                        out string sourceWriteError))
                 {
-                    return new BindingSyncResult(BindingSyncStatus.WriteFailed, sourceWriteError);
+                    return new BindingSyncResult(sourceWriteStatus, sourceWriteError);
                 }
 
                 state.LastSourceValue = sourceValue;
-                state.LastTargetValue = sourceAsTargetValue;
+                state.LastTargetValue = writtenTargetValue;
                 return BindingSyncResult.Success("Source change propagated to Target through the Converter.");
             }
 
             if (!sourceChanged && targetChanged)
             {
-                if (!BindingBackendRegistry.SourceBackend.TryWrite(binding.Sources, targetAsSourceValue, out string targetWriteError))
+                if (!TryWriteSourceAndCaptureActualValue(
+                        binding,
+                        targetAsSourceValue,
+                        out object writtenSourceValue,
+                        out BindingSyncStatus targetWriteStatus,
+                        out string targetWriteError))
                 {
-                    return new BindingSyncResult(BindingSyncStatus.WriteFailed, targetWriteError);
+                    return new BindingSyncResult(targetWriteStatus, targetWriteError);
                 }
 
-                state.LastSourceValue = targetAsSourceValue;
+                state.LastSourceValue = writtenSourceValue;
                 state.LastTargetValue = targetValue;
                 return BindingSyncResult.Success("Target change propagated to Source through reverse conversion.");
             }
 
             if (binding.ConflictResolution == BindingConflictResolution.SourceWins)
             {
-                if (!BindingBackendRegistry.MemberBackend.TryWrite(binding.Target, sourceAsTargetValue, out string conflictError))
+                if (!TryWriteTargetAndCaptureActualValue(
+                        binding,
+                        sourceAsTargetValue,
+                        out object conflictTargetValue,
+                        out BindingSyncStatus conflictStatus,
+                        out string conflictError))
                 {
-                    return new BindingSyncResult(BindingSyncStatus.WriteFailed, conflictError);
+                    return new BindingSyncResult(conflictStatus, conflictError);
                 }
 
                 state.LastSourceValue = sourceValue;
-                state.LastTargetValue = sourceAsTargetValue;
+                state.LastTargetValue = conflictTargetValue;
                 return BindingSyncResult.Success("Both sides changed; Source won the conflict.");
             }
 
-            if (!BindingBackendRegistry.SourceBackend.TryWrite(binding.Sources, targetAsSourceValue, out string reverseConflictError))
+            if (!TryWriteSourceAndCaptureActualValue(
+                    binding,
+                    targetAsSourceValue,
+                    out object conflictSourceValue,
+                    out BindingSyncStatus reverseConflictStatus,
+                    out string reverseConflictError))
             {
-                return new BindingSyncResult(BindingSyncStatus.WriteFailed, reverseConflictError);
+                return new BindingSyncResult(reverseConflictStatus, reverseConflictError);
             }
 
-            state.LastSourceValue = targetAsSourceValue;
+            state.LastSourceValue = conflictSourceValue;
             state.LastTargetValue = targetValue;
             return BindingSyncResult.Success("Both sides changed; Target won the conflict.");
         }
 
         private static bool TryGetSourceOutputMetadata(
             ViewDataBinding binding,
+            BindingRuntimeState state,
             out BindingMemberMetadata outputMetadata,
             out List<BindingMemberMetadata> inputMetadata,
+            out BindingSyncStatus failureStatus,
             out string error)
         {
-            inputMetadata = new List<BindingMemberMetadata>();
+            int sourceCount = binding.Sources?.Count ?? 0;
+            inputMetadata = state.PrepareSourceMetadataBuffer(Math.Max(1, sourceCount));
 
             if (binding.Formatter == null || !binding.Formatter.Enabled)
             {
@@ -531,33 +936,38 @@ namespace LegendaryTools.ViewBinding
                         out outputMetadata,
                         out error))
                 {
+                    failureStatus = ClassifySourceMetadataFailure(binding.Sources);
                     return false;
                 }
 
                 inputMetadata.Add(outputMetadata);
+                failureStatus = BindingSyncStatus.Success;
                 return true;
             }
 
-            if (binding.Sources == null || binding.Sources.Count == 0)
+            if (sourceCount == 0)
             {
                 outputMetadata = default;
+                failureStatus = BindingSyncStatus.InvalidSourceCount;
                 error = "A formatter requires at least one Source.";
                 return false;
             }
 
-            for (int i = 0; i < binding.Sources.Count; i++)
+            for (int i = 0; i < sourceCount; i++)
             {
                 BindingSource source = binding.Sources[i];
                 if (source == null || source.Endpoint == null)
                 {
                     outputMetadata = default;
+                    failureStatus = BindingSyncStatus.InvalidMemberPath;
                     error = $"Source {i + 1} is null.";
                     return false;
                 }
 
-                if (!BindingBackendRegistry.MemberBackend.TryGetMetadata(
+                if (!TryGetEndpointMetadata(
                         source.Endpoint,
                         out BindingMemberMetadata metadata,
+                        out failureStatus,
                         out string metadataError))
                 {
                     outputMetadata = default;
@@ -568,6 +978,7 @@ namespace LegendaryTools.ViewBinding
                 if (!metadata.CanRead)
                 {
                     outputMetadata = default;
+                    failureStatus = BindingSyncStatus.ReadFailed;
                     error = $"Source {i + 1} is not readable.";
                     return false;
                 }
@@ -578,6 +989,7 @@ namespace LegendaryTools.ViewBinding
             if (!BindingFormatterRegistry.TryGet(binding.Formatter.FormatterId, out IBindingFormatter formatter))
             {
                 outputMetadata = default;
+                failureStatus = BindingSyncStatus.FormatterFailed;
                 error = $"Formatter '{binding.Formatter.FormatterId}' is not registered.";
                 return false;
             }
@@ -585,18 +997,75 @@ namespace LegendaryTools.ViewBinding
             if (!formatter.TryGetOutputType(inputMetadata, out Type outputType, out error))
             {
                 outputMetadata = default;
+                failureStatus = BindingSyncStatus.FormatterFailed;
                 return false;
             }
 
             if (outputType == null)
             {
                 outputMetadata = default;
+                failureStatus = BindingSyncStatus.FormatterFailed;
                 error = $"Formatter '{formatter.DisplayName}' returned no output Type.";
                 return false;
             }
 
             outputMetadata = new BindingMemberMetadata(outputType, true, false);
+            failureStatus = BindingSyncStatus.Success;
+            error = string.Empty;
             return true;
+        }
+
+        private static bool TryGetEndpointMetadata(
+            BindingEndpoint endpoint,
+            out BindingMemberMetadata metadata,
+            out BindingSyncStatus failureStatus,
+            out string error)
+        {
+            if (BindingBackendRegistry.MemberBackend.TryGetMetadata(endpoint, out metadata, out error))
+            {
+                failureStatus = BindingSyncStatus.Success;
+                return true;
+            }
+
+            failureStatus = ClassifyEndpointFailure(endpoint);
+            return false;
+        }
+
+        private static BindingSyncStatus ClassifySourceMetadataFailure(
+            IReadOnlyList<BindingSource> sources)
+        {
+            if (sources == null || sources.Count == 0)
+            {
+                return BindingSyncStatus.InvalidSourceCount;
+            }
+
+            if (BindingBackendRegistry.SourceBackend is SingleSourceBindingSourceBackend &&
+                sources.Count != 1)
+            {
+                return BindingSyncStatus.InvalidSourceCount;
+            }
+
+            if (sources.Count == 1)
+            {
+                BindingSource source = sources[0];
+                return source == null
+                    ? BindingSyncStatus.InvalidMemberPath
+                    : ClassifyEndpointFailure(source.Endpoint);
+            }
+
+            return BindingSyncStatus.InvalidMemberPath;
+        }
+
+        private static BindingSyncStatus ClassifyEndpointFailure(BindingEndpoint endpoint)
+        {
+            if (endpoint == null || endpoint.Instance == null)
+            {
+                return BindingSyncStatus.InvalidMemberPath;
+            }
+
+            return endpoint.Instance.TryResolve(out _, out _)
+                ? BindingSyncStatus.InvalidMemberPath
+                : BindingSyncStatus.UnresolvedInstance;
         }
 
         private static bool TryValidateConverter(
@@ -927,6 +1396,7 @@ namespace LegendaryTools.ViewBinding
 
         private static bool TryReadSourceOutput(
             ViewDataBinding binding,
+            BindingRuntimeState state,
             Type outputType,
             IReadOnlyList<BindingMemberMetadata> inputMetadata,
             out object value,
@@ -948,7 +1418,7 @@ namespace LegendaryTools.ViewBinding
             value = null;
             skipSynchronization = false;
             failureStatus = BindingSyncStatus.ReadFailed;
-            var sourceValues = new List<object>(binding.Sources.Count);
+            List<object> sourceValues = state.PrepareSourceValueBuffer(binding.Sources.Count);
 
             for (int i = 0; i < binding.Sources.Count; i++)
             {
@@ -1303,25 +1773,179 @@ namespace LegendaryTools.ViewBinding
             return Activator.CreateInstance(type);
         }
 
-        private static BindingSyncResult CreateMetadataFailureResult(string error)
+        private static bool TryWriteTargetAndCaptureActualValue(
+            ViewDataBinding binding,
+            object value,
+            out object actualValue,
+            out BindingSyncStatus failureStatus,
+            out string error)
         {
-            if (!string.IsNullOrEmpty(error) && error.Contains("exactly one source"))
+            actualValue = null;
+
+            if (!BindingBackendRegistry.MemberBackend.TryWrite(binding.Target, value, out error))
             {
-                return new BindingSyncResult(BindingSyncStatus.InvalidSourceCount, error);
+                failureStatus = BindingSyncStatus.WriteFailed;
+                return false;
             }
 
-            if (!string.IsNullOrEmpty(error) && error.IndexOf("formatter", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (!BindingBackendRegistry.MemberBackend.TryRead(binding.Target, out actualValue, out error))
             {
-                return new BindingSyncResult(BindingSyncStatus.FormatterFailed, error);
+                failureStatus = BindingSyncStatus.ReadFailed;
+                return false;
             }
 
-            if (!string.IsNullOrEmpty(error) &&
-                (error.Contains("assigned") || error.Contains("resolved") || error.Contains("Provider")))
+            failureStatus = BindingSyncStatus.Success;
+            error = string.Empty;
+            return true;
+        }
+
+        private static bool TryWriteSourceAndCaptureActualValue(
+            ViewDataBinding binding,
+            object value,
+            out object actualValue,
+            out BindingSyncStatus failureStatus,
+            out string error)
+        {
+            actualValue = null;
+
+            if (!BindingBackendRegistry.SourceBackend.TryWrite(binding.Sources, value, out error))
             {
-                return new BindingSyncResult(BindingSyncStatus.UnresolvedInstance, error);
+                failureStatus = BindingSyncStatus.WriteFailed;
+                return false;
             }
 
-            return new BindingSyncResult(BindingSyncStatus.InvalidMemberPath, error);
+            if (!BindingBackendRegistry.SourceBackend.TryRead(binding.Sources, out actualValue, out error))
+            {
+                failureStatus = BindingSyncStatus.ReadFailed;
+                return false;
+            }
+
+            failureStatus = BindingSyncStatus.Success;
+            error = string.Empty;
+            return true;
+        }
+
+        private bool TryGetBindingIndex(string bindingIdOrName, out int bindingIndex)
+        {
+            bindingIndex = -1;
+            if (string.IsNullOrWhiteSpace(bindingIdOrName))
+            {
+                return false;
+            }
+
+            EnsureBindingIds();
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                ViewDataBinding binding = bindings[i];
+                if (binding != null &&
+                    (string.Equals(binding.Id, bindingIdOrName, StringComparison.Ordinal) ||
+                     string.Equals(binding.Name, bindingIdOrName, StringComparison.Ordinal)))
+                {
+                    bindingIndex = i;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private BindingSyncResult ApplyErrorPolicy(
+            ViewDataBinding binding,
+            BindingRuntimeState state,
+            BindingSyncResult result)
+        {
+            state.LastResult = result;
+            state.HasResult = true;
+            if (result.IsSuccess)
+            {
+                state.LastLoggedStatus = BindingSyncStatus.Success;
+                state.LastLoggedMessage = null;
+                return result;
+            }
+
+            if (result.Status == BindingSyncStatus.Disabled)
+            {
+                return result;
+            }
+
+            string message = $"Binding '{binding.Name}' failed with {result.Status}: {result.Message}";
+            switch (binding.ErrorPolicy)
+            {
+                case BindingErrorPolicy.ReportOnly:
+                    break;
+
+                case BindingErrorPolicy.LogOnce:
+                    if (state.LastLoggedStatus != result.Status ||
+                        !string.Equals(state.LastLoggedMessage, result.Message, StringComparison.Ordinal))
+                    {
+                        Debug.LogWarning(message, this);
+                        state.LastLoggedStatus = result.Status;
+                        state.LastLoggedMessage = result.Message;
+                    }
+                    break;
+
+                case BindingErrorPolicy.LogEveryTime:
+                    Debug.LogWarning(message, this);
+                    break;
+
+                case BindingErrorPolicy.DisableUntilReset:
+                    state.RuntimeDisabled = true;
+                    Debug.LogWarning(message + " The binding was disabled until reset.", this);
+                    break;
+
+                case BindingErrorPolicy.ThrowException:
+                    throw new InvalidOperationException(message);
+
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+
+            return result;
+        }
+
+        private static string AppendPreviewMessage(string currentMessage, string message)
+        {
+            return string.IsNullOrEmpty(currentMessage)
+                ? message
+                : currentMessage + " " + message;
+        }
+
+        private static BindingPreview CreateFailedPreview(
+            BindingSyncStatus status,
+            string message)
+        {
+            return new BindingPreview(
+                null,
+                null,
+                null,
+                null,
+                new BindingSyncResult(status, message));
+        }
+
+        private static bool UsesSourceObject(
+            ViewDataBinding binding,
+            UnityEngine.Object sourceObject)
+        {
+            if (binding?.Sources == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < binding.Sources.Count; i++)
+            {
+                BindingInstanceReference instance = binding.Sources[i]?.Endpoint?.Instance;
+                if (instance != null && instance.ReferencesObject(sourceObject))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        protected override void ResetRuntimeState()
+        {
+            runtimeStates.Clear();
         }
 
         private BindingRuntimeState GetOrCreateState(string bindingId)
@@ -1341,11 +1965,6 @@ namespace LegendaryTools.ViewBinding
             {
                 bindings[i]?.EnsureId();
             }
-        }
-
-        private static bool ValuesEqual(object left, object right)
-        {
-            return Equals(left, right);
         }
 
         private static string GetTypeName(Type type)

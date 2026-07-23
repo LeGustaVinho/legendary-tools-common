@@ -29,6 +29,15 @@ namespace LegendaryTools.ViewBinding
             ProcessBindingTiming(BindingUpdateTiming.FixedUpdate);
         }
 
+        protected virtual void OnDisable()
+        {
+            ResetRuntimeState();
+        }
+
+        protected virtual void ResetRuntimeState()
+        {
+        }
+
         protected abstract void ProcessBindingTiming(BindingUpdateTiming timing);
     }
 }

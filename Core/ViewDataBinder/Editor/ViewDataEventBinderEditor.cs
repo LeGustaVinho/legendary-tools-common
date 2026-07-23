@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
@@ -39,6 +40,11 @@ namespace LegendaryTools.ViewBinding.Editor
         {
             binder = (ViewDataEventBinder)target;
             eventBindingsProperty = serializedObject.FindProperty("eventBindings");
+        }
+
+        public override bool RequiresConstantRepaint()
+        {
+            return Application.isPlaying;
         }
 
         public override void OnInspectorGUI()
@@ -93,7 +99,7 @@ namespace LegendaryTools.ViewBinding.Editor
                 }
 
                 EditorGUILayout.LabelField(
-                    "Observe Source members, evaluate visual conditions, and invoke serialized UnityEvents when values change.",
+                    "Observe Source members, evaluate visual conditions, and invoke UnityEvents or Task methods when values change.",
                     EditorStyles.wordWrappedMiniLabel);
             }
         }
@@ -105,6 +111,7 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty enabledProperty = bindingProperty.FindPropertyRelative("enabled");
             SerializedProperty updateTimingProperty = bindingProperty.FindPropertyRelative("updateTiming");
             SerializedProperty triggerOnInitializeProperty = bindingProperty.FindPropertyRelative("triggerOnInitialize");
+            SerializedProperty errorPolicyProperty = bindingProperty.FindPropertyRelative("errorPolicy");
             SerializedProperty sourcesProperty = bindingProperty.FindPropertyRelative("sources");
             SerializedProperty conditionsProperty = bindingProperty.FindPropertyRelative("conditions");
 
@@ -131,8 +138,23 @@ namespace LegendaryTools.ViewBinding.Editor
                     expanded = EditorGUI.Foldout(foldoutRect, expanded, GUIContent.none, true);
                     bindingFoldouts[key] = expanded;
 
+                    DrawBindingIndicator(bindingProperty, bindingIndex, enabledProperty.boolValue);
                     enabledProperty.boolValue = EditorGUILayout.Toggle(enabledProperty.boolValue, GUILayout.Width(18f));
                     nameProperty.stringValue = EditorGUILayout.TextField(nameProperty.stringValue, EditorStyles.boldLabel);
+
+                    using (new EditorGUI.DisabledScope(!Application.isPlaying))
+                    {
+                        if (GUILayout.Button("Process", EditorStyles.miniButton, GUILayout.Width(54f)))
+                        {
+                            serializedObject.ApplyModifiedProperties();
+                            binder.ProcessEventBindingDetailed(bindingIndex, out _);
+                        }
+
+                        if (GUILayout.Button("Reset", EditorStyles.miniButton, GUILayout.Width(44f)))
+                        {
+                            binder.InvalidateEventBinding(bindingIndex);
+                        }
+                    }
 
                     if (GUILayout.Button("×", EditorStyles.miniButton, GUILayout.Width(24f)))
                     {
@@ -160,6 +182,11 @@ namespace LegendaryTools.ViewBinding.Editor
                     new GUIContent(
                         "Trigger On Initialize",
                         "Evaluate and invoke matching Conditions during the first successful observation instead of waiting for a value change."));
+                EditorGUILayout.PropertyField(
+                    errorPolicyProperty,
+                    new GUIContent(
+                        "Error Policy",
+                        "Controls logging, runtime disabling, or exception behavior after an event binding failure."));
 
                 EditorGUILayout.Space(7f);
                 DrawSectionTitle("SOURCES");
@@ -168,6 +195,9 @@ namespace LegendaryTools.ViewBinding.Editor
                 EditorGUILayout.Space(7f);
                 DrawSectionTitle("CONDITIONS");
                 DrawConditions(conditionsProperty, sourcesProperty, key);
+
+                EditorGUILayout.Space(6f);
+                DrawRuntimeStatus(bindingIndex);
             }
 
             return remove;
@@ -410,11 +440,12 @@ namespace LegendaryTools.ViewBinding.Editor
                 EditorStyles.wordWrappedMiniLabel);
         }
 
-        private static void DrawActions(SerializedProperty actionsProperty)
+        private void DrawActions(SerializedProperty actionsProperty)
         {
             for (int i = 0; i < actionsProperty.arraySize; i++)
             {
                 SerializedProperty actionProperty = actionsProperty.GetArrayElementAtIndex(i);
+                SerializedProperty actionKindProperty = actionProperty.FindPropertyRelative("actionKind");
                 SerializedProperty parameterModeProperty = actionProperty.FindPropertyRelative("parameterMode");
 
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
@@ -431,13 +462,29 @@ namespace LegendaryTools.ViewBinding.Editor
                         }
                     }
 
-                    EditorGUILayout.PropertyField(parameterModeProperty, new GUIContent("Parameters"));
+                    EditorGUILayout.PropertyField(actionKindProperty, new GUIContent("Action Type"));
 
+                    EditorGUI.BeginChangeCheck();
+                    EditorGUILayout.PropertyField(parameterModeProperty, new GUIContent("Parameters"));
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        actionProperty.FindPropertyRelative("taskMethodSignature").stringValue = string.Empty;
+                    }
+
+                    EventBindingActionKind actionKind =
+                        (EventBindingActionKind)actionKindProperty.enumValueIndex;
                     EventBindingActionParameterMode mode =
                         (EventBindingActionParameterMode)parameterModeProperty.enumValueIndex;
 
-                    SerializedProperty eventProperty = GetSelectedUnityEventProperty(actionProperty, mode);
-                    EditorGUILayout.PropertyField(eventProperty, new GUIContent("Unity Event"), true);
+                    if (actionKind == EventBindingActionKind.UnityEvent)
+                    {
+                        SerializedProperty eventProperty = GetSelectedUnityEventProperty(actionProperty, mode);
+                        EditorGUILayout.PropertyField(eventProperty, new GUIContent("Unity Event"), true);
+                    }
+                    else
+                    {
+                        DrawTaskMethodAction(actionProperty, mode);
+                    }
                 }
             }
 
@@ -454,6 +501,432 @@ namespace LegendaryTools.ViewBinding.Editor
                     "This Condition has no Actions. It can evaluate to true but will not invoke anything.",
                     EditorStyles.wordWrappedMiniLabel);
             }
+        }
+
+        private void DrawTaskMethodAction(
+            SerializedProperty actionProperty,
+            EventBindingActionParameterMode parameterMode)
+        {
+            SerializedProperty targetProperty = actionProperty.FindPropertyRelative("taskMethodTarget");
+            SerializedProperty signatureProperty = actionProperty.FindPropertyRelative("taskMethodSignature");
+            SerializedProperty preventConcurrentProperty =
+                actionProperty.FindPropertyRelative("preventConcurrentExecution");
+
+            EditorGUI.BeginChangeCheck();
+            DrawInstanceReference(targetProperty);
+            if (EditorGUI.EndChangeCheck())
+            {
+                signatureProperty.stringValue = string.Empty;
+            }
+
+            DrawTaskMethodSelector(targetProperty, signatureProperty, parameterMode);
+            EditorGUILayout.PropertyField(
+                preventConcurrentProperty,
+                new GUIContent(
+                    "Prevent Concurrent",
+                    "When enabled, a new invocation is skipped while the previous Task is still running."));
+
+            if (BindingEditorResolver.TryResolveInstance(
+                    targetProperty,
+                    out BindingInstanceHandle handle,
+                    out _) &&
+                !string.IsNullOrWhiteSpace(signatureProperty.stringValue) &&
+                !TaskMethodBindingUtility.TryResolveMethod(
+                    handle,
+                    signatureProperty.stringValue,
+                    parameterMode,
+                    out _,
+                    out string methodError))
+            {
+                EditorGUILayout.HelpBox(methodError, MessageType.Warning);
+            }
+        }
+
+        private void DrawInstanceReference(SerializedProperty instanceProperty)
+        {
+            SerializedProperty kindProperty = instanceProperty.FindPropertyRelative("kind");
+            SerializedProperty objectProperty = instanceProperty.FindPropertyRelative("objectReference");
+            SerializedProperty staticTypeProperty = instanceProperty.FindPropertyRelative("staticTypeName");
+            SerializedProperty providerProperty = instanceProperty.FindPropertyRelative("providerReference");
+
+            EditorGUILayout.PropertyField(kindProperty, new GUIContent("Task Target"));
+            BindingInstanceKind kind = (BindingInstanceKind)kindProperty.enumValueIndex;
+
+            switch (kind)
+            {
+                case BindingInstanceKind.UnityObject:
+                    EditorGUILayout.PropertyField(objectProperty, new GUIContent("Instance"));
+                    break;
+
+                case BindingInstanceKind.StaticType:
+                    DrawStaticTypeSelector(staticTypeProperty);
+                    break;
+
+                case BindingInstanceKind.Provider:
+                    EditorGUILayout.PropertyField(providerProperty, new GUIContent("Provider"));
+                    if (providerProperty.objectReferenceValue != null &&
+                        !(providerProperty.objectReferenceValue is IBindingInstanceProvider))
+                    {
+                        EditorGUILayout.HelpBox(
+                            "The selected object does not implement IBindingInstanceProvider.",
+                            MessageType.Error);
+                    }
+                    break;
+            }
+        }
+
+        private void DrawStaticTypeSelector(SerializedProperty staticTypeProperty)
+        {
+            Type currentType = DefaultBindingInstanceResolver.FindType(staticTypeProperty.stringValue);
+            string label = currentType == null ? "Select Static Type" : currentType.FullName;
+
+            Rect buttonRect = EditorGUILayout.GetControlRect();
+            buttonRect = EditorGUI.PrefixLabel(buttonRect, new GUIContent("Static Type"));
+
+            if (GUI.Button(buttonRect, label, BindingInspectorStyles.PathButtonStyle))
+            {
+                SerializedObject owner = serializedObject;
+                string propertyPath = staticTypeProperty.propertyPath;
+                PopupWindow.Show(
+                    buttonRect,
+                    new StaticTypePickerWindow(type =>
+                    {
+                        owner.Update();
+                        SerializedProperty property = owner.FindProperty(propertyPath);
+                        if (property != null)
+                        {
+                            property.stringValue = type.AssemblyQualifiedName;
+                            owner.ApplyModifiedProperties();
+                        }
+                    }));
+            }
+        }
+
+        private void DrawTaskMethodSelector(
+            SerializedProperty targetProperty,
+            SerializedProperty signatureProperty,
+            EventBindingActionParameterMode parameterMode)
+        {
+            Rect row = EditorGUILayout.GetControlRect();
+            Rect buttonRect = EditorGUI.PrefixLabel(row, new GUIContent("Task Method"));
+
+            bool resolved = BindingEditorResolver.TryResolveInstance(
+                targetProperty,
+                out BindingInstanceHandle handle,
+                out string resolveError);
+            string label = GetTaskMethodLabel(handle, signatureProperty.stringValue, parameterMode);
+
+            using (new EditorGUI.DisabledScope(!resolved))
+            {
+                if (GUI.Button(buttonRect, label, BindingInspectorStyles.PathButtonStyle))
+                {
+                    ShowTaskMethodMenu(buttonRect, targetProperty, signatureProperty, parameterMode);
+                }
+            }
+
+            if (!resolved && !string.IsNullOrWhiteSpace(resolveError))
+            {
+                EditorGUILayout.HelpBox(resolveError, MessageType.Info);
+            }
+        }
+
+        private void ShowTaskMethodMenu(
+            Rect buttonRect,
+            SerializedProperty targetProperty,
+            SerializedProperty signatureProperty,
+            EventBindingActionParameterMode parameterMode)
+        {
+            if (!BindingEditorResolver.TryResolveInstance(
+                    targetProperty,
+                    out BindingInstanceHandle handle,
+                    out _))
+            {
+                return;
+            }
+
+            BindingFlags flags = handle.IsStatic
+                ? BindingFlags.Public | BindingFlags.Static
+                : BindingFlags.Public | BindingFlags.Instance;
+            MethodInfo[] methods = handle.Type.GetMethods(flags);
+            var menu = new GenericMenu();
+            bool hasMethods = false;
+            string propertyPath = signatureProperty.propertyPath;
+            SerializedObject owner = serializedObject;
+
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+                if (!TaskMethodBindingUtility.IsSupportedMethod(method, parameterMode, handle.IsStatic))
+                {
+                    continue;
+                }
+
+                hasMethods = true;
+                string signature = TaskMethodBindingUtility.CreateSignature(method);
+                string displayName = TaskMethodBindingUtility.GetDisplaySignature(method);
+                bool selected = string.Equals(
+                    signatureProperty.stringValue,
+                    signature,
+                    StringComparison.Ordinal);
+                menu.AddItem(new GUIContent(displayName), selected, () =>
+                {
+                    owner.Update();
+                    SerializedProperty property = owner.FindProperty(propertyPath);
+                    if (property != null)
+                    {
+                        property.stringValue = signature;
+                        owner.ApplyModifiedProperties();
+                    }
+                });
+            }
+
+            if (!hasMethods)
+            {
+                menu.AddDisabledItem(new GUIContent("No compatible public Task methods"));
+            }
+
+            menu.DropDown(buttonRect);
+        }
+
+        private static string GetTaskMethodLabel(
+            BindingInstanceHandle handle,
+            string signature,
+            EventBindingActionParameterMode parameterMode)
+        {
+            if (handle.Type == null)
+            {
+                return "Select Task Method";
+            }
+
+            if (TaskMethodBindingUtility.TryResolveMethod(
+                    handle,
+                    signature,
+                    parameterMode,
+                    out MethodInfo method,
+                    out _))
+            {
+                return TaskMethodBindingUtility.GetDisplaySignature(method);
+            }
+
+            return "Select Task Method";
+        }
+
+        private void DrawBindingIndicator(
+            SerializedProperty bindingProperty,
+            int bindingIndex,
+            bool enabled)
+        {
+            Color color;
+            string tooltip;
+
+            if (!enabled)
+            {
+                color = new Color(0.55f, 0.55f, 0.55f);
+                tooltip = "Disabled";
+            }
+            else if (Application.isPlaying && binder.IsTaskRunning(bindingIndex))
+            {
+                color = new Color(0.25f, 0.7f, 1f);
+                tooltip = "A Task action is running.";
+            }
+            else if (Application.isPlaying && binder.TryGetLastResult(bindingIndex, out BindingSyncResult result))
+            {
+                if (result.Status == BindingSyncStatus.Success)
+                {
+                    color = new Color(0.25f, 0.8f, 0.35f);
+                }
+                else if (result.Status == BindingSyncStatus.NoChange)
+                {
+                    color = new Color(0.3f, 0.65f, 0.95f);
+                }
+                else if (result.Status == BindingSyncStatus.Disabled)
+                {
+                    color = new Color(0.55f, 0.55f, 0.55f);
+                }
+                else
+                {
+                    color = new Color(0.95f, 0.3f, 0.25f);
+                }
+
+                tooltip = string.IsNullOrEmpty(result.Message)
+                    ? result.Status.ToString()
+                    : result.Status + ": " + result.Message;
+            }
+            else if (TryValidateIndicator(bindingProperty, out string validationError))
+            {
+                color = new Color(0.25f, 0.8f, 0.35f);
+                tooltip = "Configuration is valid.";
+            }
+            else
+            {
+                color = new Color(0.95f, 0.65f, 0.2f);
+                tooltip = validationError;
+            }
+
+            Color previousColor = GUI.color;
+            GUI.color = color;
+            GUILayout.Label(new GUIContent("●", tooltip), GUILayout.Width(14f));
+            GUI.color = previousColor;
+        }
+
+        private static bool TryValidateIndicator(
+            SerializedProperty bindingProperty,
+            out string error)
+        {
+            SerializedProperty sources = bindingProperty.FindPropertyRelative("sources");
+            if (sources == null || sources.arraySize == 0)
+            {
+                error = "At least one Source is required.";
+                return false;
+            }
+
+            var sourceMetadata = new List<BindingMemberMetadata>(sources.arraySize);
+            for (int i = 0; i < sources.arraySize; i++)
+            {
+                SerializedProperty endpoint = sources
+                    .GetArrayElementAtIndex(i)
+                    .FindPropertyRelative("endpoint");
+                if (!BindingEditorResolver.TryGetMemberMetadata(
+                        endpoint,
+                        out BindingMemberMetadata metadata,
+                        out error))
+                {
+                    error = $"Source {i + 1}: {error}";
+                    return false;
+                }
+
+                if (!metadata.CanRead)
+                {
+                    error = $"Source {i + 1} is not readable.";
+                    return false;
+                }
+
+                sourceMetadata.Add(metadata);
+            }
+
+            SerializedProperty conditions = bindingProperty.FindPropertyRelative("conditions");
+            if (conditions == null || conditions.arraySize == 0)
+            {
+                error = "At least one Condition is required.";
+                return false;
+            }
+
+            for (int conditionIndex = 0; conditionIndex < conditions.arraySize; conditionIndex++)
+            {
+                SerializedProperty condition = conditions.GetArrayElementAtIndex(conditionIndex);
+                if (!condition.FindPropertyRelative("enabled").boolValue)
+                {
+                    continue;
+                }
+
+                SerializedProperty clauses = condition.FindPropertyRelative("clauses");
+                if (clauses.arraySize == 0)
+                {
+                    error = $"Condition {conditionIndex + 1} has no Clauses.";
+                    return false;
+                }
+
+                for (int clauseIndex = 0; clauseIndex < clauses.arraySize; clauseIndex++)
+                {
+                    int sourceIndex = clauses
+                        .GetArrayElementAtIndex(clauseIndex)
+                        .FindPropertyRelative("sourceIndex")
+                        .intValue;
+                    if (sourceIndex < 0 || sourceIndex >= sources.arraySize)
+                    {
+                        error = $"Condition {conditionIndex + 1}, Clause {clauseIndex + 1} references an invalid Source.";
+                        return false;
+                    }
+
+                    EventBindingComparisonOperator comparisonOperator =
+                        (EventBindingComparisonOperator)clauses
+                            .GetArrayElementAtIndex(clauseIndex)
+                            .FindPropertyRelative("comparisonOperator")
+                            .enumValueIndex;
+                    if (!EventBindingConditionEvaluator.IsOperatorSupported(
+                            sourceMetadata[sourceIndex].ValueType,
+                            comparisonOperator))
+                    {
+                        error = $"Condition {conditionIndex + 1}, Clause {clauseIndex + 1} uses an unsupported operator.";
+                        return false;
+                    }
+                }
+
+                SerializedProperty actions = condition.FindPropertyRelative("actions");
+                for (int actionIndex = 0; actionIndex < actions.arraySize; actionIndex++)
+                {
+                    SerializedProperty action = actions.GetArrayElementAtIndex(actionIndex);
+                    EventBindingActionKind actionKind = (EventBindingActionKind)action
+                        .FindPropertyRelative("actionKind")
+                        .enumValueIndex;
+                    if (actionKind != EventBindingActionKind.TaskMethod)
+                    {
+                        continue;
+                    }
+
+                    SerializedProperty taskTarget = action.FindPropertyRelative("taskMethodTarget");
+                    SerializedProperty signature = action.FindPropertyRelative("taskMethodSignature");
+                    EventBindingActionParameterMode parameterMode =
+                        (EventBindingActionParameterMode)action
+                            .FindPropertyRelative("parameterMode")
+                            .enumValueIndex;
+
+                    if (!BindingEditorResolver.TryResolveInstance(
+                            taskTarget,
+                            out BindingInstanceHandle handle,
+                            out error))
+                    {
+                        error = $"Condition {conditionIndex + 1}, Action {actionIndex + 1}: {error}";
+                        return false;
+                    }
+
+                    if (!TaskMethodBindingUtility.TryResolveMethod(
+                            handle,
+                            signature.stringValue,
+                            parameterMode,
+                            out _,
+                            out error))
+                    {
+                        error = $"Condition {conditionIndex + 1}, Action {actionIndex + 1}: {error}";
+                        return false;
+                    }
+                }
+            }
+
+            error = string.Empty;
+            return true;
+        }
+
+        private void DrawRuntimeStatus(int bindingIndex)
+        {
+            if (!Application.isPlaying)
+            {
+                return;
+            }
+
+            if (binder.IsTaskRunning(bindingIndex))
+            {
+                EditorGUILayout.HelpBox("One or more Task actions are running.", MessageType.Info);
+            }
+
+            if (!binder.TryGetLastResult(bindingIndex, out BindingSyncResult result))
+            {
+                return;
+            }
+
+            if (result.Status == BindingSyncStatus.Success || result.Status == BindingSyncStatus.NoChange)
+            {
+                if (!string.IsNullOrEmpty(result.Message))
+                {
+                    EditorGUILayout.LabelField(result.Message, EditorStyles.wordWrappedMiniLabel);
+                }
+
+                return;
+            }
+
+            EditorGUILayout.HelpBox(
+                $"Runtime: {result.Status} — {result.Message}",
+                MessageType.Warning);
         }
 
         private static SerializedProperty GetSelectedUnityEventProperty(
@@ -544,6 +1017,8 @@ namespace LegendaryTools.ViewBinding.Editor
             binding.FindPropertyRelative("enabled").boolValue = true;
             binding.FindPropertyRelative("updateTiming").enumValueIndex = (int)BindingUpdateTiming.Update;
             binding.FindPropertyRelative("triggerOnInitialize").boolValue = false;
+            binding.FindPropertyRelative("errorPolicy").enumValueIndex =
+                (int)BindingErrorPolicy.ReportOnly;
 
             SerializedProperty sources = binding.FindPropertyRelative("sources");
             sources.arraySize = 1;
@@ -602,8 +1077,14 @@ namespace LegendaryTools.ViewBinding.Editor
 
         private static void ResetAction(SerializedProperty actionProperty)
         {
+            actionProperty.FindPropertyRelative("actionKind").enumValueIndex =
+                (int)EventBindingActionKind.UnityEvent;
             actionProperty.FindPropertyRelative("parameterMode").enumValueIndex =
                 (int)EventBindingActionParameterMode.None;
+            actionProperty.FindPropertyRelative("taskMethodSignature").stringValue = string.Empty;
+            actionProperty.FindPropertyRelative("preventConcurrentExecution").boolValue = true;
+            BindingEndpointInspectorUtility.ResetInstanceReference(
+                actionProperty.FindPropertyRelative("taskMethodTarget"));
 
             ClearUnityEvent(actionProperty.FindPropertyRelative("eventWithoutParameters"));
             ClearUnityEvent(actionProperty.FindPropertyRelative("oldValueEvent"));

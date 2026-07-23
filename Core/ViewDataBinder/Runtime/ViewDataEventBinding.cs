@@ -12,6 +12,7 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private bool enabled = true;
         [SerializeField] private BindingUpdateTiming updateTiming = BindingUpdateTiming.Update;
         [SerializeField] private bool triggerOnInitialize;
+        [SerializeField] private BindingErrorPolicy errorPolicy = BindingErrorPolicy.ReportOnly;
         [SerializeField] private List<BindingSource> sources =
             new List<BindingSource> { new BindingSource() };
         [SerializeField] private List<EventBindingCondition> conditions =
@@ -26,6 +27,8 @@ namespace LegendaryTools.ViewBinding
         public BindingUpdateTiming UpdateTiming => updateTiming;
 
         public bool TriggerOnInitialize => triggerOnInitialize;
+
+        public BindingErrorPolicy ErrorPolicy => errorPolicy;
 
         public IReadOnlyList<BindingSource> Sources => sources;
 

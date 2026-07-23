@@ -52,16 +52,41 @@ namespace LegendaryTools.ViewBinding
             try
             {
                 IFormatProvider formatProvider = ResolveCulture(settings.CultureName);
-                object[] values = new object[sourceValues.Count];
-                for (int i = 0; i < sourceValues.Count; i++)
-                {
-                    values[i] = sourceValues[i];
-                }
+                string format = settings.FormatString ?? string.Empty;
 
-                formattedValue = string.Format(
-                    formatProvider,
-                    settings.FormatString ?? string.Empty,
-                    values);
+                switch (sourceValues.Count)
+                {
+                    case 1:
+                        formattedValue = string.Format(formatProvider, format, sourceValues[0]);
+                        break;
+
+                    case 2:
+                        formattedValue = string.Format(
+                            formatProvider,
+                            format,
+                            sourceValues[0],
+                            sourceValues[1]);
+                        break;
+
+                    case 3:
+                        formattedValue = string.Format(
+                            formatProvider,
+                            format,
+                            sourceValues[0],
+                            sourceValues[1],
+                            sourceValues[2]);
+                        break;
+
+                    default:
+                        object[] values = new object[sourceValues.Count];
+                        for (int i = 0; i < sourceValues.Count; i++)
+                        {
+                            values[i] = sourceValues[i];
+                        }
+
+                        formattedValue = string.Format(formatProvider, format, values);
+                        break;
+                }
                 error = string.Empty;
                 return true;
             }

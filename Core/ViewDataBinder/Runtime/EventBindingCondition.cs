@@ -52,5 +52,85 @@ namespace LegendaryTools.ViewBinding
                 actions[i]?.Invoke(oldValue, newValue);
             }
         }
+
+        public bool TryInvokeActions(
+            object oldValue,
+            object newValue,
+            out bool taskRunning,
+            out string error)
+        {
+            taskRunning = false;
+            error = string.Empty;
+
+            if (actions == null)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                EventBindingAction action = actions[i];
+                if (action == null)
+                {
+                    continue;
+                }
+
+                if (!action.TryInvoke(oldValue, newValue, out bool actionTaskRunning, out error))
+                {
+                    error = $"Action {i + 1}: {error}";
+                    return false;
+                }
+
+                taskRunning |= actionTaskRunning;
+            }
+
+            return true;
+        }
+
+        public bool TryObserveTasks(out bool taskRunning, out string error)
+        {
+            taskRunning = false;
+            string firstError = null;
+
+            if (actions == null)
+            {
+                error = string.Empty;
+                return true;
+            }
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                EventBindingAction action = actions[i];
+                if (action == null)
+                {
+                    continue;
+                }
+
+                bool actionSucceeded = action.TryObserveTask(
+                    out bool actionTaskRunning,
+                    out string actionError);
+                taskRunning |= actionTaskRunning;
+                if (!actionSucceeded && firstError == null)
+                {
+                    firstError = $"Action {i + 1}: {actionError}";
+                }
+            }
+
+            error = firstError ?? string.Empty;
+            return firstError == null;
+        }
+
+        public void ResetRuntimeState()
+        {
+            if (actions == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                actions[i]?.ResetRuntimeState();
+            }
+        }
     }
 }

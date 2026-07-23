@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace LegendaryTools.ViewBinding
@@ -13,8 +14,14 @@ namespace LegendaryTools.ViewBinding
             new Dictionary<string, IReadOnlyList<BindingMemberDescriptor>>();
         private readonly Dictionary<string, IReadOnlyList<MemberInfo>> bindableMemberCache =
             new Dictionary<string, IReadOnlyList<MemberInfo>>();
+        private const int MaxSearchCacheEntries = 256;
+
         private readonly Dictionary<string, IReadOnlyList<BindingMemberDescriptor>> searchCache =
             new Dictionary<string, IReadOnlyList<BindingMemberDescriptor>>();
+        private readonly Queue<string> searchCacheOrder = new Queue<string>();
+        private readonly ConditionalWeakTable<BindingEndpoint, EndpointResolutionCache> endpointCache =
+            new ConditionalWeakTable<BindingEndpoint, EndpointResolutionCache>();
+        private readonly List<Component> componentBuffer = new List<Component>(8);
 
         public IReadOnlyList<BindingMemberDescriptor> GetMembers(BindingInstanceHandle root, int maxDepth)
         {
@@ -137,7 +144,7 @@ namespace LegendaryTools.ViewBinding
                     results);
             }
 
-            searchCache[cacheKey] = results;
+            CacheSearchResults(cacheKey, results);
             return results;
         }
 
@@ -382,7 +389,13 @@ namespace LegendaryTools.ViewBinding
                 return false;
             }
 
-            metadata = CreateMetadata(members);
+            EndpointResolutionCache cache = endpointCache.GetOrCreateValue(endpoint);
+            if (!cache.TryGetMetadata(out metadata))
+            {
+                metadata = CreateMetadata(members);
+                cache.SetMetadata(metadata);
+            }
+
             return true;
         }
 
@@ -453,6 +466,13 @@ namespace LegendaryTools.ViewBinding
 
             try
             {
+                if (members.Length == 1)
+                {
+                    SetValue(members[0], root.Instance, value);
+                    error = string.Empty;
+                    return true;
+                }
+
                 var containers = new object[members.Length];
                 containers[0] = root.Instance;
 
@@ -580,12 +600,35 @@ namespace LegendaryTools.ViewBinding
                 return false;
             }
 
-            if (!endpoint.Instance.TryResolve(out root, out error))
+            if (endpoint.Instance == null)
+            {
+                error = "The endpoint instance reference is null.";
+                return false;
+            }
+
+            if (!endpoint.Instance.TryResolve(out BindingInstanceHandle initialRoot, out error))
             {
                 return false;
             }
 
-            return TryResolvePath(ref root, endpoint.MemberPath, out members, out error);
+            EndpointResolutionCache cache = endpointCache.GetOrCreateValue(endpoint);
+            if (cache.IsValid(initialRoot, endpoint.MemberPath))
+            {
+                root = cache.ResolvedRoot;
+                members = cache.Members;
+                error = string.Empty;
+                return true;
+            }
+
+            root = initialRoot;
+            if (!TryResolvePath(ref root, endpoint.MemberPath, out members, out error))
+            {
+                cache.Reset();
+                return false;
+            }
+
+            cache.Update(initialRoot, endpoint.MemberPath, root, members);
+            return true;
         }
 
         private bool TryResolvePath(
@@ -627,17 +670,15 @@ namespace LegendaryTools.ViewBinding
                     return false;
                 }
 
-                Component[] matchingComponents = gameObject
-                    .GetComponents<Component>()
-                    .Where(component => component != null && component.GetType() == componentType)
-                    .ToArray();
-                if (componentOrdinal < 0 || componentOrdinal >= matchingComponents.Length)
+                if (!TryGetComponentByExactTypeAndOrdinal(
+                        gameObject,
+                        componentType,
+                        componentOrdinal,
+                        out Component component))
                 {
                     error = $"Component '{componentType.FullName}' at ordinal {componentOrdinal} was not found on GameObject '{gameObject.name}'.";
                     return false;
                 }
-
-                Component component = matchingComponents[componentOrdinal];
                 root = new BindingInstanceHandle(component, componentType, false);
                 memberPath = componentMemberPath;
             }
@@ -671,6 +712,63 @@ namespace LegendaryTools.ViewBinding
             pathCache[cacheKey] = members;
             error = string.Empty;
             return true;
+        }
+
+        private bool TryGetComponentByExactTypeAndOrdinal(
+            GameObject gameObject,
+            Type componentType,
+            int componentOrdinal,
+            out Component component)
+        {
+            component = null;
+            if (componentOrdinal < 0)
+            {
+                return false;
+            }
+
+            componentBuffer.Clear();
+            gameObject.GetComponents(componentBuffer);
+
+            int currentOrdinal = 0;
+            for (int i = 0; i < componentBuffer.Count; i++)
+            {
+                Component candidate = componentBuffer[i];
+                if (candidate == null || candidate.GetType() != componentType)
+                {
+                    continue;
+                }
+
+                if (currentOrdinal == componentOrdinal)
+                {
+                    component = candidate;
+                    componentBuffer.Clear();
+                    return true;
+                }
+
+                currentOrdinal++;
+            }
+
+            componentBuffer.Clear();
+            return false;
+        }
+
+        private void CacheSearchResults(
+            string cacheKey,
+            IReadOnlyList<BindingMemberDescriptor> results)
+        {
+            if (searchCache.ContainsKey(cacheKey))
+            {
+                searchCache[cacheKey] = results;
+                return;
+            }
+
+            while (searchCache.Count >= MaxSearchCacheEntries && searchCacheOrder.Count > 0)
+            {
+                searchCache.Remove(searchCacheOrder.Dequeue());
+            }
+
+            searchCache.Add(cacheKey, results);
+            searchCacheOrder.Enqueue(cacheKey);
         }
 
         private static BindingMemberMetadata CreateMetadata(MemberInfo[] members)
@@ -855,6 +953,86 @@ namespace LegendaryTools.ViewBinding
             }
 
             return true;
+        }
+
+        private sealed class EndpointResolutionCache
+        {
+            public EndpointResolutionCache()
+            {
+            }
+
+            private object initialInstance;
+            private Type initialType;
+            private bool initialIsStatic;
+            private string memberPath;
+
+            public BindingInstanceHandle ResolvedRoot { get; private set; }
+
+            public MemberInfo[] Members { get; private set; }
+
+            private BindingMemberMetadata Metadata { get; set; }
+
+            private bool HasMetadata { get; set; }
+
+            public bool IsValid(BindingInstanceHandle root, string path)
+            {
+                if (Members == null || initialType != root.Type || initialIsStatic != root.IsStatic)
+                {
+                    return false;
+                }
+
+                if (!string.Equals(memberPath, path, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                if (!root.IsStatic && !ReferenceEquals(initialInstance, root.Instance))
+                {
+                    return false;
+                }
+
+                return !(ResolvedRoot.Instance is UnityEngine.Object unityObject) || unityObject != null;
+            }
+
+            public void Update(
+                BindingInstanceHandle initialRoot,
+                string path,
+                BindingInstanceHandle resolvedRoot,
+                MemberInfo[] members)
+            {
+                initialInstance = initialRoot.Instance;
+                initialType = initialRoot.Type;
+                initialIsStatic = initialRoot.IsStatic;
+                memberPath = path;
+                ResolvedRoot = resolvedRoot;
+                Members = members;
+                Metadata = CreateMetadata(members);
+                HasMetadata = true;
+            }
+
+            public bool TryGetMetadata(out BindingMemberMetadata metadata)
+            {
+                metadata = Metadata;
+                return HasMetadata;
+            }
+
+            public void SetMetadata(BindingMemberMetadata metadata)
+            {
+                Metadata = metadata;
+                HasMetadata = true;
+            }
+
+            public void Reset()
+            {
+                initialInstance = null;
+                initialType = null;
+                initialIsStatic = false;
+                memberPath = null;
+                ResolvedRoot = default;
+                Members = null;
+                Metadata = default;
+                HasMetadata = false;
+            }
         }
 
         private static bool IsNullValue(object value)

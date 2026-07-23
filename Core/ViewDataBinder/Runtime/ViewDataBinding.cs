@@ -15,6 +15,8 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private BindingSyncDirection direction = BindingSyncDirection.SourceToTarget;
         [SerializeField] private BindingUpdateTiming updateTiming = BindingUpdateTiming.Update;
         [SerializeField] private BindingConflictResolution conflictResolution = BindingConflictResolution.SourceWins;
+        [SerializeField] private BindingWritePolicy writePolicy = BindingWritePolicy.WhenValueChanges;
+        [SerializeField] private BindingErrorPolicy errorPolicy = BindingErrorPolicy.ReportOnly;
         [SerializeField] private BindingFormatterSettings formatter = new BindingFormatterSettings();
         [SerializeField] private BindingConverter converter;
         [SerializeField] private BindingNullHandlingMode nullHandling = BindingNullHandlingMode.PassThrough;
@@ -35,6 +37,10 @@ namespace LegendaryTools.ViewBinding
         public BindingUpdateTiming UpdateTiming => updateTiming;
 
         public BindingConflictResolution ConflictResolution => conflictResolution;
+
+        public BindingWritePolicy WritePolicy => writePolicy;
+
+        public BindingErrorPolicy ErrorPolicy => errorPolicy;
 
         public BindingFormatterSettings Formatter => formatter;
 

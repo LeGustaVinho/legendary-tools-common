@@ -35,8 +35,11 @@ namespace LegendaryTools.ViewBinding.Editor
         public static void ResetEndpoint(SerializedProperty endpointProperty)
         {
             endpointProperty.FindPropertyRelative("memberPath").stringValue = string.Empty;
+            ResetInstanceReference(endpointProperty.FindPropertyRelative("instance"));
+        }
 
-            SerializedProperty instanceProperty = endpointProperty.FindPropertyRelative("instance");
+        public static void ResetInstanceReference(SerializedProperty instanceProperty)
+        {
             instanceProperty.FindPropertyRelative("kind").enumValueIndex = (int)BindingInstanceKind.UnityObject;
             instanceProperty.FindPropertyRelative("objectReference").objectReferenceValue = null;
             instanceProperty.FindPropertyRelative("staticTypeName").stringValue = string.Empty;

@@ -12,6 +12,9 @@ namespace LegendaryTools.ViewBinding.Editor
 
         private readonly Dictionary<string, bool> foldouts = new Dictionary<string, bool>();
         private readonly Dictionary<string, bool> optionsFoldouts = new Dictionary<string, bool>();
+        private readonly Dictionary<string, bool> previewFoldouts = new Dictionary<string, bool>();
+        private readonly Dictionary<string, BindingPreview> previewCache =
+            new Dictionary<string, BindingPreview>();
         private SerializedProperty bindingsProperty;
         private ViewDataBinder binder;
 
@@ -19,6 +22,11 @@ namespace LegendaryTools.ViewBinding.Editor
         {
             binder = (ViewDataBinder)target;
             bindingsProperty = serializedObject.FindProperty("bindings");
+        }
+
+        public override bool RequiresConstantRepaint()
+        {
+            return Application.isPlaying;
         }
 
         public override void OnInspectorGUI()
@@ -90,6 +98,8 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty directionProperty = bindingProperty.FindPropertyRelative("direction");
             SerializedProperty updateTimingProperty = bindingProperty.FindPropertyRelative("updateTiming");
             SerializedProperty conflictProperty = bindingProperty.FindPropertyRelative("conflictResolution");
+            SerializedProperty writePolicyProperty = bindingProperty.FindPropertyRelative("writePolicy");
+            SerializedProperty errorPolicyProperty = bindingProperty.FindPropertyRelative("errorPolicy");
             SerializedProperty formatterProperty = bindingProperty.FindPropertyRelative("formatter");
             SerializedProperty converterProperty = bindingProperty.FindPropertyRelative("converter");
             SerializedProperty nullHandlingProperty = bindingProperty.FindPropertyRelative("nullHandling");
@@ -119,8 +129,25 @@ namespace LegendaryTools.ViewBinding.Editor
                     expanded = EditorGUI.Foldout(foldoutRect, expanded, GUIContent.none, true);
                     foldouts[foldoutKey] = expanded;
 
+                    DrawBindingIndicator(bindingProperty, bindingIndex, enabledProperty.boolValue);
                     enabledProperty.boolValue = EditorGUILayout.Toggle(enabledProperty.boolValue, GUILayout.Width(18f));
                     nameProperty.stringValue = EditorGUILayout.TextField(nameProperty.stringValue, EditorStyles.boldLabel);
+
+                    using (new EditorGUI.DisabledScope(!Application.isPlaying))
+                    {
+                        if (GUILayout.Button("Sync", EditorStyles.miniButton, GUILayout.Width(42f)))
+                        {
+                            serializedObject.ApplyModifiedProperties();
+                            binder.SynchronizeBinding(bindingIndex);
+                            previewCache.Remove(foldoutKey);
+                        }
+
+                        if (GUILayout.Button("Reset", EditorStyles.miniButton, GUILayout.Width(44f)))
+                        {
+                            binder.InvalidateBinding(bindingIndex);
+                            previewCache.Remove(foldoutKey);
+                        }
+                    }
 
                     if (GUILayout.Button("×", EditorStyles.miniButton, GUILayout.Width(24f)))
                     {
@@ -135,7 +162,12 @@ namespace LegendaryTools.ViewBinding.Editor
                 }
 
                 EditorGUILayout.Space(3f);
-                DrawSettings(directionProperty, updateTimingProperty, conflictProperty);
+                DrawSettings(
+                    directionProperty,
+                    updateTimingProperty,
+                    conflictProperty,
+                    writePolicyProperty,
+                    errorPolicyProperty);
                 EditorGUILayout.Space(6f);
 
                 BindingSyncDirection direction = (BindingSyncDirection)directionProperty.enumValueIndex;
@@ -179,7 +211,7 @@ namespace LegendaryTools.ViewBinding.Editor
                     GetTargetWriteRequirement(direction),
                     "Select Target Member",
                     compatibleTargetType);
-                DrawTargetValuePreview(bindingIndex, direction, targetProperty);
+                DrawBindingPreview(foldoutKey, bindingIndex, direction);
 
                 DrawExtensions(
                     bindingProperty,
@@ -221,7 +253,9 @@ namespace LegendaryTools.ViewBinding.Editor
         private static void DrawSettings(
             SerializedProperty directionProperty,
             SerializedProperty updateTimingProperty,
-            SerializedProperty conflictProperty)
+            SerializedProperty conflictProperty,
+            SerializedProperty writePolicyProperty,
+            SerializedProperty errorPolicyProperty)
         {
             EditorGUILayout.PropertyField(directionProperty, new GUIContent("Direction"));
             EditorGUILayout.PropertyField(updateTimingProperty, new GUIContent("Polling"));
@@ -230,6 +264,20 @@ namespace LegendaryTools.ViewBinding.Editor
             {
                 EditorGUILayout.PropertyField(conflictProperty, new GUIContent("Conflict Resolution"));
             }
+            else
+            {
+                EditorGUILayout.PropertyField(
+                    writePolicyProperty,
+                    new GUIContent(
+                        "Write Policy",
+                        "When Value Changes avoids redundant setter calls. Always preserves authoritative polling semantics."));
+            }
+
+            EditorGUILayout.PropertyField(
+                errorPolicyProperty,
+                new GUIContent(
+                    "Error Policy",
+                    "Controls logging, runtime disabling, or exception behavior after a binding failure."));
         }
 
         private void DrawOptions(
@@ -792,56 +840,323 @@ namespace LegendaryTools.ViewBinding.Editor
             return true;
         }
 
-        private void DrawTargetValuePreview(
+        private void DrawBindingPreview(
+            string bindingKey,
             int bindingIndex,
-            BindingSyncDirection direction,
-            SerializedProperty targetProperty)
+            BindingSyncDirection direction)
         {
-            if (direction == BindingSyncDirection.TargetToSource ||
-                bindingIndex < 0 ||
-                bindingIndex >= binder.Bindings.Count ||
-                !BindingEditorResolver.TryGetMemberMetadata(targetProperty, out _, out _))
+            string previewKey = bindingKey + ":preview";
+            if (!previewFoldouts.TryGetValue(previewKey, out bool expanded))
             {
-                return;
+                expanded = false;
             }
 
-            if (!binder.TryEvaluateSourceValue(
-                    bindingIndex,
-                    out object value,
-                    out BindingSyncResult evaluationResult))
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                if (evaluationResult.Status != BindingSyncStatus.NoChange)
+                using (new EditorGUILayout.HorizontalScope())
                 {
-                    EditorGUILayout.LabelField(
-                        "Value Preview",
-                        $"Unavailable: {evaluationResult.Message}",
-                        EditorStyles.wordWrappedMiniLabel);
+                    expanded = EditorGUILayout.Foldout(expanded, "Binding Preview", true);
+                    previewFoldouts[previewKey] = expanded;
+                    GUILayout.FlexibleSpace();
+
+                    if (GUILayout.Button("Refresh", EditorStyles.miniButton, GUILayout.Width(56f)))
+                    {
+                        serializedObject.ApplyModifiedProperties();
+                        RefreshPreview(bindingKey, bindingIndex);
+                    }
                 }
 
-                return;
-            }
+                if (!expanded)
+                {
+                    return;
+                }
 
-            string preview;
+                if (!previewCache.TryGetValue(bindingKey, out BindingPreview preview))
+                {
+                    serializedObject.ApplyModifiedProperties();
+                    RefreshPreview(bindingKey, bindingIndex);
+                    previewCache.TryGetValue(bindingKey, out preview);
+                }
+
+                DrawPreviewValue("Source", preview.SourceValue);
+                if (direction != BindingSyncDirection.TargetToSource)
+                {
+                    DrawPreviewValue("Source -> Target", preview.ConvertedSourceValue);
+                }
+
+                DrawPreviewValue("Target", preview.TargetValue);
+                if (direction != BindingSyncDirection.SourceToTarget)
+                {
+                    DrawPreviewValue("Target -> Source", preview.ConvertedTargetValue);
+                }
+
+                if (!preview.Result.IsSuccess)
+                {
+                    EditorGUILayout.HelpBox(
+                        $"{preview.Result.Status}: {preview.Result.Message}",
+                        MessageType.Warning);
+                }
+                else if (!string.IsNullOrEmpty(preview.Result.Message))
+                {
+                    EditorGUILayout.LabelField(
+                        preview.Result.Message,
+                        EditorStyles.wordWrappedMiniLabel);
+                }
+            }
+        }
+
+        private void RefreshPreview(string bindingKey, int bindingIndex)
+        {
+            binder.TryGetPreview(bindingIndex, out BindingPreview preview);
+            previewCache[bindingKey] = preview;
+            Repaint();
+        }
+
+        private static void DrawPreviewValue(string label, object value)
+        {
+            EditorGUILayout.LabelField(
+                label,
+                GetPreviewText(value),
+                EditorStyles.wordWrappedMiniLabel);
+        }
+
+        private static string GetPreviewText(object value)
+        {
+            const int maxPreviewLength = 256;
+
             if (value == null)
             {
-                preview = "null";
+                return "null";
+            }
+
+            if (value is UnityEngine.Object unityObject && unityObject == null)
+            {
+                return "null (destroyed Unity Object)";
+            }
+
+            try
+            {
+                string text = value.ToString() ?? "null";
+                if (text.Length > maxPreviewLength)
+                {
+                    text = text.Substring(0, maxPreviewLength) + "...";
+                }
+
+                return $"{text}  ({GetFriendlyTypeName(value.GetType())})";
+            }
+            catch (Exception exception)
+            {
+                return $"ToString failed: {exception.Message}";
+            }
+        }
+
+        private void DrawBindingIndicator(
+            SerializedProperty bindingProperty,
+            int bindingIndex,
+            bool enabled)
+        {
+            Color color;
+            string tooltip;
+
+            if (!enabled)
+            {
+                color = new Color(0.55f, 0.55f, 0.55f);
+                tooltip = "Disabled";
+            }
+            else if (Application.isPlaying && binder.TryGetLastResult(bindingIndex, out BindingSyncResult result))
+            {
+                if (result.Status == BindingSyncStatus.Success)
+                {
+                    color = new Color(0.25f, 0.8f, 0.35f);
+                }
+                else if (result.Status == BindingSyncStatus.NoChange)
+                {
+                    color = new Color(0.3f, 0.65f, 0.95f);
+                }
+                else if (result.Status == BindingSyncStatus.Disabled)
+                {
+                    color = new Color(0.55f, 0.55f, 0.55f);
+                }
+                else
+                {
+                    color = new Color(0.95f, 0.3f, 0.25f);
+                }
+
+                tooltip = string.IsNullOrEmpty(result.Message)
+                    ? result.Status.ToString()
+                    : result.Status + ": " + result.Message;
+            }
+            else if (TryValidateIndicator(bindingProperty, out string validationError))
+            {
+                color = new Color(0.25f, 0.8f, 0.35f);
+                tooltip = "Configuration is valid.";
             }
             else
             {
-                try
+                color = new Color(0.95f, 0.65f, 0.2f);
+                tooltip = validationError;
+            }
+
+            Color previousColor = GUI.color;
+            GUI.color = color;
+            GUILayout.Label(new GUIContent("●", tooltip), GUILayout.Width(14f));
+            GUI.color = previousColor;
+        }
+
+        private static bool TryValidateIndicator(
+            SerializedProperty bindingProperty,
+            out string error)
+        {
+            SerializedProperty sources = bindingProperty.FindPropertyRelative("sources");
+            SerializedProperty target = bindingProperty.FindPropertyRelative("target");
+            BindingSyncDirection direction = (BindingSyncDirection)bindingProperty
+                .FindPropertyRelative("direction")
+                .enumValueIndex;
+            bool formatterEnabled = bindingProperty
+                .FindPropertyRelative("formatter")
+                .FindPropertyRelative("enabled")
+                .boolValue;
+
+            if (sources == null || sources.arraySize == 0)
+            {
+                error = "At least one Source is required.";
+                return false;
+            }
+
+            if (formatterEnabled && direction != BindingSyncDirection.SourceToTarget)
+            {
+                error = "Formatters support Source -> Target only.";
+                return false;
+            }
+
+            if (!formatterEnabled &&
+                sources.arraySize != 1 &&
+                BindingBackendRegistry.SourceBackend is SingleSourceBindingSourceBackend)
+            {
+                error = "Exactly one Source is required without a Formatter.";
+                return false;
+            }
+
+            Type sourceOutputType = null;
+            var sourceMetadata = new List<BindingMemberMetadata>(sources.arraySize);
+            for (int i = 0; i < sources.arraySize; i++)
+            {
+                SerializedProperty endpoint = sources
+                    .GetArrayElementAtIndex(i)
+                    .FindPropertyRelative("endpoint");
+                if (!BindingEditorResolver.TryGetMemberMetadata(
+                        endpoint,
+                        out BindingMemberMetadata metadata,
+                        out error))
                 {
-                    preview = value.ToString();
+                    error = $"Source {i + 1}: {error}";
+                    return false;
                 }
-                catch (Exception exception)
+
+                bool requireRead = direction != BindingSyncDirection.TargetToSource || formatterEnabled;
+                bool requireWrite = direction != BindingSyncDirection.SourceToTarget;
+                if (requireRead && !metadata.CanRead)
                 {
-                    preview = $"ToString failed: {exception.Message}";
+                    error = $"Source {i + 1} is not readable.";
+                    return false;
+                }
+
+                if (requireWrite && !metadata.CanWrite)
+                {
+                    error = $"Source {i + 1} is not writable.";
+                    return false;
+                }
+
+                sourceMetadata.Add(metadata);
+                if (!formatterEnabled && sources.arraySize == 1 && i == 0)
+                {
+                    sourceOutputType = metadata.ValueType;
                 }
             }
 
-            if (preview != null)
+            if (formatterEnabled)
             {
-                EditorGUILayout.LabelField("Value Preview", preview, EditorStyles.wordWrappedMiniLabel);
+                SerializedProperty formatterProperty = bindingProperty.FindPropertyRelative("formatter");
+                string formatterId = formatterProperty
+                    .FindPropertyRelative("formatterId")
+                    .stringValue;
+                if (!BindingFormatterRegistry.TryGet(formatterId, out IBindingFormatter formatter))
+                {
+                    error = $"Formatter '{formatterId}' is not registered.";
+                    return false;
+                }
+
+                if (!formatter.TryGetOutputType(sourceMetadata, out sourceOutputType, out error))
+                {
+                    return false;
+                }
             }
+
+            if (!BindingEditorResolver.TryGetMemberMetadata(
+                    target,
+                    out BindingMemberMetadata targetMetadata,
+                    out error))
+            {
+                error = "Target: " + error;
+                return false;
+            }
+
+            bool targetRequiresRead = direction != BindingSyncDirection.SourceToTarget;
+            bool targetRequiresWrite = direction != BindingSyncDirection.TargetToSource;
+            if (targetRequiresRead && !targetMetadata.CanRead)
+            {
+                error = "Target is not readable.";
+                return false;
+            }
+
+            if (targetRequiresWrite && !targetMetadata.CanWrite)
+            {
+                error = "Target is not writable.";
+                return false;
+            }
+
+            BindingConverter converter = bindingProperty
+                .FindPropertyRelative("converter")
+                .objectReferenceValue as BindingConverter;
+            if (sourceOutputType != null)
+            {
+                if (converter == null && sourceOutputType != targetMetadata.ValueType)
+                {
+                    error = "Source and Target types require a Converter.";
+                    return false;
+                }
+
+                if (converter != null &&
+                    !converter.CanConvert(sourceOutputType, targetMetadata.ValueType))
+                {
+                    error = "The selected Converter is not compatible with the Source and Target types.";
+                    return false;
+                }
+
+                if (converter != null &&
+                    direction != BindingSyncDirection.SourceToTarget &&
+                    !converter.CanConvertBack(targetMetadata.ValueType, sourceOutputType))
+                {
+                    error = "The selected Converter does not support reverse conversion.";
+                    return false;
+                }
+            }
+
+            BindingNullHandlingMode nullHandling = (BindingNullHandlingMode)bindingProperty
+                .FindPropertyRelative("nullHandling")
+                .enumValueIndex;
+            bool fallbackEnabled = bindingProperty
+                .FindPropertyRelative("fallback")
+                .FindPropertyRelative("enabled")
+                .boolValue;
+            if (nullHandling == BindingNullHandlingMode.UseFallback && !fallbackEnabled)
+            {
+                error = "Null Handling requires an enabled Fallback.";
+                return false;
+            }
+
+            error = string.Empty;
+            return true;
         }
 
         private void DrawValidation(
@@ -1091,6 +1406,8 @@ namespace LegendaryTools.ViewBinding.Editor
             bindingProperty.FindPropertyRelative("direction").enumValueIndex = (int)BindingSyncDirection.SourceToTarget;
             bindingProperty.FindPropertyRelative("updateTiming").enumValueIndex = (int)BindingUpdateTiming.Update;
             bindingProperty.FindPropertyRelative("conflictResolution").enumValueIndex = (int)BindingConflictResolution.SourceWins;
+            bindingProperty.FindPropertyRelative("writePolicy").enumValueIndex = (int)BindingWritePolicy.WhenValueChanges;
+            bindingProperty.FindPropertyRelative("errorPolicy").enumValueIndex = (int)BindingErrorPolicy.ReportOnly;
             bindingProperty.FindPropertyRelative("nullHandling").enumValueIndex = (int)BindingNullHandlingMode.PassThrough;
 
             SerializedProperty formatterProperty = bindingProperty.FindPropertyRelative("formatter");

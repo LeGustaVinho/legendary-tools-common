@@ -15,6 +15,18 @@ namespace LegendaryTools.ViewBinding
 
         public bool[] ChangedSources { get; private set; } = Array.Empty<bool>();
 
+        public BindingSyncResult LastResult { get; set; }
+
+        public bool HasResult { get; set; }
+
+        public bool RuntimeDisabled { get; set; }
+
+        public bool HasRunningTasks { get; set; }
+
+        public BindingSyncStatus LastLoggedStatus { get; set; }
+
+        public string LastLoggedMessage { get; set; }
+
         public void EnsureSourceCount(int sourceCount)
         {
             if (LastValues.Length == sourceCount)
@@ -36,6 +48,11 @@ namespace LegendaryTools.ViewBinding
             Array.Clear(CurrentValues, 0, CurrentValues.Length);
             Array.Clear(SourceMetadata, 0, SourceMetadata.Length);
             Array.Clear(ChangedSources, 0, ChangedSources.Length);
+            HasResult = false;
+            RuntimeDisabled = false;
+            HasRunningTasks = false;
+            LastLoggedStatus = BindingSyncStatus.Success;
+            LastLoggedMessage = null;
         }
     }
 }

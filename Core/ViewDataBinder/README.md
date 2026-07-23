@@ -14,7 +14,7 @@ A declarative Unity data binding framework configured entirely from the Inspecto
 - `TargetToSource`
 - `TwoWay`
 
-Two-way bindings initialize from Source to Target. After initialization, the binder tracks which side changed since the previous synchronization pass. If both sides change before the same pass, `BindingConflictResolution` decides the winner.
+Two-way bindings initialize from Source to Target before reverse conversion is attempted. This allows targets such as an initially empty text input to be initialized by a reversible numeric converter. After initialization, the binder tracks which side changed since the previous synchronization pass. If both sides change before the same pass, `BindingConflictResolution` decides the winner. Values are read back after two-way writes so setters that clamp or normalize values establish the correct runtime baseline.
 
 ## Polling timings
 
@@ -26,6 +26,39 @@ Two-way bindings initialize from Source to Target. After initialization, the bin
 - Manual
 
 Use `SynchronizeManualBindings()` for bindings configured as Manual, or `SynchronizeAll()` to force all configured bindings.
+
+Selective APIs avoid scanning unrelated bindings:
+
+```csharp
+binder.SynchronizeManualBinding(bindingIndex);
+binder.SynchronizeManualBinding("PlayerHealth"); // ID or exact name
+binder.SynchronizeBinding(bindingIndex);          // Force one binding
+binder.SynchronizeBinding("PlayerHealth");       // ID or exact name
+binder.SynchronizeManualBindingsForSource(player);
+binder.InvalidateBinding("PlayerHealth");        // Clears baseline and error-disable state
+```
+
+`ViewDataEventBinder` provides matching `ProcessManualBinding`, `ProcessEventBinding`, `ProcessManualBindingsForSource` and `InvalidateEventBinding` APIs.
+
+Unidirectional bindings expose a `Write Policy`:
+
+- `When Value Changes` avoids redundant setter calls when the converted output is equal to the previous successful output.
+- `Always` writes on every polling pass when the binding must remain authoritative over external changes.
+
+Disabling a binder component clears its runtime baselines. Re-enabling it performs clean initialization instead of treating changes made while disabled as conflicts or event transitions.
+
+
+## Error policies
+
+Every value binding and event binding has an independent `Error Policy`:
+
+- `ReportOnly`: retain the failure in `LastResult` without writing to the Console.
+- `LogOnce`: log one warning per error episode. A successful pass resets the episode.
+- `LogEveryTime`: log every failed pass.
+- `DisableUntilReset`: stop processing the binding after its first failure. Call `InvalidateBinding` or `InvalidateEventBinding`, or use the per-binding `Reset` button in Play Mode, to retry.
+- `ThrowException`: throw an `InvalidOperationException` after storing the failed result.
+
+The policy runs only on failures. `Success`, `NoChange` and explicitly disabled bindings are not treated as errors.
 
 ## Type safety
 
@@ -48,7 +81,7 @@ BindingBackendRegistry.SourceBackend = new MyCompositeSourceBackend();
 
 ## Replacing Reflection
 
-The default member backend is `ReflectionBindingMemberBackend` and caches member trees and resolved member paths.
+The default member backend is `ReflectionBindingMemberBackend` and caches member trees, resolved member paths and complete endpoint resolutions. Component-backed endpoints therefore avoid repeated component scans during polling. Direct one-member writes use an allocation-free fast path, and formatted bindings reuse their runtime value and metadata buffers.
 
 Replace it with a generated, expression-tree, IL or source-generated implementation:
 
@@ -94,6 +127,10 @@ BindingInspectorExtensionRegistry.Register(new MyBindingInspectorExtension());
 
 Extensions choose a `BindingInspectorExtensionPlacement` slot (`BeforeSources`, `AfterSources`, `BeforeTarget`, `AfterTarget` or `AfterValidation`) and an `Order`. They receive `BindingInspectorContext`, including the binder, serialized object, current binding property and binding index.
 
+## IL2CPP and managed stripping
+
+Member paths are string-based and accessed through reflection. Types or members that have no static references may require preservation in builds that use managed code stripping. Add `[UnityEngine.Scripting.Preserve]` to reflected model types or include the relevant assemblies and types in the project's `link.xml`. A generated `IBindingMemberBackend` can avoid this requirement for performance-critical or aggressively stripped builds.
+
 ## Folder layout
 
 Copy the entire folder under `Assets`, preserving the `Editor` subfolder so editor-only code is excluded from player builds.
@@ -104,7 +141,7 @@ When a `UnityObject` root is a `GameObject`, the member picker shows a `GameObje
 
 ## Member search performance
 
-The Reflection backend implements `IBindingMemberSearchBackend`, so member searches are executed directly against cached type metadata without materializing or recursively rescanning the full visual tree. Results are cached per query and displayed as a flat result list while the normal unfiltered browser remains a tree. Results are capped at 250 visible rows so broad searches do not overload IMGUI rendering.
+The Reflection backend implements `IBindingMemberSearchBackend`, so member searches are executed directly against cached type metadata without materializing or recursively rescanning the full visual tree. Results are cached per query and displayed as a flat result list while the normal unfiltered browser remains a tree. Results are capped at 250 visible rows so broad searches do not overload IMGUI rendering. The backend also bounds its query cache, preventing arbitrary search text from growing the cache for the lifetime of the Editor session.
 
 Custom member backends can implement `IBindingMemberSearchBackend` for the same fast search path. Backends that do not implement it automatically fall back to a reusable flat index built by the picker.
 
@@ -185,10 +222,15 @@ public sealed class HealthToTextConverter : BindingConverter<float, string>
 }
 ```
 
-The package includes two ready-to-use converter assets:
+The package includes ready-to-use converter assets:
 
 - `ToStringBindingConverter`: converts any non-null Source value to `string` through `ToString()`; forward only.
 - `FloatStringBindingConverter`: converts `float <-> string`, supports a numeric format and optional culture name, and is reversible.
+- `NumericBindingConverter`: converts between configured primitive numeric types and supports reverse conversion.
+- `BooleanNegationBindingConverter`: converts `bool <-> bool` by negating the value.
+- `ObjectNullBindingConverter`: converts any Source type to `bool` based on CLR and Unity fake-null semantics.
+- `StringBooleanBindingConverter`: maps configurable true/false strings to `bool` and back.
+- `EnumToStringBindingConverter`: formats any enum as a string; forward only.
 
 The converter asset Inspector displays its forward and reverse type contract. The same asset can be reused by any number of bindings.
 
@@ -236,9 +278,25 @@ Nested member paths now treat an intermediate null as a null read result. For ex
 
 Destroyed `UnityEngine.Object` references are also treated as null by the null policy.
 
-## Value preview
+## Value preview and indicators
 
-For `SourceToTarget` and `TwoWay` bindings, the Target section evaluates the Source pipeline and shows a `Value Preview` using `ToString()`. The preview includes formatter output, converter output, null policy behavior and fallback values.
+Each binding card has a status dot:
+
+- green: valid configuration or successful runtime synchronization;
+- blue: no change, or an active Task on an event binding;
+- amber: incomplete or invalid Editor configuration;
+- red: runtime failure;
+- gray: disabled.
+
+The `Binding Preview` foldout is read-only and refreshed on demand. It shows:
+
+- raw Source or formatter output;
+- forward converter output;
+- current Target value when readable;
+- reverse converter output for `TargetToSource` and `TwoWay` bindings;
+- the precise preview failure or null-policy message.
+
+The public `TryGetPreview(index, out BindingPreview)` and `TryGetPreview(idOrName, out BindingPreview)` APIs expose the same data without writing either endpoint.
 
 # ViewDataEventBinder
 
@@ -329,7 +387,7 @@ A Condition is evaluated when any Source referenced by one of its Clauses change
 
 ## Actions
 
-A Condition can contain zero or more Actions. Each Action is configured as a serialized UnityEvent and can use one of four parameter modes:
+A Condition can contain zero or more Actions. An Action can invoke either a serialized UnityEvent or a public method returning exactly `System.Threading.Tasks.Task`. Both action types support four parameter modes:
 
 ```text
 None
@@ -340,11 +398,24 @@ OldAndNewValues
 
 `OldValue` and `NewValue` refer to the observed Source member whose change triggered the Condition evaluation. A Condition is invoked at most once per polling pass. If several Sources used by the same Condition change in that pass, the first changed Source found in Clause order supplies `OldValue` and `NewValue`.
 
-The parameterized events use:
+The parameterized UnityEvents use:
 
 ```csharp
 UnityEvent<object>
 UnityEvent<object, object>
 ```
 
-This keeps the Event Binder generic while allowing runtime values from any observed member type to be forwarded to listeners.
+Task methods are selected from a Unity object, static type or Provider. Supported signatures are:
+
+```csharp
+public Task ExecuteAsync();
+public Task ExecuteAsync(TValue oldValue);
+public Task ExecuteAsync(TValue newValue);
+public Task ExecuteAsync(TValue oldValue, TValue newValue);
+```
+
+The selected parameter mode determines whether zero, one or two arguments are required. Runtime values must be assignable to the declared parameter types. Generic methods, `Task<T>`, private methods, `ref` and `out` parameters are excluded.
+
+`Prevent Concurrent` skips a new invocation while the previous Task is running. When disabled, concurrent Tasks are tracked and all exceptions are observed. The Event Binder invokes methods on Unity's main thread, never blocks while waiting, and monitors only bindings with active Tasks. It reports asynchronous failures through `BindingSyncResult` and applies the binding's Error Policy on the main thread. Disabling or invalidating a binding releases its tracking state but does not cancel the underlying Task; cancellation remains the responsibility of the invoked method.
+
+`ProcessEventBindingDetailed(index, out triggered)` returns a `BindingSyncResult` that distinguishes no change, invalid endpoints, read failures, condition evaluation failures and action exceptions. `TryGetLastResult(index, out result)` exposes the most recent polling result while the original boolean `ProcessEventBinding(index)` API remains available.
