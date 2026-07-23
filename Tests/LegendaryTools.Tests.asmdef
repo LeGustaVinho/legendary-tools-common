@@ -6,7 +6,8 @@
         "UnityEditor.TestRunner",
         "LegendaryTools",
         "LegendaryTools.Concurrency",
-        "LegendaryTools.Concurrency.Shared"
+        "LegendaryTools.Concurrency.Shared",
+        "LegendaryTools.FlexibleModifierSystem"
     ],
     "includePlatforms": [
         "Editor"
