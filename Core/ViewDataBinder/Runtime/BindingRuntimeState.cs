@@ -24,6 +24,12 @@ namespace LegendaryTools.ViewBinding
 
         public string LastLoggedMessage { get; set; }
 
+        public BindingEndpointRole MissingEndpointRole { get; private set; }
+
+        public MissingEndpointPolicy MissingEndpointPolicy { get; private set; }
+
+        public bool MissingEndpointActionApplied { get; private set; }
+
         internal List<BindingMemberMetadata> PrepareSourceMetadataBuffer(int capacity)
         {
             if (sourceMetadataBuffer.Capacity < capacity)
@@ -46,17 +52,49 @@ namespace LegendaryTools.ViewBinding
             return sourceValueBuffer;
         }
 
-        public void ResetValues()
+        internal void MarkMissingEndpoint(
+            BindingEndpointRole role,
+            MissingEndpointPolicy policy)
+        {
+            if (MissingEndpointRole == role && MissingEndpointPolicy == policy)
+            {
+                return;
+            }
+
+            MissingEndpointRole = role;
+            MissingEndpointPolicy = policy;
+            MissingEndpointActionApplied = false;
+        }
+
+        internal void MarkMissingEndpointActionApplied()
+        {
+            MissingEndpointActionApplied = true;
+        }
+
+        internal void ClearMissingEndpoint()
+        {
+            MissingEndpointRole = BindingEndpointRole.None;
+            MissingEndpointPolicy = MissingEndpointPolicy.ReportError;
+            MissingEndpointActionApplied = false;
+        }
+
+        internal void ResetSynchronizationValues()
         {
             Initialized = false;
             LastSourceValue = null;
             LastTargetValue = null;
             sourceMetadataBuffer.Clear();
             sourceValueBuffer.Clear();
+        }
+
+        public void ResetValues()
+        {
+            ResetSynchronizationValues();
             HasResult = false;
             RuntimeDisabled = false;
             LastLoggedStatus = BindingSyncStatus.Success;
             LastLoggedMessage = null;
+            ClearMissingEndpoint();
         }
     }
 }

@@ -27,6 +27,10 @@ namespace LegendaryTools.ViewBinding
 
         public string LastLoggedMessage { get; set; }
 
+        public bool SourceEndpointMissing { get; private set; }
+
+        public MissingEndpointPolicy MissingEndpointPolicy { get; private set; }
+
         public void EnsureSourceCount(int sourceCount)
         {
             if (LastValues.Length == sourceCount)
@@ -41,18 +45,36 @@ namespace LegendaryTools.ViewBinding
             Initialized = false;
         }
 
-        public void Reset()
+        internal void MarkSourceEndpointMissing(MissingEndpointPolicy policy)
+        {
+            SourceEndpointMissing = true;
+            MissingEndpointPolicy = policy;
+        }
+
+        internal void ClearMissingEndpoint()
+        {
+            SourceEndpointMissing = false;
+            MissingEndpointPolicy = MissingEndpointPolicy.ReportError;
+        }
+
+        internal void ResetObservation()
         {
             Initialized = false;
             Array.Clear(LastValues, 0, LastValues.Length);
             Array.Clear(CurrentValues, 0, CurrentValues.Length);
             Array.Clear(SourceMetadata, 0, SourceMetadata.Length);
             Array.Clear(ChangedSources, 0, ChangedSources.Length);
+        }
+
+        public void Reset()
+        {
+            ResetObservation();
             HasResult = false;
             RuntimeDisabled = false;
             HasRunningTasks = false;
             LastLoggedStatus = BindingSyncStatus.Success;
             LastLoggedMessage = null;
+            ClearMissingEndpoint();
         }
     }
 }

@@ -112,6 +112,7 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty updateTimingProperty = bindingProperty.FindPropertyRelative("updateTiming");
             SerializedProperty triggerOnInitializeProperty = bindingProperty.FindPropertyRelative("triggerOnInitialize");
             SerializedProperty errorPolicyProperty = bindingProperty.FindPropertyRelative("errorPolicy");
+            SerializedProperty sourceMissingPolicyProperty = bindingProperty.FindPropertyRelative("sourceMissingPolicy");
             SerializedProperty sourcesProperty = bindingProperty.FindPropertyRelative("sources");
             SerializedProperty conditionsProperty = bindingProperty.FindPropertyRelative("conditions");
 
@@ -187,6 +188,9 @@ namespace LegendaryTools.ViewBinding.Editor
                     new GUIContent(
                         "Error Policy",
                         "Controls logging, runtime disabling, or exception behavior after an event binding failure."));
+                EditorGUILayout.PropertyField(
+                    sourceMissingPolicyProperty,
+                    new GUIContent("Missing Source", "Controls behavior when a Source instance or context disappears."));
 
                 EditorGUILayout.Space(7f);
                 DrawSectionTitle("SOURCES");
@@ -1019,6 +1023,8 @@ namespace LegendaryTools.ViewBinding.Editor
             binding.FindPropertyRelative("triggerOnInitialize").boolValue = false;
             binding.FindPropertyRelative("errorPolicy").enumValueIndex =
                 (int)BindingErrorPolicy.ReportOnly;
+            binding.FindPropertyRelative("sourceMissingPolicy").enumValueIndex =
+                (int)MissingEndpointPolicy.ReportError;
 
             SerializedProperty sources = binding.FindPropertyRelative("sources");
             sources.arraySize = 1;

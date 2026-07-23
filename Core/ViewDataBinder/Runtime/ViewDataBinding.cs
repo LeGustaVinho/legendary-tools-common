@@ -17,6 +17,8 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private BindingConflictResolution conflictResolution = BindingConflictResolution.SourceWins;
         [SerializeField] private BindingWritePolicy writePolicy = BindingWritePolicy.WhenValueChanges;
         [SerializeField] private BindingErrorPolicy errorPolicy = BindingErrorPolicy.ReportOnly;
+        [SerializeField] private MissingEndpointPolicy sourceMissingPolicy = MissingEndpointPolicy.ReportError;
+        [SerializeField] private MissingEndpointPolicy targetMissingPolicy = MissingEndpointPolicy.ReportError;
         [SerializeField] private BindingFormatterSettings formatter = new BindingFormatterSettings();
         [SerializeField] private BindingConverter converter;
         [SerializeField] private BindingNullHandlingMode nullHandling = BindingNullHandlingMode.PassThrough;
@@ -41,6 +43,10 @@ namespace LegendaryTools.ViewBinding
         public BindingWritePolicy WritePolicy => writePolicy;
 
         public BindingErrorPolicy ErrorPolicy => errorPolicy;
+
+        public MissingEndpointPolicy SourceMissingPolicy => sourceMissingPolicy;
+
+        public MissingEndpointPolicy TargetMissingPolicy => targetMissingPolicy;
 
         public BindingFormatterSettings Formatter => formatter;
 

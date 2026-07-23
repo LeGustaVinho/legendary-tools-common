@@ -40,6 +40,8 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty objectProperty = instanceProperty.FindPropertyRelative("objectReference");
             SerializedProperty staticTypeProperty = instanceProperty.FindPropertyRelative("staticTypeName");
             SerializedProperty providerProperty = instanceProperty.FindPropertyRelative("providerReference");
+            SerializedProperty contextNameProperty = instanceProperty.FindPropertyRelative("contextName");
+            SerializedProperty contextTypeProperty = instanceProperty.FindPropertyRelative("contextTypeName");
 
             EditorGUILayout.PropertyField(kindProperty, new GUIContent("Instance Kind"));
             BindingInstanceKind kind = (BindingInstanceKind)kindProperty.enumValueIndex;
@@ -64,6 +66,14 @@ namespace LegendaryTools.ViewBinding.Editor
                             MessageType.Error);
                     }
                     break;
+
+                case BindingInstanceKind.Context:
+                    EditorGUILayout.PropertyField(contextNameProperty, new GUIContent("Context"));
+                    DrawTypeSelector(owner, contextTypeProperty, "Declared Type", "Select Context Type");
+                    EditorGUILayout.LabelField(
+                        "Profiles may use $Source and $Target. Other names are resolved from the nearest Binding Data Context.",
+                        EditorStyles.wordWrappedMiniLabel);
+                    break;
             }
         }
 
@@ -71,20 +81,27 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedObject owner,
             SerializedProperty staticTypeProperty)
         {
-            Type currentType = DefaultBindingInstanceResolver.FindType(staticTypeProperty.stringValue);
-            string label = currentType == null
-                ? "Select Static Type"
-                : currentType.FullName;
+            DrawTypeSelector(owner, staticTypeProperty, "Static Type", "Select Static Type");
+        }
+
+        private static void DrawTypeSelector(
+            SerializedObject owner,
+            SerializedProperty typeProperty,
+            string fieldLabel,
+            string emptyLabel)
+        {
+            Type currentType = DefaultBindingInstanceResolver.FindType(typeProperty.stringValue);
+            string label = currentType == null ? emptyLabel : currentType.FullName;
 
             Rect buttonRect = EditorGUILayout.GetControlRect();
-            buttonRect = EditorGUI.PrefixLabel(buttonRect, new GUIContent("Static Type"));
+            buttonRect = EditorGUI.PrefixLabel(buttonRect, new GUIContent(fieldLabel));
 
             if (!GUI.Button(buttonRect, label, BindingInspectorStyles.PathButtonStyle))
             {
                 return;
             }
 
-            string propertyPath = staticTypeProperty.propertyPath;
+            string propertyPath = typeProperty.propertyPath;
             PopupWindow.Show(
                 buttonRect,
                 new StaticTypePickerWindow(type =>
@@ -203,6 +220,17 @@ namespace LegendaryTools.ViewBinding.Editor
 
         private static bool HasAnyInstanceConfiguration(SerializedProperty instanceProperty)
         {
+            BindingInstanceKind kind = (BindingInstanceKind)instanceProperty
+                .FindPropertyRelative("kind")
+                .enumValueIndex;
+            if (kind == BindingInstanceKind.Context)
+            {
+                return !string.IsNullOrWhiteSpace(
+                           instanceProperty.FindPropertyRelative("contextName").stringValue) ||
+                       !string.IsNullOrWhiteSpace(
+                           instanceProperty.FindPropertyRelative("contextTypeName").stringValue);
+            }
+
             return instanceProperty.FindPropertyRelative("objectReference").objectReferenceValue != null ||
                    !string.IsNullOrWhiteSpace(instanceProperty.FindPropertyRelative("staticTypeName").stringValue) ||
                    instanceProperty.FindPropertyRelative("providerReference").objectReferenceValue != null;

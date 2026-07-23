@@ -16,12 +16,14 @@ namespace LegendaryTools.ViewBinding.Editor
         private readonly Dictionary<string, BindingPreview> previewCache =
             new Dictionary<string, BindingPreview>();
         private SerializedProperty bindingsProperty;
+        private SerializedProperty profilesProperty;
         private ViewDataBinder binder;
 
         private void OnEnable()
         {
             binder = (ViewDataBinder)target;
             bindingsProperty = serializedObject.FindProperty("bindings");
+            profilesProperty = serializedObject.FindProperty("profiles");
         }
 
         public override bool RequiresConstantRepaint()
@@ -34,6 +36,8 @@ namespace LegendaryTools.ViewBinding.Editor
             serializedObject.Update();
 
             DrawTopBar();
+            EditorGUILayout.Space(6f);
+            DrawProfiles();
             EditorGUILayout.Space(6f);
 
             for (int i = 0; i < bindingsProperty.arraySize; i++)
@@ -88,6 +92,124 @@ namespace LegendaryTools.ViewBinding.Editor
             }
         }
 
+        private void DrawProfiles()
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.Label("Binding Profiles", EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+                    if (GUILayout.Button("Create from Local", GUILayout.Width(112f)))
+                    {
+                        CreateProfileFromLocalBindings();
+                    }
+                }
+
+                EditorGUILayout.LabelField(
+                    "Profile endpoints can use Context instances named $Source and $Target. Named overrides fall back to the nearest Binding Data Context.",
+                    EditorStyles.wordWrappedMiniLabel);
+                EditorGUILayout.PropertyField(profilesProperty, true);
+
+                if (!Application.isPlaying)
+                {
+                    return;
+                }
+
+                for (int profileIndex = 0; profileIndex < binder.Profiles.Count; profileIndex++)
+                {
+                    ViewDataBindingProfileReference profileReference = binder.Profiles[profileIndex];
+                    if (profileReference == null || profileReference.Profile == null)
+                    {
+                        continue;
+                    }
+
+                    IReadOnlyList<ViewDataBinding> profileBindings = profileReference.Profile.Bindings;
+                    for (int bindingIndex = 0; bindingIndex < profileBindings.Count; bindingIndex++)
+                    {
+                        ViewDataBinding binding = profileBindings[bindingIndex];
+                        if (binding == null)
+                        {
+                            continue;
+                        }
+
+                        using (new EditorGUILayout.HorizontalScope())
+                        {
+                            GUILayout.Space(12f);
+                            GUILayout.Label(binding.Name, EditorStyles.miniLabel);
+                            GUILayout.FlexibleSpace();
+                            if (binder.TryGetProfileLastResult(
+                                    profileIndex,
+                                    bindingIndex,
+                                    out BindingSyncResult result))
+                            {
+                                GUILayout.Label(result.Status.ToString(), EditorStyles.miniLabel);
+                            }
+
+                            if (GUILayout.Button("Sync", EditorStyles.miniButton, GUILayout.Width(42f)))
+                            {
+                                binder.SynchronizeProfileBinding(profileIndex, bindingIndex);
+                            }
+
+                            if (GUILayout.Button("Reset", EditorStyles.miniButton, GUILayout.Width(44f)))
+                            {
+                                binder.InvalidateProfileBinding(profileIndex, bindingIndex);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private void CreateProfileFromLocalBindings()
+        {
+            serializedObject.ApplyModifiedProperties();
+            if (!BindingProfileEditorUtility.TryCaptureSharedRoots(
+                    binder,
+                    out BindingProfileEditorUtility.RootSnapshot sourceRoot,
+                    out BindingProfileEditorUtility.RootSnapshot targetRoot,
+                    out string rootError))
+            {
+                EditorUtility.DisplayDialog(
+                    "Cannot Create Parameterized Profile",
+                    rootError,
+                    "OK");
+                return;
+            }
+
+            string path = EditorUtility.SaveFilePanelInProject(
+                "Create Binding Profile",
+                "ViewDataBindingProfile",
+                "asset",
+                "Choose where to save the reusable binding profile.");
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+
+            ViewDataBindingProfile profile = ScriptableObject.CreateInstance<ViewDataBindingProfile>();
+            BindingProfileEditorUtility.CopyLocalBindingsToProfile(
+                binder,
+                profile,
+                sourceRoot,
+                targetRoot);
+            AssetDatabase.CreateAsset(profile, path);
+            BindingProfileEditorUtility.AddDisabledProfileReference(
+                binder,
+                profile,
+                sourceRoot,
+                targetRoot);
+            AssetDatabase.SaveAssets();
+            serializedObject.Update();
+
+            EditorUtility.DisplayDialog(
+                "Binding Profile Created",
+                "The profile was added to this binder with its original Source and Target roots. The profile reference is disabled to prevent duplicate synchronization while the local bindings still exist. Remove or disable the local bindings, then enable the profile reference.",
+                "OK");
+            Selection.activeObject = profile;
+            EditorGUIUtility.PingObject(profile);
+        }
+
         private bool DrawBinding(SerializedProperty bindingProperty, int bindingIndex)
         {
             SerializedProperty idProperty = bindingProperty.FindPropertyRelative("id");
@@ -100,6 +222,8 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty conflictProperty = bindingProperty.FindPropertyRelative("conflictResolution");
             SerializedProperty writePolicyProperty = bindingProperty.FindPropertyRelative("writePolicy");
             SerializedProperty errorPolicyProperty = bindingProperty.FindPropertyRelative("errorPolicy");
+            SerializedProperty sourceMissingPolicyProperty = bindingProperty.FindPropertyRelative("sourceMissingPolicy");
+            SerializedProperty targetMissingPolicyProperty = bindingProperty.FindPropertyRelative("targetMissingPolicy");
             SerializedProperty formatterProperty = bindingProperty.FindPropertyRelative("formatter");
             SerializedProperty converterProperty = bindingProperty.FindPropertyRelative("converter");
             SerializedProperty nullHandlingProperty = bindingProperty.FindPropertyRelative("nullHandling");
@@ -167,7 +291,9 @@ namespace LegendaryTools.ViewBinding.Editor
                     updateTimingProperty,
                     conflictProperty,
                     writePolicyProperty,
-                    errorPolicyProperty);
+                    errorPolicyProperty,
+                    sourceMissingPolicyProperty,
+                    targetMissingPolicyProperty);
                 EditorGUILayout.Space(6f);
 
                 BindingSyncDirection direction = (BindingSyncDirection)directionProperty.enumValueIndex;
@@ -255,7 +381,9 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty updateTimingProperty,
             SerializedProperty conflictProperty,
             SerializedProperty writePolicyProperty,
-            SerializedProperty errorPolicyProperty)
+            SerializedProperty errorPolicyProperty,
+            SerializedProperty sourceMissingPolicyProperty,
+            SerializedProperty targetMissingPolicyProperty)
         {
             EditorGUILayout.PropertyField(directionProperty, new GUIContent("Direction"));
             EditorGUILayout.PropertyField(updateTimingProperty, new GUIContent("Polling"));
@@ -278,6 +406,12 @@ namespace LegendaryTools.ViewBinding.Editor
                 new GUIContent(
                     "Error Policy",
                     "Controls logging, runtime disabling, or exception behavior after a binding failure."));
+            EditorGUILayout.PropertyField(
+                sourceMissingPolicyProperty,
+                new GUIContent("Missing Source", "Controls behavior when a Source instance or context disappears."));
+            EditorGUILayout.PropertyField(
+                targetMissingPolicyProperty,
+                new GUIContent("Missing Target", "Controls behavior when the Target instance or context disappears."));
         }
 
         private void DrawOptions(
@@ -1408,6 +1542,8 @@ namespace LegendaryTools.ViewBinding.Editor
             bindingProperty.FindPropertyRelative("conflictResolution").enumValueIndex = (int)BindingConflictResolution.SourceWins;
             bindingProperty.FindPropertyRelative("writePolicy").enumValueIndex = (int)BindingWritePolicy.WhenValueChanges;
             bindingProperty.FindPropertyRelative("errorPolicy").enumValueIndex = (int)BindingErrorPolicy.ReportOnly;
+            bindingProperty.FindPropertyRelative("sourceMissingPolicy").enumValueIndex = (int)MissingEndpointPolicy.ReportError;
+            bindingProperty.FindPropertyRelative("targetMissingPolicy").enumValueIndex = (int)MissingEndpointPolicy.ReportError;
             bindingProperty.FindPropertyRelative("nullHandling").enumValueIndex = (int)BindingNullHandlingMode.PassThrough;
 
             SerializedProperty formatterProperty = bindingProperty.FindPropertyRelative("formatter");
@@ -1441,6 +1577,8 @@ namespace LegendaryTools.ViewBinding.Editor
             instanceProperty.FindPropertyRelative("objectReference").objectReferenceValue = null;
             instanceProperty.FindPropertyRelative("staticTypeName").stringValue = string.Empty;
             instanceProperty.FindPropertyRelative("providerReference").objectReferenceValue = null;
+            instanceProperty.FindPropertyRelative("contextName").stringValue = BindingContextConstants.Default;
+            instanceProperty.FindPropertyRelative("contextTypeName").stringValue = string.Empty;
             endpointProperty.FindPropertyRelative("memberPath").stringValue = string.Empty;
         }
 
@@ -1469,6 +1607,12 @@ namespace LegendaryTools.ViewBinding.Editor
 
                 case BindingInstanceKind.Provider:
                     return instanceProperty.FindPropertyRelative("providerReference").objectReferenceValue != null;
+
+                case BindingInstanceKind.Context:
+                    return !string.IsNullOrWhiteSpace(
+                               instanceProperty.FindPropertyRelative("contextName").stringValue) ||
+                           !string.IsNullOrWhiteSpace(
+                               instanceProperty.FindPropertyRelative("contextTypeName").stringValue);
 
                 default:
                     return false;

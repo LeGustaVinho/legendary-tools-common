@@ -95,6 +95,42 @@ namespace LegendaryTools.ViewBinding.Editor
                     }
                 }
 
+                case BindingInstanceKind.Context:
+                {
+                    string contextName = instanceProperty
+                        .FindPropertyRelative("contextName")
+                        .stringValue;
+                    string contextTypeName = instanceProperty
+                        .FindPropertyRelative("contextTypeName")
+                        .stringValue;
+
+                    if (instanceProperty.serializedObject.targetObject is Component owner)
+                    {
+                        Transform current = owner.transform;
+                        while (current != null)
+                        {
+                            if (current.TryGetComponent(out BindingDataContext dataContext) &&
+                                dataContext.TryResolveContext(contextName, out handle, out error))
+                            {
+                                return true;
+                            }
+
+                            current = current.parent;
+                        }
+                    }
+
+                    Type declaredType = DefaultBindingInstanceResolver.FindType(contextTypeName);
+                    if (declaredType == null)
+                    {
+                        error = $"Context '{BindingDataContext.NormalizeName(contextName)}' is not currently resolved and has no declared type.";
+                        return false;
+                    }
+
+                    handle = new BindingInstanceHandle(null, declaredType, false);
+                    error = string.Empty;
+                    return true;
+                }
+
                 default:
                     error = $"Unsupported instance kind: {kind}.";
                     return false;

@@ -10,6 +10,8 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private UnityEngine.Object objectReference;
         [SerializeField] private string staticTypeName;
         [SerializeField] private UnityEngine.Object providerReference;
+        [SerializeField] private string contextName = BindingContextConstants.Default;
+        [SerializeField] private string contextTypeName;
 
         public BindingInstanceKind Kind => kind;
 
@@ -18,6 +20,10 @@ namespace LegendaryTools.ViewBinding
         public string StaticTypeName => staticTypeName;
 
         public UnityEngine.Object ProviderReference => providerReference;
+
+        public string ContextName => contextName;
+
+        public string ContextTypeName => contextTypeName;
 
         internal bool ReferencesObject(UnityEngine.Object candidate)
         {
@@ -29,6 +35,27 @@ namespace LegendaryTools.ViewBinding
             if (kind == BindingInstanceKind.Provider)
             {
                 return providerReference == candidate;
+            }
+
+            if (kind == BindingInstanceKind.Context &&
+                TryResolve(out BindingInstanceHandle contextHandle, out _))
+            {
+                if (ReferenceEquals(contextHandle.Instance, candidate))
+                {
+                    return true;
+                }
+
+                if (contextHandle.Instance is Component contextComponent &&
+                    candidate is GameObject contextGameObject)
+                {
+                    return contextComponent.gameObject == contextGameObject;
+                }
+
+                if (contextHandle.Instance is GameObject resolvedGameObject &&
+                    candidate is Component candidateComponent)
+                {
+                    return resolvedGameObject == candidateComponent.gameObject;
+                }
             }
 
             if (kind != BindingInstanceKind.UnityObject || objectReference == null)
@@ -48,9 +75,9 @@ namespace LegendaryTools.ViewBinding
             }
 
             if (objectReference is GameObject referencedGameObject &&
-                candidate is Component candidateComponent)
+                candidate is Component referencedCandidateComponent)
             {
-                return referencedGameObject == candidateComponent.gameObject;
+                return referencedGameObject == referencedCandidateComponent.gameObject;
             }
 
             return false;
@@ -59,6 +86,48 @@ namespace LegendaryTools.ViewBinding
         public bool TryResolve(out BindingInstanceHandle handle, out string error)
         {
             return BindingBackendRegistry.InstanceResolver.TryResolve(this, out handle, out error);
+        }
+
+        public bool TryGetDeclaredType(out Type type)
+        {
+            switch (kind)
+            {
+                case BindingInstanceKind.UnityObject:
+                    type = objectReference != null ? objectReference.GetType() : null;
+                    return type != null;
+
+                case BindingInstanceKind.StaticType:
+                    type = DefaultBindingInstanceResolver.FindType(staticTypeName);
+                    return type != null;
+
+                case BindingInstanceKind.Provider:
+                    if (providerReference is IBindingInstanceProvider provider)
+                    {
+                        try
+                        {
+                            type = provider.GetBindingInstanceType() ?? provider.GetBindingInstance()?.GetType();
+                            return type != null;
+                        }
+                        catch
+                        {
+                            type = null;
+                            return false;
+                        }
+                    }
+
+                    type = null;
+                    return false;
+
+                case BindingInstanceKind.Context:
+                    return BindingResolutionScope.TryGetDeclaredContextType(
+                        contextName,
+                        contextTypeName,
+                        out type);
+
+                default:
+                    type = null;
+                    return false;
+            }
         }
     }
 }

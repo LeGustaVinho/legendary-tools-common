@@ -7,6 +7,7 @@ A declarative Unity data binding framework configured entirely from the Inspecto
 - `UnityObject`: any `UnityEngine.Object`, including `MonoBehaviour`, `ScriptableObject`, components and assets.
 - `StaticType`: any type exposing public static fields or properties. This also supports singleton paths such as `GameState.Instance.Player.Health`.
 - `Provider`: any `UnityEngine.Object` implementing `IBindingInstanceProvider`. The provider can expose any plain C# object at runtime.
+- `Context`: a named root resolved from a binding profile override or the nearest active `BindingDataContext` in the hierarchy. Profile definitions conventionally use `$Source` and `$Target`.
 
 ## Binding directions
 
@@ -47,6 +48,51 @@ Unidirectional bindings expose a `Write Policy`:
 
 Disabling a binder component clears its runtime baselines. Re-enabling it performs clean initialization instead of treating changes made while disabled as conflicts or event transitions.
 
+
+## Reusable binding profiles
+
+`ViewDataBindingProfile` is a `ScriptableObject` containing a reusable group of `ViewDataBinding` definitions. Create assets such as `PlayerHudBindingProfile`, `InventoryItemBindingProfile` or `SettingsMenuBindingProfile`, then add the same asset to multiple `ViewDataBinder` components.
+
+Inside a profile, configure Source endpoints with `Instance Kind = Context` and context `$Source`. Configure Targets with `$Target`. Every profile reference on a binder supplies its own concrete Source and Target roots, so the same definition can be applied to different prefab instances.
+
+The binder Inspector includes `Create from Local`. It:
+
+1. verifies that the local bindings share one Source root and one Target root;
+2. copies the bindings into a new profile asset;
+3. replaces concrete roots in the asset with `$Source` and `$Target` contexts;
+4. adds a disabled profile reference containing the original roots.
+
+The new reference starts disabled so the profile does not run alongside the original local bindings. Remove or disable the local copies, then enable the profile reference.
+
+Additional named roots can be supplied through `Named Contexts`. A child binder can also inherit named values from the nearest active `BindingDataContext`. This is useful for shared services such as `Localization`, `Settings`, `Inventory` or `Session`.
+
+Profile roots accept Unity objects, instance Providers and static types. They can also be replaced at runtime without modifying the asset:
+
+```csharp
+binder.SetProfileSourceRoot(profileIndex, playerViewModel);
+binder.SetProfileTargetRoot(profileIndex, hudGameObject);
+binder.SetProfileContext(profileIndex, "Localization", localizationService);
+
+// Remove the runtime override and return to the serialized profile value.
+binder.ClearProfileContext(profileIndex, "Localization");
+```
+
+Changing a runtime profile context invalidates only that profile reference's runtime baselines and endpoint caches.
+
+## Explicit endpoint lifetime
+
+Each value binding has independent `Missing Source` and `Missing Target` policies. Event bindings expose `Missing Source`.
+
+- `Wait`: keep the binding active, suppress the missing-endpoint failure and retry on the next scheduled pass.
+- `Disable`: disable that binding until `InvalidateBinding`, `InvalidateProfileBinding` or the Inspector `Reset` button is used.
+- `ClearTarget`: when a Source is missing, write the default value of the Target type once, then wait. A missing Target cannot be cleared.
+- `UseFallback`: write the configured fallback once to the surviving side when its direction permits it, then wait.
+- `ReResolve`: invalidate only the binding's endpoint/context caches, reset its baseline and retry immediately.
+- `ReportError`: return the unresolved-instance failure and let the binding's `Error Policy` decide whether to report, log, disable or throw.
+
+Missing-instance detection includes destroyed Unity objects, null Provider results, unresolved profile/context roots and removed component roots. Invalid member names remain configuration errors and are not treated as temporary lifetime events.
+
+When an endpoint becomes available again, the binder resets that binding's comparison baseline before synchronization. This ensures a newly pooled or additively loaded Target receives its initial value even if it replaces an object that previously held the same value. `ClearTarget` and `UseFallback` actions are remembered so they do not repeat writes every frame while the endpoint remains unavailable.
 
 ## Error policies
 

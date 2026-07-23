@@ -26,6 +26,13 @@ namespace LegendaryTools.ViewBinding
                 case BindingInstanceKind.Provider:
                     return TryResolveProvider(reference, out handle, out error);
 
+                case BindingInstanceKind.Context:
+                    return BindingResolutionScope.TryResolveContext(
+                        reference.ContextName,
+                        reference.ContextTypeName,
+                        out handle,
+                        out error);
+
                 default:
                     error = $"Unsupported instance kind: {reference.Kind}.";
                     return false;

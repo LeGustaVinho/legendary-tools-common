@@ -7,7 +7,11 @@ using UnityEngine;
 
 namespace LegendaryTools.ViewBinding
 {
-    public sealed class ReflectionBindingMemberBackend : IBindingMemberBackend, IBindingMemberSearchBackend
+    public sealed class ReflectionBindingMemberBackend :
+        IBindingMemberBackend,
+        IBindingMemberSearchBackend,
+        IBindingMemberCacheInvalidator,
+        IBindingEndpointAvailabilityBackend
     {
         private readonly Dictionary<string, MemberInfo[]> pathCache = new Dictionary<string, MemberInfo[]>();
         private readonly Dictionary<string, IReadOnlyList<BindingMemberDescriptor>> memberTreeCache =
@@ -384,16 +388,20 @@ namespace LegendaryTools.ViewBinding
         {
             metadata = default;
 
-            if (!TryResolveEndpoint(endpoint, out BindingInstanceHandle root, out MemberInfo[] members, out error))
+            if (!TryResolveEndpoint(
+                    endpoint,
+                    out BindingInstanceHandle root,
+                    out MemberInfo[] members,
+                    out EndpointResolutionEntry cacheEntry,
+                    out error))
             {
                 return false;
             }
 
-            EndpointResolutionCache cache = endpointCache.GetOrCreateValue(endpoint);
-            if (!cache.TryGetMetadata(out metadata))
+            if (!cacheEntry.TryGetMetadata(out metadata))
             {
                 metadata = CreateMetadata(members);
-                cache.SetMetadata(metadata);
+                cacheEntry.SetMetadata(metadata);
             }
 
             return true;
@@ -403,7 +411,7 @@ namespace LegendaryTools.ViewBinding
         {
             value = null;
 
-            if (!TryResolveEndpoint(endpoint, out BindingInstanceHandle root, out MemberInfo[] members, out error))
+            if (!TryResolveEndpoint(endpoint, out BindingInstanceHandle root, out MemberInfo[] members, out _, out error))
             {
                 return false;
             }
@@ -437,7 +445,7 @@ namespace LegendaryTools.ViewBinding
 
         public bool TryWrite(BindingEndpoint endpoint, object value, out string error)
         {
-            if (!TryResolveEndpoint(endpoint, out BindingInstanceHandle root, out MemberInfo[] members, out error))
+            if (!TryResolveEndpoint(endpoint, out BindingInstanceHandle root, out MemberInfo[] members, out _, out error))
             {
                 return false;
             }
@@ -585,14 +593,76 @@ namespace LegendaryTools.ViewBinding
             return descriptors;
         }
 
+        public void Invalidate(BindingEndpoint endpoint)
+        {
+            if (endpoint != null)
+            {
+                endpointCache.Remove(endpoint);
+            }
+        }
+
+        public BindingEndpointAvailability GetEndpointAvailability(
+            BindingEndpoint endpoint,
+            out string error)
+        {
+            if (endpoint == null || endpoint.Instance == null)
+            {
+                error = "The endpoint or its instance reference is null.";
+                return BindingEndpointAvailability.InvalidConfiguration;
+            }
+
+            if (!endpoint.Instance.TryResolve(out BindingInstanceHandle root, out error))
+            {
+                return BindingEndpointAvailability.Missing;
+            }
+
+            if (!ComponentBindingPath.TryParse(
+                    endpoint.MemberPath,
+                    out string componentTypeName,
+                    out int componentOrdinal,
+                    out _))
+            {
+                error = string.Empty;
+                return BindingEndpointAvailability.Available;
+            }
+
+            if (!(root.Instance is GameObject gameObject))
+            {
+                error = "A component member path requires a GameObject instance.";
+                return BindingEndpointAvailability.InvalidConfiguration;
+            }
+
+            Type componentType = DefaultBindingInstanceResolver.FindType(componentTypeName);
+            if (componentType == null || !typeof(Component).IsAssignableFrom(componentType))
+            {
+                error = $"Component type '{componentTypeName}' could not be resolved.";
+                return BindingEndpointAvailability.InvalidConfiguration;
+            }
+
+            if (!TryGetComponentByExactTypeAndOrdinal(
+                    gameObject,
+                    componentType,
+                    componentOrdinal,
+                    out _))
+            {
+                error = $"Component '{componentType.FullName}' at ordinal {componentOrdinal} was not found on GameObject '{gameObject.name}'.";
+                return BindingEndpointAvailability.Missing;
+            }
+
+            error = string.Empty;
+            return BindingEndpointAvailability.Available;
+        }
+
         private bool TryResolveEndpoint(
             BindingEndpoint endpoint,
             out BindingInstanceHandle root,
             out MemberInfo[] members,
+            out EndpointResolutionEntry cacheEntry,
             out string error)
         {
             root = default;
             members = null;
+            cacheEntry = null;
 
             if (endpoint == null)
             {
@@ -612,10 +682,10 @@ namespace LegendaryTools.ViewBinding
             }
 
             EndpointResolutionCache cache = endpointCache.GetOrCreateValue(endpoint);
-            if (cache.IsValid(initialRoot, endpoint.MemberPath))
+            if (cache.TryGet(initialRoot, endpoint.MemberPath, out cacheEntry))
             {
-                root = cache.ResolvedRoot;
-                members = cache.Members;
+                root = cacheEntry.ResolvedRoot;
+                members = cacheEntry.Members;
                 error = string.Empty;
                 return true;
             }
@@ -623,11 +693,11 @@ namespace LegendaryTools.ViewBinding
             root = initialRoot;
             if (!TryResolvePath(ref root, endpoint.MemberPath, out members, out error))
             {
-                cache.Reset();
+                cache.Remove(initialRoot);
                 return false;
             }
 
-            cache.Update(initialRoot, endpoint.MemberPath, root, members);
+            cacheEntry = cache.Update(initialRoot, endpoint.MemberPath, root, members);
             return true;
         }
 
@@ -957,22 +1027,106 @@ namespace LegendaryTools.ViewBinding
 
         private sealed class EndpointResolutionCache
         {
-            public EndpointResolutionCache()
+            private readonly ConditionalWeakTable<object, EndpointResolutionEntry> instanceEntries =
+                new ConditionalWeakTable<object, EndpointResolutionEntry>();
+            private readonly Dictionary<Type, EndpointResolutionEntry> staticEntries =
+                new Dictionary<Type, EndpointResolutionEntry>();
+
+            public bool TryGet(
+                BindingInstanceHandle root,
+                string path,
+                out EndpointResolutionEntry entry)
             {
+                entry = null;
+
+                if (root.IsStatic)
+                {
+                    if (!staticEntries.TryGetValue(root.Type, out entry))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    if (root.Instance == null || !instanceEntries.TryGetValue(root.Instance, out entry))
+                    {
+                        return false;
+                    }
+                }
+
+                if (!entry.IsValid(root, path))
+                {
+                    Remove(root);
+                    entry = null;
+                    return false;
+                }
+
+                return true;
             }
 
-            private object initialInstance;
-            private Type initialType;
-            private bool initialIsStatic;
-            private string memberPath;
+            public EndpointResolutionEntry Update(
+                BindingInstanceHandle initialRoot,
+                string path,
+                BindingInstanceHandle resolvedRoot,
+                MemberInfo[] members)
+            {
+                var entry = new EndpointResolutionEntry(initialRoot, path, resolvedRoot, members);
+                Remove(initialRoot);
 
-            public BindingInstanceHandle ResolvedRoot { get; private set; }
+                if (initialRoot.IsStatic)
+                {
+                    staticEntries[initialRoot.Type] = entry;
+                }
+                else if (initialRoot.Instance != null)
+                {
+                    instanceEntries.Add(initialRoot.Instance, entry);
+                }
 
-            public MemberInfo[] Members { get; private set; }
+                return entry;
+            }
 
-            private BindingMemberMetadata Metadata { get; set; }
+            public void Remove(BindingInstanceHandle root)
+            {
+                if (root.IsStatic)
+                {
+                    if (root.Type != null)
+                    {
+                        staticEntries.Remove(root.Type);
+                    }
+                }
+                else if (root.Instance != null)
+                {
+                    instanceEntries.Remove(root.Instance);
+                }
+            }
+        }
 
-            private bool HasMetadata { get; set; }
+        private sealed class EndpointResolutionEntry
+        {
+            private readonly Type initialType;
+            private readonly bool initialIsStatic;
+            private readonly string memberPath;
+            private BindingMemberMetadata metadata;
+            private bool hasMetadata;
+
+            public EndpointResolutionEntry(
+                BindingInstanceHandle initialRoot,
+                string path,
+                BindingInstanceHandle resolvedRoot,
+                MemberInfo[] members)
+            {
+                initialType = initialRoot.Type;
+                initialIsStatic = initialRoot.IsStatic;
+                memberPath = path;
+                ResolvedRoot = resolvedRoot;
+                Members = members;
+                metadata = CreateMetadata(members);
+                hasMetadata = true;
+            }
+
+            public BindingInstanceHandle ResolvedRoot { get; }
+
+            public MemberInfo[] Members { get; }
 
             public bool IsValid(BindingInstanceHandle root, string path)
             {
@@ -986,52 +1140,19 @@ namespace LegendaryTools.ViewBinding
                     return false;
                 }
 
-                if (!root.IsStatic && !ReferenceEquals(initialInstance, root.Instance))
-                {
-                    return false;
-                }
-
                 return !(ResolvedRoot.Instance is UnityEngine.Object unityObject) || unityObject != null;
             }
 
-            public void Update(
-                BindingInstanceHandle initialRoot,
-                string path,
-                BindingInstanceHandle resolvedRoot,
-                MemberInfo[] members)
+            public bool TryGetMetadata(out BindingMemberMetadata value)
             {
-                initialInstance = initialRoot.Instance;
-                initialType = initialRoot.Type;
-                initialIsStatic = initialRoot.IsStatic;
-                memberPath = path;
-                ResolvedRoot = resolvedRoot;
-                Members = members;
-                Metadata = CreateMetadata(members);
-                HasMetadata = true;
+                value = metadata;
+                return hasMetadata;
             }
 
-            public bool TryGetMetadata(out BindingMemberMetadata metadata)
+            public void SetMetadata(BindingMemberMetadata value)
             {
-                metadata = Metadata;
-                return HasMetadata;
-            }
-
-            public void SetMetadata(BindingMemberMetadata metadata)
-            {
-                Metadata = metadata;
-                HasMetadata = true;
-            }
-
-            public void Reset()
-            {
-                initialInstance = null;
-                initialType = null;
-                initialIsStatic = false;
-                memberPath = null;
-                ResolvedRoot = default;
-                Members = null;
-                Metadata = default;
-                HasMetadata = false;
+                metadata = value;
+                hasMetadata = true;
             }
         }
 

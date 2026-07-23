@@ -13,6 +13,7 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private BindingUpdateTiming updateTiming = BindingUpdateTiming.Update;
         [SerializeField] private bool triggerOnInitialize;
         [SerializeField] private BindingErrorPolicy errorPolicy = BindingErrorPolicy.ReportOnly;
+        [SerializeField] private MissingEndpointPolicy sourceMissingPolicy = MissingEndpointPolicy.ReportError;
         [SerializeField] private List<BindingSource> sources =
             new List<BindingSource> { new BindingSource() };
         [SerializeField] private List<EventBindingCondition> conditions =
@@ -29,6 +30,8 @@ namespace LegendaryTools.ViewBinding
         public bool TriggerOnInitialize => triggerOnInitialize;
 
         public BindingErrorPolicy ErrorPolicy => errorPolicy;
+
+        public MissingEndpointPolicy SourceMissingPolicy => sourceMissingPolicy;
 
         public IReadOnlyList<BindingSource> Sources => sources;
 

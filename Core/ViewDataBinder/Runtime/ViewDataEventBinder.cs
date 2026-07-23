@@ -14,6 +14,7 @@ namespace LegendaryTools.ViewBinding
             new Dictionary<string, EventBindingRuntimeState>();
         private readonly HashSet<string> activeTaskBindingIds = new HashSet<string>();
         private readonly List<string> completedTaskBindingIds = new List<string>();
+        private readonly BindingContextResolver contextResolver = new BindingContextResolver();
 
         public IReadOnlyList<ViewDataEventBinding> EventBindings => eventBindings;
 
@@ -82,11 +83,17 @@ namespace LegendaryTools.ViewBinding
             for (int i = 0; i < eventBindings.Count; i++)
             {
                 ViewDataEventBinding binding = eventBindings[i];
-                if (binding == null ||
-                    binding.UpdateTiming != BindingUpdateTiming.Manual ||
-                    !UsesSourceObject(binding, sourceObject))
+                if (binding == null || binding.UpdateTiming != BindingUpdateTiming.Manual)
                 {
                     continue;
+                }
+
+                using (BindingResolutionScope.Push(this, contextResolver, null))
+                {
+                    if (!UsesSourceObject(binding, sourceObject))
+                    {
+                        continue;
+                    }
                 }
 
                 ProcessEventBindingDetailed(i, out _);
@@ -116,6 +123,7 @@ namespace LegendaryTools.ViewBinding
             }
 
             ResetActionRuntimeState(binding);
+            InvalidateBindingCaches(binding);
             activeTaskBindingIds.Remove(binding.Id);
             return true;
         }
@@ -181,18 +189,33 @@ namespace LegendaryTools.ViewBinding
 
             binding.EnsureId();
             EventBindingRuntimeState state = GetOrCreateState(binding.Id);
-            BindingSyncResult result = ProcessEventBinding(binding, state, out triggered);
-
-            if (state.HasRunningTasks)
+            using (BindingResolutionScope.Push(this, contextResolver, null))
             {
-                activeTaskBindingIds.Add(binding.Id);
-            }
-            else
-            {
-                activeTaskBindingIds.Remove(binding.Id);
-            }
+                PrepareMissingEndpointRecovery(binding, state);
 
-            return ApplyErrorPolicy(binding, state, result);
+                BindingSyncResult result = ProcessEventBinding(binding, state, out triggered);
+                if (result.Status == BindingSyncStatus.UnresolvedInstance &&
+                    result.EndpointRole == BindingEndpointRole.Source)
+                {
+                    result = ApplyMissingEndpointPolicy(binding, state, result, out bool retryTriggered);
+                    triggered |= retryTriggered;
+                }
+                else
+                {
+                    state.ClearMissingEndpoint();
+                }
+
+                if (state.HasRunningTasks)
+                {
+                    activeTaskBindingIds.Add(binding.Id);
+                }
+                else
+                {
+                    activeTaskBindingIds.Remove(binding.Id);
+                }
+
+                return ApplyErrorPolicy(binding, state, result);
+            }
         }
 
         public bool TryGetLastResult(int bindingIndex, out BindingSyncResult result)
@@ -307,14 +330,16 @@ namespace LegendaryTools.ViewBinding
                 {
                     return new BindingSyncResult(
                         ClassifyEndpointFailure(source.Endpoint),
-                        $"Source {i + 1}: {metadataError}");
+                        $"Source {i + 1}: {metadataError}",
+                        BindingEndpointRole.Source);
                 }
 
                 if (!sourceMetadata[i].CanRead)
                 {
                     return new BindingSyncResult(
                         BindingSyncStatus.ReadFailed,
-                        $"Source {i + 1} is not readable.");
+                        $"Source {i + 1} is not readable.",
+                        BindingEndpointRole.Source);
                 }
 
                 if (!BindingBackendRegistry.MemberBackend.TryRead(
@@ -322,9 +347,14 @@ namespace LegendaryTools.ViewBinding
                         out currentValues[i],
                         out string readError))
                 {
+                    BindingSyncStatus readStatus = ClassifyEndpointFailure(source.Endpoint) ==
+                                                   BindingSyncStatus.UnresolvedInstance
+                        ? BindingSyncStatus.UnresolvedInstance
+                        : BindingSyncStatus.ReadFailed;
                     return new BindingSyncResult(
-                        BindingSyncStatus.ReadFailed,
-                        $"Source {i + 1}: {readError}");
+                        readStatus,
+                        $"Source {i + 1}: {readError}",
+                        BindingEndpointRole.Source);
                 }
             }
 
@@ -592,6 +622,7 @@ namespace LegendaryTools.ViewBinding
             runtimeStates.Clear();
             activeTaskBindingIds.Clear();
             completedTaskBindingIds.Clear();
+            contextResolver.Invalidate();
         }
 
         private void ObserveActiveTaskBindings()
@@ -673,6 +704,100 @@ namespace LegendaryTools.ViewBinding
             }
 
             return false;
+        }
+
+        private void PrepareMissingEndpointRecovery(
+            ViewDataEventBinding binding,
+            EventBindingRuntimeState state)
+        {
+            if (state.RuntimeDisabled || !state.SourceEndpointMissing ||
+                !AreSourceEndpointsAvailable(binding.Sources))
+            {
+                return;
+            }
+
+            InvalidateBindingCaches(binding);
+            state.ResetObservation();
+            state.ClearMissingEndpoint();
+        }
+
+        private BindingSyncResult ApplyMissingEndpointPolicy(
+            ViewDataEventBinding binding,
+            EventBindingRuntimeState state,
+            BindingSyncResult result,
+            out bool triggered)
+        {
+            triggered = false;
+            if (result.Status != BindingSyncStatus.UnresolvedInstance ||
+                result.EndpointRole != BindingEndpointRole.Source)
+            {
+                return result;
+            }
+
+            state.MarkSourceEndpointMissing(binding.SourceMissingPolicy);
+
+            switch (binding.SourceMissingPolicy)
+            {
+                case MissingEndpointPolicy.Wait:
+                    return BindingSyncResult.NoChange(
+                        "Waiting for the missing Source endpoint. " + result.Message);
+
+                case MissingEndpointPolicy.Disable:
+                    state.RuntimeDisabled = true;
+                    return new BindingSyncResult(
+                        BindingSyncStatus.Disabled,
+                        "Event binding disabled because a Source endpoint is missing. Invalidate it to retry.",
+                        BindingEndpointRole.Source);
+
+                case MissingEndpointPolicy.ClearTarget:
+                    return BindingSyncResult.NoChange(
+                        "Event bindings have no Target to clear; waiting for the Source endpoint.");
+
+                case MissingEndpointPolicy.UseFallback:
+                    return new BindingSyncResult(
+                        BindingSyncStatus.FallbackFailed,
+                        "Event bindings do not define a fallback value for missing Sources.",
+                        BindingEndpointRole.Source);
+
+                case MissingEndpointPolicy.ReResolve:
+                    InvalidateBindingCaches(binding);
+                    state.ResetObservation();
+                    BindingSyncResult retryResult = ProcessEventBinding(binding, state, out triggered);
+                    if (retryResult.Status == BindingSyncStatus.UnresolvedInstance)
+                    {
+                        state.MarkSourceEndpointMissing(binding.SourceMissingPolicy);
+                    }
+                    else
+                    {
+                        state.ClearMissingEndpoint();
+                    }
+
+                    return retryResult;
+
+                case MissingEndpointPolicy.ReportError:
+                    return result;
+
+                default:
+                    return new BindingSyncResult(
+                        BindingSyncStatus.InvalidMemberPath,
+                        $"Unsupported missing endpoint policy: {binding.SourceMissingPolicy}.",
+                        BindingEndpointRole.Source);
+            }
+        }
+
+        private void InvalidateBindingCaches(ViewDataEventBinding binding)
+        {
+            contextResolver.Invalidate();
+            if (!(BindingBackendRegistry.MemberBackend is IBindingMemberCacheInvalidator invalidator) ||
+                binding?.Sources == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < binding.Sources.Count; i++)
+            {
+                invalidator.Invalidate(binding.Sources[i]?.Endpoint);
+            }
         }
 
         private BindingSyncResult ApplyErrorPolicy(
@@ -801,14 +926,45 @@ namespace LegendaryTools.ViewBinding
 
         private static BindingSyncStatus ClassifyEndpointFailure(BindingEndpoint endpoint)
         {
+            return GetEndpointAvailability(endpoint) == BindingEndpointAvailability.Missing
+                ? BindingSyncStatus.UnresolvedInstance
+                : BindingSyncStatus.InvalidMemberPath;
+        }
+
+        private static BindingEndpointAvailability GetEndpointAvailability(BindingEndpoint endpoint)
+        {
             if (endpoint == null || endpoint.Instance == null)
             {
-                return BindingSyncStatus.InvalidMemberPath;
+                return BindingEndpointAvailability.InvalidConfiguration;
+            }
+
+            if (BindingBackendRegistry.MemberBackend is IBindingEndpointAvailabilityBackend availabilityBackend)
+            {
+                return availabilityBackend.GetEndpointAvailability(endpoint, out _);
             }
 
             return endpoint.Instance.TryResolve(out _, out _)
-                ? BindingSyncStatus.InvalidMemberPath
-                : BindingSyncStatus.UnresolvedInstance;
+                ? BindingEndpointAvailability.Available
+                : BindingEndpointAvailability.Missing;
+        }
+
+        private static bool AreSourceEndpointsAvailable(IReadOnlyList<BindingSource> sources)
+        {
+            if (sources == null || sources.Count == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < sources.Count; i++)
+            {
+                if (GetEndpointAvailability(sources[i]?.Endpoint) !=
+                    BindingEndpointAvailability.Available)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
     }

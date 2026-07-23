@@ -44,6 +44,8 @@ namespace LegendaryTools.ViewBinding.Editor
             instanceProperty.FindPropertyRelative("objectReference").objectReferenceValue = null;
             instanceProperty.FindPropertyRelative("staticTypeName").stringValue = string.Empty;
             instanceProperty.FindPropertyRelative("providerReference").objectReferenceValue = null;
+            instanceProperty.FindPropertyRelative("contextName").stringValue = BindingContextConstants.Default;
+            instanceProperty.FindPropertyRelative("contextTypeName").stringValue = string.Empty;
         }
 
         private static void DrawInstanceReference(
@@ -54,6 +56,8 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty objectProperty = instanceProperty.FindPropertyRelative("objectReference");
             SerializedProperty staticTypeProperty = instanceProperty.FindPropertyRelative("staticTypeName");
             SerializedProperty providerProperty = instanceProperty.FindPropertyRelative("providerReference");
+            SerializedProperty contextNameProperty = instanceProperty.FindPropertyRelative("contextName");
+            SerializedProperty contextTypeProperty = instanceProperty.FindPropertyRelative("contextTypeName");
 
             EditorGUILayout.PropertyField(kindProperty, new GUIContent("Instance Kind"));
             BindingInstanceKind kind = (BindingInstanceKind)kindProperty.enumValueIndex;
@@ -78,6 +82,14 @@ namespace LegendaryTools.ViewBinding.Editor
                             MessageType.Error);
                     }
                     break;
+
+                case BindingInstanceKind.Context:
+                    EditorGUILayout.PropertyField(contextNameProperty, new GUIContent("Context"));
+                    DrawTypeSelector(owner, contextTypeProperty, "Declared Type", "Select Context Type");
+                    EditorGUILayout.LabelField(
+                        "Use $Source or $Target inside profiles, or any named hierarchical context.",
+                        EditorStyles.wordWrappedMiniLabel);
+                    break;
             }
         }
 
@@ -85,31 +97,39 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedObject owner,
             SerializedProperty staticTypeProperty)
         {
-            Type currentType = DefaultBindingInstanceResolver.FindType(staticTypeProperty.stringValue);
-            string label = currentType == null
-                ? "Select Static Type"
-                : currentType.FullName;
+            DrawTypeSelector(owner, staticTypeProperty, "Static Type", "Select Static Type");
+        }
+
+        private static void DrawTypeSelector(
+            SerializedObject owner,
+            SerializedProperty typeProperty,
+            string fieldLabel,
+            string emptyLabel)
+        {
+            Type currentType = DefaultBindingInstanceResolver.FindType(typeProperty.stringValue);
+            string label = currentType == null ? emptyLabel : currentType.FullName;
 
             Rect buttonRect = EditorGUILayout.GetControlRect();
-            buttonRect = EditorGUI.PrefixLabel(buttonRect, new GUIContent("Static Type"));
+            buttonRect = EditorGUI.PrefixLabel(buttonRect, new GUIContent(fieldLabel));
 
-            if (GUI.Button(buttonRect, label, BindingInspectorStyles.PathButtonStyle))
+            if (!GUI.Button(buttonRect, label, BindingInspectorStyles.PathButtonStyle))
             {
-                string propertyPath = staticTypeProperty.propertyPath;
-
-                PopupWindow.Show(
-                    buttonRect,
-                    new StaticTypePickerWindow(type =>
-                    {
-                        owner.Update();
-                        SerializedProperty property = owner.FindProperty(propertyPath);
-                        if (property != null)
-                        {
-                            property.stringValue = type.AssemblyQualifiedName;
-                            owner.ApplyModifiedProperties();
-                        }
-                    }));
+                return;
             }
+
+            string propertyPath = typeProperty.propertyPath;
+            PopupWindow.Show(
+                buttonRect,
+                new StaticTypePickerWindow(type =>
+                {
+                    owner.Update();
+                    SerializedProperty property = owner.FindProperty(propertyPath);
+                    if (property != null)
+                    {
+                        property.stringValue = type.AssemblyQualifiedName;
+                        owner.ApplyModifiedProperties();
+                    }
+                }));
         }
 
         private static void DrawMemberSelector(
@@ -231,6 +251,12 @@ namespace LegendaryTools.ViewBinding.Editor
 
                 case BindingInstanceKind.Provider:
                     return instanceProperty.FindPropertyRelative("providerReference").objectReferenceValue != null;
+
+                case BindingInstanceKind.Context:
+                    return !string.IsNullOrWhiteSpace(
+                               instanceProperty.FindPropertyRelative("contextName").stringValue) ||
+                           !string.IsNullOrWhiteSpace(
+                               instanceProperty.FindPropertyRelative("contextTypeName").stringValue);
 
                 default:
                     return false;
