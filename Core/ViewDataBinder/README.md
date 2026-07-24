@@ -181,6 +181,32 @@ Member paths are string-based and accessed through reflection. Types or members 
 
 Copy the entire folder under `Assets`, preserving the `Editor` subfolder so editor-only code is excluded from player builds.
 
+Scripts are grouped by responsibility:
+
+```text
+ViewDataBinder/
+├── Runtime/
+│   ├── Backends/       # Member/source backends and generated-accessor registries
+│   ├── Bindings/       # Binding models, policies, fallbacks, and sync results
+│   ├── Conditions/     # Value-binding conditions
+│   ├── Contexts/       # Data contexts, context values, and named overrides
+│   ├── Converters/     # Converter abstractions and built-in converters
+│   ├── Endpoints/      # Endpoints, member metadata, and component paths
+│   ├── Events/         # Event bindings, conditions, actions, and UnityEvents
+│   ├── Execution/      # Execution plans, scheduling, polling, and runtime state
+│   ├── Formatting/     # Formatter abstractions, settings, and registry
+│   ├── Instances/      # Instance references, providers, and resolution
+│   ├── Profiles/       # Reusable binding profiles and references
+│   └── Serialization/  # Shared serialized-value representation
+└── Editor/
+    ├── CodeGeneration/ # Build-time accessor generation
+    ├── Drawers/        # Inspector drawing helpers
+    ├── Extensions/     # Inspector extension API and registry
+    ├── Inspectors/     # Custom component and asset inspectors
+    ├── Utilities/      # Shared editor utilities and styles
+    └── Windows/        # Member and type picker windows
+```
+
 ## GameObject member browsing
 
 When a `UnityObject` root is a `GameObject`, the member picker shows a `GameObject` group plus one group for every attached component. Multiple components of the same type are numbered separately. Component-backed paths are resolved by component type and same-type ordinal at runtime, so the binding reads and writes the selected component rather than the `GameObject` itself.
