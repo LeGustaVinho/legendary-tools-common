@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 
 namespace LegendaryTools.Common.Core.Patterns.ECS.Random
 {
@@ -10,6 +11,13 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Random
     public struct DeterministicRng : IRng
     {
         private const ulong Multiplier = 6364136223846793005UL;
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct FloatBits
+        {
+            [FieldOffset(0)] public float Value;
+            [FieldOffset(0)] public int Bits;
+        }
 
         private ulong _state;
         private ulong _inc;
@@ -40,6 +48,7 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Random
         /// </summary>
         public void Seed(ulong seed)
         {
+            EnsureInitialized();
             _state = 0UL;
             NextUInt();
             _state += seed;
@@ -49,6 +58,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Random
         /// <inheritdoc />
         public uint NextUInt()
         {
+            EnsureInitialized();
+
             ulong oldState = _state;
             _state = unchecked(oldState * Multiplier + _inc);
 
@@ -81,8 +92,9 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Random
             if (maxExclusive <= minInclusive)
                 throw new ArgumentOutOfRangeException(nameof(maxExclusive), "maxExclusive must be > minInclusive.");
 
-            uint range = (uint)(maxExclusive - minInclusive);
-            return minInclusive + (int)NextUIntBounded(range);
+            uint range = (uint)((long)maxExclusive - minInclusive);
+            uint offset = NextUIntBounded(range);
+            return (int)((long)minInclusive + offset);
         }
 
         /// <inheritdoc />
@@ -91,12 +103,12 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Random
             if (maxInclusive < minInclusive)
                 throw new ArgumentOutOfRangeException(nameof(maxInclusive), "maxInclusive must be >= minInclusive.");
 
-            // inclusive range size = (max - min + 1)
-            ulong range = (ulong)(maxInclusive - minInclusive) + 1UL;
-            if (range <= uint.MaxValue) return minInclusive + (int)NextUIntBounded((uint)range);
+            ulong range = (ulong)((long)maxInclusive - minInclusive) + 1UL;
+            ulong offset = range <= uint.MaxValue
+                ? NextUIntBounded((uint)range)
+                : NextULongBounded(range);
 
-            // Very large ranges: fallback to 64-bit bounded.
-            return (int)(minInclusive + (long)NextULongBounded(range));
+            return (int)((long)minInclusive + (long)offset);
         }
 
         /// <inheritdoc />
@@ -112,10 +124,19 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Random
         /// <inheritdoc />
         public float NextFloat(float minInclusive, float maxExclusive)
         {
+            if (float.IsNaN(minInclusive) || float.IsInfinity(minInclusive))
+                throw new ArgumentOutOfRangeException(nameof(minInclusive), "minInclusive must be finite.");
             if (!(maxExclusive > minInclusive))
                 throw new ArgumentOutOfRangeException(nameof(maxExclusive), "maxExclusive must be > minInclusive.");
+            if (float.IsInfinity(maxExclusive))
+                throw new ArgumentOutOfRangeException(nameof(maxExclusive), "maxExclusive must be finite.");
 
-            return minInclusive + (maxExclusive - minInclusive) * NextFloat01();
+            // Calculate in double to avoid overflowing the intermediate range. The final
+            // float conversion may round upward, so explicitly preserve the exclusive bound.
+            float value = (float)(minInclusive
+                                  + ((double)maxExclusive - minInclusive) * NextFloat01());
+            if (value >= maxExclusive) return PreviousFloat(maxExclusive);
+            return value < minInclusive ? minInclusive : value;
         }
 
         /// <inheritdoc />
@@ -168,6 +189,8 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Random
         /// <inheritdoc />
         public void Advance(ulong delta)
         {
+            EnsureInitialized();
+
             // PCG "advance" using exponentiation by squaring.
             // State transition: state = state * Multiplier + inc (mod 2^64)
             ulong curMult = Multiplier;
@@ -224,6 +247,23 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Random
                 ulong r = NextULong();
                 if (r >= threshold) return r % bound;
             }
+        }
+
+        private void EnsureInitialized()
+        {
+            if ((_inc & 1UL) == 0UL)
+                throw new InvalidOperationException(
+                    "DeterministicRng was not initialized. Use a constructor or SetState before consuming it.");
+        }
+
+        private static float PreviousFloat(float value)
+        {
+            if (value == 0f)
+                return new FloatBits { Bits = unchecked((int)0x80000001) }.Value;
+
+            FloatBits bits = new() { Value = value };
+            bits.Bits += value > 0f ? -1 : 1;
+            return bits.Value;
         }
     }
 }

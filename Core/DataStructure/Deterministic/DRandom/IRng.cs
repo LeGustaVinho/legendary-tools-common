@@ -32,7 +32,10 @@ namespace LegendaryTools.Common.Core.Patterns.ECS.Random
         /// <summary>Returns a float in [0, 1).</summary>
         float NextFloat01();
 
-        /// <summary>Returns a float in [minInclusive, maxExclusive).</summary>
+        /// <summary>
+        /// Returns a float in [minInclusive, maxExclusive).
+        /// Floating-point APIs are not suitable for cross-runtime lockstep decisions.
+        /// </summary>
         float NextFloat(float minInclusive, float maxExclusive);
 
         /// <summary>Returns a double in [0, 1).</summary>

@@ -55,6 +55,16 @@ namespace LegendaryTools.Tests.DeterministicFixedPoint
         }
 
         [Test]
+        public void Initialize_RejectsUnknownOverflowMode()
+        {
+            if (DetConfigTestUtil.IsCompileTimeFixed)
+                Assert.Ignore("Compile-time fixed mode does not allow Initialize.");
+
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => DetConfig.Initialize((DetOverflowMode)int.MaxValue));
+        }
+
+        [Test]
         public void FromRaw_And_Raw_RoundTrip()
         {
             DetS32 v = DetS32.FromRaw(1234);

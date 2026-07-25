@@ -38,6 +38,7 @@ namespace DeterministicFixedPoint
 
         private static int sLocked; // 0 = false, 1 = true
         private static DetOverflowMode sMode = kCompileTimeMode;
+        private static readonly object sSync = new object();
 
         /// <summary>
         /// Current overflow mode. Reading this locks the config.
@@ -61,10 +62,16 @@ namespace DeterministicFixedPoint
                 throw new InvalidOperationException(
                     "DetConfig is compile-time fixed and cannot be initialized at runtime.");
 
-            if (Volatile.Read(ref sLocked) != 0)
-                throw new InvalidOperationException("DetConfig is locked after first use and cannot be changed.");
+            if (mode != DetOverflowMode.Wrap && mode != DetOverflowMode.Saturate)
+                throw new ArgumentOutOfRangeException(nameof(mode));
 
-            sMode = mode;
+            lock (sSync)
+            {
+                if (sLocked != 0)
+                    throw new InvalidOperationException("DetConfig is locked after first use and cannot be changed.");
+
+                sMode = mode;
+            }
         }
 
         /// <summary>
@@ -73,7 +80,12 @@ namespace DeterministicFixedPoint
         /// </summary>
         public static void Touch()
         {
-            Interlocked.Exchange(ref sLocked, 1);
+            if (Volatile.Read(ref sLocked) != 0) return;
+
+            lock (sSync)
+            {
+                Volatile.Write(ref sLocked, 1);
+            }
         }
 
         /// <summary>

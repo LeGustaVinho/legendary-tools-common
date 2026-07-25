@@ -45,6 +45,9 @@ namespace DeterministicFixedPoint
             return FromBigRawWithMode(scaled);
         }
 
+        public static implicit operator DetS64(int value) => FromLong(value);
+        public static implicit operator DetS64(long value) => FromLong(value);
+
         /// <summary>
         /// Authoring/UI only. Float is not allowed in simulation.
         /// Rounding: nearest; ties away from zero.
