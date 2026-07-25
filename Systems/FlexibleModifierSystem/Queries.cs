@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using DeterministicFixedPoint;
 
 namespace LegendaryTools.ModifierSystem
 {
@@ -86,11 +87,149 @@ namespace LegendaryTools.ModifierSystem
         }
     }
 
+    internal readonly struct QuerySourceDelta<T>
+    {
+        public bool HasItem { get; }
+        public bool Added { get; }
+        public T Item { get; }
+
+        private QuerySourceDelta(bool hasItem, bool added, T item)
+        {
+            HasItem = hasItem;
+            Added = added;
+            Item = item;
+        }
+
+        public static QuerySourceDelta<T> Signal() => new QuerySourceDelta<T>(false, false, default);
+        public static QuerySourceDelta<T> Add(T item) => new QuerySourceDelta<T>(true, true, item);
+        public static QuerySourceDelta<T> Remove(T item) => new QuerySourceDelta<T>(true, false, item);
+    }
+
+    internal interface IQueryDeltaSource<T>
+    {
+        IReadOnlyCollection<QueryDependencyKey> SupportedDependencies { get; }
+        IDisposable Subscribe(SimulationWorld world, Action<QuerySourceDelta<T>> observer);
+    }
+
+    internal sealed class RelationQueryDeltaSource<TFrom, TTo> : IQueryDeltaSource<TTo>
+        where TFrom : WorldEntity where TTo : WorldEntity
+    {
+        private readonly TFrom _source;
+        private readonly RelationDefinition<TFrom, TTo> _definition;
+        private readonly QueryDependencyKey[] _supported;
+
+        public IReadOnlyCollection<QueryDependencyKey> SupportedDependencies => _supported;
+
+        public RelationQueryDeltaSource(TFrom source, RelationDefinition<TFrom, TTo> definition)
+        {
+            _source = source;
+            _definition = definition;
+            _supported = new[]
+            {
+                new QueryDependencyKey(QueryDependencyKind.SourceRelation, definition, source.Id)
+            };
+        }
+
+        public IDisposable Subscribe(SimulationWorld world, Action<QuerySourceDelta<TTo>> observer)
+        {
+            if (world == null) throw new ArgumentNullException(nameof(world));
+            if (observer == null) throw new ArgumentNullException(nameof(observer));
+            void Handler(RelationMutation mutation)
+            {
+                if (!ReferenceEquals(mutation.Definition, _definition)) return;
+                if (mutation.From.Id != _source.Id) return;
+                if (!(mutation.To is TTo item)) return;
+                observer(mutation.Added
+                    ? QuerySourceDelta<TTo>.Add(item)
+                    : QuerySourceDelta<TTo>.Remove(item));
+            }
+            world.RelationMutated += Handler;
+            return new DelegateDisposable(() => world.RelationMutated -= Handler);
+        }
+    }
+
+    internal sealed class IncomingRelationQueryDeltaSource<TFrom, TTo> : IQueryDeltaSource<TFrom>
+        where TFrom : WorldEntity where TTo : WorldEntity
+    {
+        private readonly TTo _target;
+        private readonly RelationDefinition<TFrom, TTo> _definition;
+        private readonly QueryDependencyKey[] _supported;
+
+        public IReadOnlyCollection<QueryDependencyKey> SupportedDependencies => _supported;
+
+        public IncomingRelationQueryDeltaSource(TTo target, RelationDefinition<TFrom, TTo> definition)
+        {
+            _target = target;
+            _definition = definition;
+            _supported = new[] { new QueryDependencyKey(QueryDependencyKind.Relation, definition) };
+        }
+
+        public IDisposable Subscribe(SimulationWorld world, Action<QuerySourceDelta<TFrom>> observer)
+        {
+            if (world == null) throw new ArgumentNullException(nameof(world));
+            if (observer == null) throw new ArgumentNullException(nameof(observer));
+            void Handler(RelationMutation mutation)
+            {
+                if (!ReferenceEquals(mutation.Definition, _definition)) return;
+                if (mutation.To.Id != _target.Id)
+                {
+                    observer(QuerySourceDelta<TFrom>.Signal());
+                    return;
+                }
+                if (!(mutation.From is TFrom item)) return;
+                observer(mutation.Added
+                    ? QuerySourceDelta<TFrom>.Add(item)
+                    : QuerySourceDelta<TFrom>.Remove(item));
+            }
+            world.RelationMutated += Handler;
+            return new DelegateDisposable(() => world.RelationMutated -= Handler);
+        }
+    }
+
+    internal sealed class FilteredQueryDeltaSource<T> : IQueryDeltaSource<T>
+    {
+        private readonly IQueryDeltaSource<T> _inner;
+        private readonly Func<T, bool> _predicate;
+        public IReadOnlyCollection<QueryDependencyKey> SupportedDependencies => _inner.SupportedDependencies;
+
+        public FilteredQueryDeltaSource(IQueryDeltaSource<T> inner, Func<T, bool> predicate)
+        {
+            _inner = inner;
+            _predicate = predicate;
+        }
+
+        public IDisposable Subscribe(SimulationWorld world, Action<QuerySourceDelta<T>> observer) =>
+            _inner.Subscribe(world, delta =>
+            {
+                if (!delta.HasItem)
+                {
+                    observer(delta);
+                    return;
+                }
+                if (!delta.Added || _predicate(delta.Item)) observer(delta);
+            });
+    }
+
+    internal sealed class DelegateDisposable : IDisposable
+    {
+        private Action _dispose;
+        public DelegateDisposable(Action dispose) => _dispose = dispose;
+        public void Dispose()
+        {
+            Action dispose = _dispose;
+            if (dispose == null) return;
+            _dispose = null;
+            dispose();
+        }
+    }
+
     public sealed class PreparedQuery<T>
     {
         private readonly Func<SimulationWorld, IEnumerable<T>> _execute;
         private readonly QueryDependency[] _dependencies;
         private readonly IReadOnlyList<QueryDependencyKey> _dependencyKeys;
+        private readonly IQueryDeltaSource<T> _deltaSource;
+        private readonly Comparison<T> _ordering;
         private SimulationWorld _cachedWorld;
         private long[] _cachedDependencyVersions;
         private IReadOnlyList<T> _cache;
@@ -105,6 +244,13 @@ namespace LegendaryTools.ModifierSystem
 
         internal PreparedQuery(Func<SimulationWorld, IEnumerable<T>> execute,
             params QueryDependency[] dependencies)
+            : this(execute, null, null, dependencies)
+        {
+        }
+
+        internal PreparedQuery(Func<SimulationWorld, IEnumerable<T>> execute,
+            IQueryDeltaSource<T> deltaSource, Comparison<T> ordering,
+            params QueryDependency[] dependencies)
         {
             _execute = execute ?? throw new ArgumentNullException(nameof(execute));
             if (dependencies == null || dependencies.Length == 0)
@@ -114,6 +260,8 @@ namespace LegendaryTools.ModifierSystem
             _dependencies = dependencies.ToArray();
             _dependencyKeys = _dependencies.Select(item => item.Key).Distinct().ToArray();
             _cachedDependencyVersions = new long[_dependencies.Length];
+            _deltaSource = deltaSource;
+            _ordering = ordering;
         }
 
         public IReadOnlyList<T> Execute(SimulationWorld world)
@@ -122,13 +270,21 @@ namespace LegendaryTools.ModifierSystem
             if (!IsCacheValid(world))
             {
                 long[] dependencyVersions = CaptureDependencyVersions(world);
-                IReadOnlyList<T> cache = _execute(world).ToArray();
+                IReadOnlyList<T> cache = Materialize(_execute(world));
                 _cache = cache;
                 ExecutionCount++;
                 _cachedWorld = world;
                 _cachedDependencyVersions = dependencyVersions;
             }
             return _cache;
+        }
+
+        private static IReadOnlyList<T> Materialize(IEnumerable<T> values)
+        {
+            if (values == null) return Array.Empty<T>();
+            var result = new List<T>();
+            foreach (T value in values) result.Add(value);
+            return result.AsReadOnly();
         }
 
         private long[] CaptureDependencyVersions(SimulationWorld world)
@@ -162,22 +318,55 @@ namespace LegendaryTools.ModifierSystem
         public PreparedQuery<T> Where(Func<T, bool> predicate, params QueryDependency[] dependencies)
         {
             if (predicate == null) throw new ArgumentNullException(nameof(predicate));
-            Func<SimulationWorld, IEnumerable<T>> execute = world => Execute(world).Where(predicate);
+            Func<SimulationWorld, IEnumerable<T>> execute = world =>
+            {
+                IReadOnlyList<T> source = Execute(world);
+                var result = new List<T>();
+                for (int index = 0; index < source.Count; index++)
+                    if (predicate(source[index])) result.Add(source[index]);
+                return result;
+            };
             return HasDependencies(dependencies)
-                ? new PreparedQuery<T>(execute, CombineDependencies(dependencies))
-                : new PreparedQuery<T>(execute);
+                ? new PreparedQuery<T>(execute,
+                    _deltaSource == null ? null : new FilteredQueryDeltaSource<T>(_deltaSource, predicate),
+                    _ordering, CombineDependencies(dependencies))
+                : new PreparedQuery<T>(execute, null, _ordering,
+                    new QueryDependency(world => world.Version,
+                        new QueryDependencyKey(QueryDependencyKind.World)));
         }
 
         public PreparedQuery<T> Ordered<TKey>(Func<T, TKey> keySelector, bool descending = false,
             params QueryDependency[] dependencies)
         {
             if (keySelector == null) throw new ArgumentNullException(nameof(keySelector));
-            Func<SimulationWorld, IEnumerable<T>> execute = world => descending
-                ? Execute(world).OrderByDescending(keySelector)
-                : Execute(world).OrderBy(keySelector);
+            Func<SimulationWorld, IEnumerable<T>> execute = world =>
+            {
+                IReadOnlyList<T> source = Execute(world);
+                var indexed = new List<Tuple<T, int>>(source.Count);
+                for (int index = 0; index < source.Count; index++)
+                    indexed.Add(Tuple.Create(source[index], index));
+                Comparer<TKey> comparer = Comparer<TKey>.Default;
+                indexed.Sort((left, right) =>
+                {
+                    int value = comparer.Compare(keySelector(left.Item1), keySelector(right.Item1));
+                    if (descending) value = -value;
+                    return value != 0 ? value : left.Item2.CompareTo(right.Item2);
+                });
+                var result = new List<T>(indexed.Count);
+                for (int index = 0; index < indexed.Count; index++) result.Add(indexed[index].Item1);
+                return result;
+            };
+            Comparison<T> ordering = (left, right) =>
+            {
+                int value = Comparer<TKey>.Default.Compare(keySelector(left), keySelector(right));
+                if (descending) value = -value;
+                return value;
+            };
             return HasDependencies(dependencies)
-                ? new PreparedQuery<T>(execute, CombineDependencies(dependencies))
-                : new PreparedQuery<T>(execute);
+                ? new PreparedQuery<T>(execute, _deltaSource, ordering, CombineDependencies(dependencies))
+                : new PreparedQuery<T>(execute, null, ordering,
+                    new QueryDependency(world => world.Version,
+                        new QueryDependencyKey(QueryDependencyKind.World)));
         }
 
         public PreparedQuery<T> OrderBy<TKey>(Func<T, TKey> keySelector,
@@ -186,13 +375,62 @@ namespace LegendaryTools.ModifierSystem
         public PreparedQuery<T> OrderByDescending<TKey>(Func<T, TKey> keySelector,
             params QueryDependency[] dependencies) => Ordered(keySelector, true, dependencies);
 
-        public PreparedQuery<T> Take(int count) =>
-            new PreparedQuery<T>(world => Execute(world).Take(count), _dependencies);
+        public PreparedQuery<T> ThenBy<TKey>(Func<T, TKey> keySelector,
+            params QueryDependency[] dependencies) => ThenOrdered(keySelector, false, dependencies);
+
+        public PreparedQuery<T> ThenByDescending<TKey>(Func<T, TKey> keySelector,
+            params QueryDependency[] dependencies) => ThenOrdered(keySelector, true, dependencies);
+
+        public PreparedQuery<T> Take(int count)
+        {
+            if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
+            return new PreparedQuery<T>(world =>
+            {
+                IReadOnlyList<T> source = Execute(world);
+                int length = Math.Min(count, source.Count);
+                var result = new List<T>(length);
+                for (int index = 0; index < length; index++) result.Add(source[index]);
+                return result;
+            }, _dependencies);
+        }
+
+        public PreparedQuery<T> Skip(int count)
+        {
+            if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
+            return new PreparedQuery<T>(world =>
+            {
+                IReadOnlyList<T> source = Execute(world);
+                if (count >= source.Count) return Array.Empty<T>();
+                var result = new List<T>(source.Count - count);
+                for (int index = count; index < source.Count; index++) result.Add(source[index]);
+                return result;
+            }, _dependencies);
+        }
+
+        public PreparedQuery<T> Distinct(IEqualityComparer<T> comparer = null)
+        {
+            comparer = comparer ?? EqualityComparer<T>.Default;
+            return new PreparedQuery<T>(world =>
+            {
+                IReadOnlyList<T> source = Execute(world);
+                var seen = new HashSet<T>(comparer);
+                var result = new List<T>();
+                for (int index = 0; index < source.Count; index++)
+                    if (seen.Add(source[index])) result.Add(source[index]);
+                return result;
+            }, _dependencies);
+        }
         public PreparedQuery<TResult> Select<TResult>(Func<T, TResult> selector,
             params QueryDependency[] dependencies)
         {
             if (selector == null) throw new ArgumentNullException(nameof(selector));
-            Func<SimulationWorld, IEnumerable<TResult>> execute = world => Execute(world).Select(selector);
+            Func<SimulationWorld, IEnumerable<TResult>> execute = world =>
+            {
+                IReadOnlyList<T> source = Execute(world);
+                var result = new List<TResult>(source.Count);
+                for (int index = 0; index < source.Count; index++) result.Add(selector(source[index]));
+                return result;
+            };
             return HasDependencies(dependencies)
                 ? new PreparedQuery<TResult>(execute, CombineDependencies(dependencies))
                 : new PreparedQuery<TResult>(execute);
@@ -202,7 +440,18 @@ namespace LegendaryTools.ModifierSystem
             params QueryDependency[] dependencies)
         {
             if (selector == null) throw new ArgumentNullException(nameof(selector));
-            Func<SimulationWorld, IEnumerable<TResult>> execute = world => Execute(world).SelectMany(selector);
+            Func<SimulationWorld, IEnumerable<TResult>> execute = world =>
+            {
+                IReadOnlyList<T> source = Execute(world);
+                var result = new List<TResult>();
+                for (int index = 0; index < source.Count; index++)
+                {
+                    IEnumerable<TResult> selected = selector(source[index]);
+                    if (selected == null) continue;
+                    foreach (TResult item in selected) result.Add(item);
+                }
+                return result;
+            };
             return HasDependencies(dependencies)
                 ? new PreparedQuery<TResult>(execute, CombineDependencies(dependencies))
                 : new PreparedQuery<TResult>(execute);
@@ -212,8 +461,39 @@ namespace LegendaryTools.ModifierSystem
             params QueryDependency[] dependencies)
         {
             if (keySelector == null) throw new ArgumentNullException(nameof(keySelector));
-            Func<SimulationWorld, IEnumerable<QueryGroup<TKey, T>>> execute = world => Execute(world)
-                .GroupBy(keySelector).Select(group => new QueryGroup<TKey, T>(group.Key, group));
+            Func<SimulationWorld, IEnumerable<QueryGroup<TKey, T>>> execute = world =>
+            {
+                IReadOnlyList<T> source = Execute(world);
+                var groups = new Dictionary<TKey, List<T>>();
+                var order = new List<TKey>();
+                var nullGroup = new List<T>();
+                bool hasNullGroup = false;
+                for (int index = 0; index < source.Count; index++)
+                {
+                    TKey key = keySelector(source[index]);
+                    if (ReferenceEquals(key, null))
+                    {
+                        if (!hasNullGroup)
+                        {
+                            order.Add(key);
+                            hasNullGroup = true;
+                        }
+                        nullGroup.Add(source[index]);
+                        continue;
+                    }
+                    if (!groups.TryGetValue(key, out List<T> values))
+                    {
+                        groups.Add(key, values = new List<T>());
+                        order.Add(key);
+                    }
+                    values.Add(source[index]);
+                }
+                var result = new List<QueryGroup<TKey, T>>(order.Count);
+                foreach (TKey key in order)
+                    result.Add(new QueryGroup<TKey, T>(key,
+                        ReferenceEquals(key, null) ? nullGroup : groups[key]));
+                return result;
+            };
             return HasDependencies(dependencies)
                 ? new PreparedQuery<QueryGroup<TKey, T>>(execute, CombineDependencies(dependencies))
                 : new PreparedQuery<QueryGroup<TKey, T>>(execute);
@@ -228,7 +508,31 @@ namespace LegendaryTools.ModifierSystem
             if (rightKey == null) throw new ArgumentNullException(nameof(rightKey));
             if (result == null) throw new ArgumentNullException(nameof(result));
             Func<SimulationWorld, IEnumerable<TResult>> execute = world =>
-                Execute(world).Join(other.Execute(world), leftKey, rightKey, result);
+            {
+                IReadOnlyList<T> left = Execute(world);
+                IReadOnlyList<TOther> right = other.Execute(world);
+                var lookup = new Dictionary<TKey, List<TOther>>();
+                var nulls = new List<TOther>();
+                for (int index = 0; index < right.Count; index++)
+                {
+                    TKey key = rightKey(right[index]);
+                    if (ReferenceEquals(key, null)) { nulls.Add(right[index]); continue; }
+                    if (!lookup.TryGetValue(key, out List<TOther> values))
+                        lookup.Add(key, values = new List<TOther>());
+                    values.Add(right[index]);
+                }
+                var joined = new List<TResult>();
+                for (int index = 0; index < left.Count; index++)
+                {
+                    TKey key = leftKey(left[index]);
+                    List<TOther> matches;
+                    if (ReferenceEquals(key, null)) matches = nulls;
+                    else if (!lookup.TryGetValue(key, out matches)) continue;
+                    for (int match = 0; match < matches.Count; match++)
+                        joined.Add(result(left[index], matches[match]));
+                }
+                return joined;
+            };
             return HasDependencies(dependencies)
                 ? new PreparedQuery<TResult>(execute,
                     CombineDependencies(other._dependencies.Concat(dependencies).ToArray()))
@@ -254,6 +558,63 @@ namespace LegendaryTools.ModifierSystem
         }
         public bool None(SimulationWorld world, Func<T, bool> predicate = null) => !Any(world, predicate);
         public int Count(SimulationWorld world) => Execute(world).Count;
+        public T First(SimulationWorld world, Func<T, bool> predicate = null)
+        {
+            IReadOnlyList<T> values = Execute(world);
+            if (predicate == null)
+            {
+                if (values.Count != 0) return values[0];
+            }
+            else
+            {
+                for (int index = 0; index < values.Count; index++)
+                    if (predicate(values[index])) return values[index];
+            }
+            throw new InvalidOperationException("Sequence contains no matching element.");
+        }
+
+        public T FirstOrDefault(SimulationWorld world, Func<T, bool> predicate = null)
+        {
+            IReadOnlyList<T> values = Execute(world);
+            if (predicate == null) return values.Count == 0 ? default : values[0];
+            for (int index = 0; index < values.Count; index++)
+                if (predicate(values[index])) return values[index];
+            return default;
+        }
+
+        public T Single(SimulationWorld world, Func<T, bool> predicate = null)
+        {
+            IReadOnlyList<T> values = Execute(world);
+            bool found = false;
+            T result = default;
+            for (int index = 0; index < values.Count; index++)
+            {
+                T candidate = values[index];
+                if (predicate != null && !predicate(candidate)) continue;
+                if (found) throw new InvalidOperationException("Sequence contains more than one matching element.");
+                result = candidate;
+                found = true;
+            }
+            if (!found) throw new InvalidOperationException("Sequence contains no matching element.");
+            return result;
+        }
+
+        public T SingleOrDefault(SimulationWorld world, Func<T, bool> predicate = null)
+        {
+            IReadOnlyList<T> values = Execute(world);
+            bool found = false;
+            T result = default;
+            for (int index = 0; index < values.Count; index++)
+            {
+                T candidate = values[index];
+                if (predicate != null && !predicate(candidate)) continue;
+                if (found) throw new InvalidOperationException("Sequence contains more than one matching element.");
+                result = candidate;
+                found = true;
+            }
+            return result;
+        }
+
         public TValue Sum<TValue>(SimulationWorld world, Func<T, TValue> selector, Func<TValue, TValue, TValue> add,
             TValue zero)
         {
@@ -265,14 +626,14 @@ namespace LegendaryTools.ModifierSystem
             return result;
         }
 
-        public double Average(SimulationWorld world, Func<T, double> selector)
+        public DetS64 Average(SimulationWorld world, Func<T, DetS64> selector)
         {
             if (selector == null) throw new ArgumentNullException(nameof(selector));
             IReadOnlyList<T> values = Execute(world);
             if (values.Count == 0) throw new InvalidOperationException("Sequence contains no elements.");
-            double sum = 0d;
+            DetS64 sum = DetS64.Zero;
             for (int index = 0; index < values.Count; index++) sum += selector(values[index]);
-            return sum / values.Count;
+            return sum / DetS64.FromLong(values.Count);
         }
 
         public T MaxBy<TKey>(SimulationWorld world, Func<T, TKey> selector) =>
@@ -294,6 +655,42 @@ namespace LegendaryTools.ModifierSystem
 
         private static bool HasDependencies(QueryDependency[] dependencies) =>
             dependencies != null && dependencies.Length != 0;
+
+        private PreparedQuery<T> ThenOrdered<TKey>(Func<T, TKey> keySelector, bool descending,
+            QueryDependency[] dependencies)
+        {
+            if (_ordering == null)
+                throw new InvalidOperationException("ThenBy requires a preceding OrderBy or OrderByDescending.");
+            if (keySelector == null) throw new ArgumentNullException(nameof(keySelector));
+            Comparison<T> combined = (left, right) =>
+            {
+                int primary = _ordering(left, right);
+                if (primary != 0) return primary;
+                int value = Comparer<TKey>.Default.Compare(keySelector(left), keySelector(right));
+                if (descending) value = -value;
+                return value;
+            };
+            Func<SimulationWorld, IEnumerable<T>> execute = world =>
+            {
+                IReadOnlyList<T> source = Execute(world);
+                var indexed = new List<Tuple<T, int>>(source.Count);
+                for (int index = 0; index < source.Count; index++)
+                    indexed.Add(Tuple.Create(source[index], index));
+                indexed.Sort((left, right) =>
+                {
+                    int comparison = combined(left.Item1, right.Item1);
+                    return comparison != 0 ? comparison : left.Item2.CompareTo(right.Item2);
+                });
+                var result = new List<T>(indexed.Count);
+                for (int index = 0; index < indexed.Count; index++) result.Add(indexed[index].Item1);
+                return result;
+            };
+            return HasDependencies(dependencies)
+                ? new PreparedQuery<T>(execute, _deltaSource, combined, CombineDependencies(dependencies))
+                : new PreparedQuery<T>(execute, null, combined,
+                    new QueryDependency(world => world.Version,
+                        new QueryDependencyKey(QueryDependencyKind.World)));
+        }
 
         private T ExtremeBy<TKey>(SimulationWorld world, Func<T, TKey> selector, bool maximum)
         {
@@ -347,6 +744,31 @@ namespace LegendaryTools.ModifierSystem
         }
 
         internal IReadOnlyList<QueryDependencyKey> DependencyKeys => _dependencyKeys;
+        internal IQueryDeltaSource<T> DeltaSource => _deltaSource;
+        internal Comparison<T> IncrementalOrdering => _ordering;
+
+        internal long[] CaptureDependencyVersionVector(SimulationWorld world) =>
+            CaptureDependencyVersions(world);
+
+        internal bool AreChangesCovered(SimulationWorld world, long[] previous,
+            IReadOnlyCollection<QueryDependencyKey> supported)
+        {
+            if (previous == null || previous.Length != _dependencies.Length || supported == null) return false;
+            var keys = new HashSet<QueryDependencyKey>(supported);
+            for (int index = 0; index < _dependencies.Length; index++)
+            {
+                long current = _dependencies[index].Version(world);
+                if (current != previous[index] && !keys.Contains(_dependencies[index].Key)) return false;
+            }
+            return true;
+        }
+
+        internal void AcceptIncrementalSnapshot(SimulationWorld world, IReadOnlyList<T> snapshot)
+        {
+            _cache = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
+            _cachedWorld = world ?? throw new ArgumentNullException(nameof(world));
+            _cachedDependencyVersions = CaptureDependencyVersions(world);
+        }
     }
 
     public readonly struct QueryItemUpdate<TKey, T>
@@ -389,18 +811,23 @@ namespace LegendaryTools.ModifierSystem
         }
     }
 
-    public sealed class MaterializedQuery<T, TKey>
+    public sealed class MaterializedQuery<T, TKey> : IDisposable
     {
         private readonly PreparedQuery<T> _query;
         private readonly Func<T, TKey> _keySelector;
         private readonly IEqualityComparer<TKey> _keyComparer;
         private readonly IEqualityComparer<T> _valueComparer;
         private Dictionary<TKey, T> _items;
+        private Dictionary<TKey, int> _keyPositions;
         private List<TKey> _orderedKeys;
         private IReadOnlyList<T> _current = Array.Empty<T>();
         private IReadOnlyList<T> _sourceSnapshot;
         private SimulationWorld _world;
         private bool _initialized;
+        private IDisposable _deltaSubscription;
+        private readonly List<QuerySourceDelta<T>> _pendingSourceDeltas = new List<QuerySourceDelta<T>>();
+        private bool _pendingSourceSignal;
+        private long[] _dependencyVersions;
 
         public event Action<QueryDelta<T, TKey>> Changed;
 
@@ -408,6 +835,7 @@ namespace LegendaryTools.ModifierSystem
         public bool IsInitialized => _initialized;
         public long RefreshCount { get; private set; }
         public long DiffCount { get; private set; }
+        public long IncrementalUpdateCount { get; private set; }
 
         public MaterializedQuery(PreparedQuery<T> query, Func<T, TKey> keySelector,
             IEqualityComparer<TKey> keyComparer = null, IEqualityComparer<T> valueComparer = null)
@@ -417,6 +845,7 @@ namespace LegendaryTools.ModifierSystem
             _keyComparer = keyComparer ?? EqualityComparer<TKey>.Default;
             _valueComparer = valueComparer ?? EqualityComparer<T>.Default;
             _items = new Dictionary<TKey, T>(_keyComparer);
+            _keyPositions = new Dictionary<TKey, int>(_keyComparer);
             _orderedKeys = new List<TKey>();
         }
 
@@ -425,9 +854,14 @@ namespace LegendaryTools.ModifierSystem
             if (world == null) throw new ArgumentNullException(nameof(world));
             if (_world != null && !ReferenceEquals(_world, world))
                 throw new InvalidOperationException("A materialized query cannot be shared between simulation worlds.");
+            RefreshCount++;
+
+            if (_initialized && _pendingSourceSignal && _query.DeltaSource != null &&
+                _query.AreChangesCovered(world, _dependencyVersions,
+                    _query.DeltaSource.SupportedDependencies))
+                return ApplyPendingSourceDeltas(world);
 
             IReadOnlyList<T> source = _query.Execute(world);
-            RefreshCount++;
             if (_initialized && ReferenceEquals(source, _sourceSnapshot)) return QueryDelta<T, TKey>.Empty;
 
             var nextItems = new Dictionary<TKey, T>(_keyComparer);
@@ -466,12 +900,218 @@ namespace LegendaryTools.ModifierSystem
             _world = world;
             _items = nextItems;
             _orderedKeys = nextKeys;
+            RebuildKeyPositions();
             _current = nextValues.AsReadOnly();
             _sourceSnapshot = source;
             _initialized = true;
+            _dependencyVersions = _query.CaptureDependencyVersionVector(world);
+            _pendingSourceDeltas.Clear();
+            _pendingSourceSignal = false;
+            EnsureDeltaSubscription(world);
             DiffCount++;
             if (delta.HasChanges) Changed?.Invoke(delta);
             return delta;
+        }
+
+        /// <summary>
+        /// Applies a producer-supplied keyed delta without executing or diffing the
+        /// complete prepared query. This is the preferred path for indexed stores
+        /// that already know which keys changed.
+        /// </summary>
+        public QueryDelta<T, TKey> ApplyDelta(SimulationWorld world, IEnumerable<T> upserted,
+            IEnumerable<TKey> removedKeys)
+        {
+            if (world == null) throw new ArgumentNullException(nameof(world));
+            if (!_initialized || !ReferenceEquals(_world, world))
+                throw new InvalidOperationException(
+                    "Initialize the materialized query with Refresh before applying deltas.");
+            var added = new List<T>();
+            var removed = new List<T>();
+            var updated = new List<QueryItemUpdate<TKey, T>>();
+            var previousKeys = new List<TKey>(_orderedKeys);
+            var previousKeySet = new HashSet<TKey>(previousKeys, _keyComparer);
+
+            foreach (TKey key in removedKeys ?? Enumerable.Empty<TKey>())
+            {
+                if (ReferenceEquals(key, null))
+                    throw new InvalidOperationException("Materialized query keys cannot be null.");
+                if (!_items.TryGetValue(key, out T previous)) continue;
+                int index = FindKeyIndex(key);
+                _items.Remove(key);
+                _orderedKeys.RemoveAt(index);
+                _keyPositions.Remove(key);
+                UpdateKeyPositionsFrom(index);
+                removed.Add(previous);
+            }
+
+            foreach (T item in upserted ?? Enumerable.Empty<T>())
+            {
+                TKey key = _keySelector(item);
+                if (ReferenceEquals(key, null))
+                    throw new InvalidOperationException("Materialized query keys cannot be null.");
+                if (_items.TryGetValue(key, out T previous))
+                {
+                    if (_valueComparer.Equals(previous, item)) continue;
+                    _items[key] = item;
+                    updated.Add(new QueryItemUpdate<TKey, T>(key, previous, item));
+                }
+                else
+                {
+                    _items.Add(key, item);
+                    _orderedKeys.Add(key);
+                    _keyPositions.Add(key, _orderedKeys.Count - 1);
+                    added.Add(item);
+                }
+            }
+
+            SortOrderedKeys(previousKeys);
+            var values = new List<T>(_orderedKeys.Count);
+            foreach (TKey key in _orderedKeys) values.Add(_items[key]);
+            _current = values.AsReadOnly();
+            _sourceSnapshot = null;
+            bool orderChanged = HasRetainedOrderChanged(previousKeys, previousKeySet);
+            var delta = new QueryDelta<T, TKey>(false, added, removed, updated, orderChanged);
+            IncrementalUpdateCount++;
+            DiffCount++;
+            if (delta.HasChanges) Changed?.Invoke(delta);
+            return delta;
+        }
+
+        private int FindKeyIndex(TKey key)
+        {
+            if (_keyPositions.TryGetValue(key, out int index)) return index;
+            throw new InvalidOperationException($"Materialized query key '{key}' is not indexed.");
+        }
+
+        private QueryDelta<T, TKey> ApplyPendingSourceDeltas(SimulationWorld world)
+        {
+            var previousKeys = new List<TKey>(_orderedKeys);
+            var previousKeySet = new HashSet<TKey>(previousKeys, _keyComparer);
+            var touched = new Dictionary<TKey, Tuple<bool, T>>(_keyComparer);
+
+            foreach (QuerySourceDelta<T> sourceDelta in _pendingSourceDeltas)
+            {
+                if (!sourceDelta.HasItem) continue;
+                TKey key = _keySelector(sourceDelta.Item);
+                if (ReferenceEquals(key, null))
+                    throw new InvalidOperationException("Materialized query keys cannot be null.");
+                if (!touched.ContainsKey(key))
+                    touched.Add(key, _items.TryGetValue(key, out T previous)
+                        ? Tuple.Create(true, previous)
+                        : Tuple.Create(false, default(T)));
+
+                if (sourceDelta.Added)
+                {
+                    if (!_items.ContainsKey(key))
+                    {
+                        _orderedKeys.Add(key);
+                        _keyPositions.Add(key, _orderedKeys.Count - 1);
+                    }
+                    _items[key] = sourceDelta.Item;
+                }
+                else if (_items.Remove(key))
+                {
+                    int index = FindKeyIndex(key);
+                    _orderedKeys.RemoveAt(index);
+                    _keyPositions.Remove(key);
+                    UpdateKeyPositionsFrom(index);
+                }
+            }
+
+            SortOrderedKeys(previousKeys);
+
+            var added = new List<T>();
+            var removed = new List<T>();
+            var updated = new List<QueryItemUpdate<TKey, T>>();
+            foreach (TKey key in previousKeys)
+            {
+                if (touched.TryGetValue(key, out Tuple<bool, T> change) &&
+                    change.Item1 && !_items.ContainsKey(key))
+                    removed.Add(change.Item2);
+            }
+            foreach (TKey key in _orderedKeys)
+            {
+                if (!touched.TryGetValue(key, out Tuple<bool, T> change)) continue;
+                T current = _items[key];
+                if (!change.Item1) added.Add(current);
+                else if (!_valueComparer.Equals(change.Item2, current))
+                    updated.Add(new QueryItemUpdate<TKey, T>(key, change.Item2, current));
+            }
+
+            var values = new List<T>(_orderedKeys.Count);
+            foreach (TKey key in _orderedKeys) values.Add(_items[key]);
+            bool orderChanged = HasRetainedOrderChanged(previousKeys, previousKeySet);
+            _current = values.AsReadOnly();
+            _query.AcceptIncrementalSnapshot(world, _current);
+            _sourceSnapshot = _current;
+            _dependencyVersions = _query.CaptureDependencyVersionVector(world);
+            _pendingSourceDeltas.Clear();
+            _pendingSourceSignal = false;
+            IncrementalUpdateCount++;
+            DiffCount++;
+            var delta = new QueryDelta<T, TKey>(false, added, removed, updated, orderChanged);
+            if (delta.HasChanges) Changed?.Invoke(delta);
+            return delta;
+        }
+
+        private bool HasRetainedOrderChanged(IReadOnlyList<TKey> previousKeys, HashSet<TKey> previousKeySet)
+        {
+            var previousRetained = new List<TKey>();
+            foreach (TKey key in previousKeys)
+                if (_items.ContainsKey(key)) previousRetained.Add(key);
+            var currentRetained = new List<TKey>();
+            foreach (TKey key in _orderedKeys)
+                if (previousKeySet.Contains(key)) currentRetained.Add(key);
+            if (previousRetained.Count != currentRetained.Count) return true;
+            for (int index = 0; index < previousRetained.Count; index++)
+                if (!_keyComparer.Equals(previousRetained[index], currentRetained[index])) return true;
+            return false;
+        }
+
+        private void EnsureDeltaSubscription(SimulationWorld world)
+        {
+            if (_deltaSubscription != null || _query.DeltaSource == null) return;
+            _deltaSubscription = _query.DeltaSource.Subscribe(world, delta =>
+            {
+                _pendingSourceSignal = true;
+                if (delta.HasItem) _pendingSourceDeltas.Add(delta);
+            });
+        }
+
+        private void RebuildKeyPositions()
+        {
+            _keyPositions = new Dictionary<TKey, int>(_keyComparer);
+            for (int index = 0; index < _orderedKeys.Count; index++)
+                _keyPositions.Add(_orderedKeys[index], index);
+        }
+
+        private void SortOrderedKeys(IReadOnlyList<TKey> previousKeys)
+        {
+            Comparison<T> ordering = _query.IncrementalOrdering;
+            if (ordering == null || _orderedKeys.Count <= 1) return;
+            var previousRanks = new Dictionary<TKey, int>(_keyComparer);
+            for (int index = 0; index < previousKeys.Count; index++)
+                previousRanks[previousKeys[index]] = index;
+            int nextRank = previousRanks.Count;
+            foreach (TKey key in _orderedKeys)
+                if (!previousRanks.ContainsKey(key)) previousRanks.Add(key, nextRank++);
+            _orderedKeys.Sort((leftKey, rightKey) =>
+            {
+                T left = _items[leftKey];
+                T right = _items[rightKey];
+                int comparison = ordering(left, right);
+                if (comparison != 0) return comparison;
+                if (left is WorldEntity leftEntity && right is WorldEntity rightEntity)
+                    return leftEntity.Id.CompareTo(rightEntity.Id);
+                return previousRanks[leftKey].CompareTo(previousRanks[rightKey]);
+            });
+            RebuildKeyPositions();
+        }
+
+        private void UpdateKeyPositionsFrom(int index)
+        {
+            for (int current = index; current < _orderedKeys.Count; current++)
+                _keyPositions[_orderedKeys[current]] = current;
         }
 
         private bool HasOrderChanged(IReadOnlyDictionary<TKey, T> nextItems, IReadOnlyList<TKey> nextKeys)
@@ -497,6 +1137,14 @@ namespace LegendaryTools.ModifierSystem
         }
 
         internal IReadOnlyList<QueryDependencyKey> DependencyKeys => _query.DependencyKeys;
+
+        public void Dispose()
+        {
+            _deltaSubscription?.Dispose();
+            _deltaSubscription = null;
+            _pendingSourceDeltas.Clear();
+            _pendingSourceSignal = false;
+        }
     }
 
     public static class PreparedQueryMaterializationExtensions
@@ -877,10 +1525,25 @@ namespace LegendaryTools.ModifierSystem
                 throw new InvalidOperationException("Related queries require an attached source entity.");
             if (relation == null) throw new ArgumentNullException(nameof(relation));
             return new PreparedQuery<TTo>(world => world.Related(source, relation),
-                new QueryDependency(world => world.StructureQueryVersion,
-                    new QueryDependencyKey(QueryDependencyKind.Structure)),
+                new RelationQueryDeltaSource<TFrom, TTo>(source, relation),
+                (left, right) => left.Id.CompareTo(right.Id),
                 new QueryDependency(world => world.GetRelationQueryVersion(relation, source),
                     new QueryDependencyKey(QueryDependencyKind.SourceRelation, relation, source.Id)));
+        }
+
+        public static PreparedQuery<TFrom> RelatedFrom<TFrom, TTo>(TTo target,
+            RelationDefinition<TFrom, TTo> relation)
+            where TFrom : WorldEntity where TTo : WorldEntity
+        {
+            if (target == null) throw new ArgumentNullException(nameof(target));
+            if (target.World == null)
+                throw new InvalidOperationException("Inverse related queries require an attached target entity.");
+            if (relation == null) throw new ArgumentNullException(nameof(relation));
+            return new PreparedQuery<TFrom>(world => world.RelatedFrom(target, relation),
+                new IncomingRelationQueryDeltaSource<TFrom, TTo>(target, relation),
+                (left, right) => left.Id.CompareTo(right.Id),
+                new QueryDependency(world => world.GetRelationQueryVersion(relation),
+                    new QueryDependencyKey(QueryDependencyKind.Relation, relation)));
         }
 
         public static PreparedQuery<TNext> Traverse<TFrom, TMiddle, TNext>(TFrom source,
@@ -892,15 +1555,40 @@ namespace LegendaryTools.ModifierSystem
                 throw new InvalidOperationException("Traversal queries require an attached source entity.");
             if (first == null) throw new ArgumentNullException(nameof(first));
             if (second == null) throw new ArgumentNullException(nameof(second));
-            return new PreparedQuery<TNext>(world => world.Related(source, first)
-                    .SelectMany(item => world.Related(item, second))
-                    .OrderBy(item => item.Id).Distinct(),
-                new QueryDependency(world => world.StructureQueryVersion,
-                    new QueryDependencyKey(QueryDependencyKind.Structure)),
-                new QueryDependency(world => world.GetRelationQueryVersion(first, source),
-                    new QueryDependencyKey(QueryDependencyKind.SourceRelation, first, source.Id)),
-                new QueryDependency(world => world.GetRelationQueryVersion(second),
-                    new QueryDependencyKey(QueryDependencyKind.Relation, second)));
+            return Related(source, first).Follow(second);
+        }
+    }
+
+    public static class GraphQueryExtensions
+    {
+        /// <summary>
+        /// Extends a typed graph path by one edge. Calls can be chained to traverse
+        /// an arbitrary number of named relations.
+        /// </summary>
+        public static PreparedQuery<TNext> Follow<TCurrent, TNext>(
+            this PreparedQuery<TCurrent> query,
+            RelationDefinition<TCurrent, TNext> relation)
+            where TCurrent : WorldEntity where TNext : WorldEntity
+        {
+            if (query == null) throw new ArgumentNullException(nameof(query));
+            if (relation == null) throw new ArgumentNullException(nameof(relation));
+            return query.SelectMany(current => current.Related(relation),
+                    Query.DependsOnRelation(relation))
+                .Distinct()
+                .OrderBy(item => item.Id);
+        }
+
+        public static PreparedQuery<TPrevious> FollowIncoming<TPrevious, TCurrent>(
+            this PreparedQuery<TCurrent> query,
+            RelationDefinition<TPrevious, TCurrent> relation)
+            where TPrevious : WorldEntity where TCurrent : WorldEntity
+        {
+            if (query == null) throw new ArgumentNullException(nameof(query));
+            if (relation == null) throw new ArgumentNullException(nameof(relation));
+            return query.SelectMany(current => current.World.RelatedFrom(current, relation),
+                    Query.DependsOnRelation(relation))
+                .Distinct()
+                .OrderBy(item => item.Id);
         }
     }
 

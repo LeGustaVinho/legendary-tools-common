@@ -1,3 +1,6 @@
 {
-	"name": "LegendaryTools.FlexibleModifierSystem"
+    "name": "LegendaryTools.FlexibleModifierSystem",
+    "references": [
+        "LegendaryTools"
+    ]
 }

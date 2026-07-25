@@ -18,10 +18,12 @@ namespace LegendaryTools.ModifierSystem
         public bool DefaultValue { get; }
         public int RequiredAllowCount { get; }
         public IReadOnlyList<string> RequiredSources { get; }
+        public IReadOnlyList<StableId<CapabilitySourceIdKind>> RequiredSourceIds { get; }
 
         public CapabilityDefinition(string id, CapabilityResolutionPolicy policy,
             bool defaultValue = false, int requiredAllowCount = 0,
-            IEnumerable<string> requiredSources = null)
+            IEnumerable<string> requiredSources = null,
+            IEnumerable<StableId<CapabilitySourceIdKind>> requiredSourceIds = null)
         {
             if (requiredAllowCount < 0) throw new ArgumentOutOfRangeException(nameof(requiredAllowCount));
             Id = new StableId<CapabilityIdKind>(id);
@@ -32,6 +34,13 @@ namespace LegendaryTools.ModifierSystem
                 .Select(item => item ?? string.Empty)
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(item => item, StringComparer.Ordinal)
+                .ToArray());
+            RequiredSourceIds = Array.AsReadOnly(RequiredSources
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => new StableId<CapabilitySourceIdKind>(item))
+                .Concat(requiredSourceIds ?? Enumerable.Empty<StableId<CapabilitySourceIdKind>>())
+                .Distinct()
+                .OrderBy(item => item)
                 .ToArray());
         }
 
@@ -47,16 +56,19 @@ namespace LegendaryTools.ModifierSystem
         public int Priority { get; }
         public EntityId? SourceId { get; }
         public string Source { get; }
+        public StableId<CapabilitySourceIdKind>? SourceKey { get; }
         public Guid? ModifierInstanceId { get; }
 
         public CapabilityDecisionContribution(Guid id, CapabilityContribution decision, int priority,
-            EntityId? sourceId, string source, Guid? modifierInstanceId = null)
+            EntityId? sourceId, string source, Guid? modifierInstanceId = null,
+            StableId<CapabilitySourceIdKind>? sourceKey = null)
         {
             Id = id;
             Decision = decision;
             Priority = priority;
             SourceId = sourceId;
             Source = source ?? string.Empty;
+            SourceKey = sourceKey;
             ModifierInstanceId = modifierInstanceId;
         }
     }
@@ -90,6 +102,19 @@ namespace LegendaryTools.ModifierSystem
         IReadOnlyList<CapabilityDecisionContribution> Contributions { get; }
         void Add(CapabilityDecisionContribution contribution);
         bool Remove(Guid id);
+    }
+
+    internal sealed class CapabilityContributionRollbackState
+    {
+        public ICapabilitySlot Slot { get; }
+        public CapabilityDecisionContribution Contribution { get; }
+
+        public CapabilityContributionRollbackState(ICapabilitySlot slot,
+            CapabilityDecisionContribution contribution)
+        {
+            Slot = slot;
+            Contribution = contribution;
+        }
     }
 
     internal sealed class CapabilitySlot<TEntity> : ICapabilitySlot where TEntity : WorldEntity
@@ -145,11 +170,11 @@ namespace LegendaryTools.ModifierSystem
                     else
                     {
                         int allows = _contributions.Count(item => item.Decision == CapabilityContribution.Allow);
-                        bool requiredSourcesAllow = _definition.RequiredSources.Count == 0 ||
-                            _definition.RequiredSources.All(required =>
+                        bool requiredSourcesAllow = _definition.RequiredSourceIds.Count == 0 ||
+                            _definition.RequiredSourceIds.All(required =>
                                 _contributions.Any(item =>
                                     item.Decision == CapabilityContribution.Allow &&
-                                    string.Equals(item.Source, required, StringComparison.Ordinal)));
+                                    item.SourceKey.HasValue && item.SourceKey.Value == required));
                         result = requiredSourcesAllow && (_definition.RequiredAllowCount == 0
                             ? (allows > 0 || _definition.DefaultValue)
                             : allows >= _definition.RequiredAllowCount);
@@ -216,11 +241,27 @@ namespace LegendaryTools.ModifierSystem
             WorldEntity source = null, int priority = 0, string sourceDescription = null)
             where TEntity : WorldEntity
         {
+            EnsureMutationAllowed();
             RequireOwned(owner);
             if (source != null) RequireOwned(source);
             RegisterCapability(definition);
             Guid id = AddCapabilityContribution(owner, definition, decision, source, priority,
                 sourceDescription, null, null);
+            return new CapabilityContributionHandle(this, id);
+        }
+
+        public CapabilityContributionHandle ContributeCapability<TEntity>(TEntity owner,
+            CapabilityDefinition<TEntity> definition, CapabilityContribution decision,
+            StableId<CapabilitySourceIdKind> sourceKey, WorldEntity source = null, int priority = 0,
+            string sourceDescription = null)
+            where TEntity : WorldEntity
+        {
+            EnsureMutationAllowed();
+            RequireOwned(owner);
+            if (source != null) RequireOwned(source);
+            RegisterCapability(definition);
+            Guid id = AddCapabilityContribution(owner, definition, decision, source, priority,
+                sourceDescription ?? sourceKey.Value, null, null, sourceKey);
             return new CapabilityContributionHandle(this, id);
         }
 
@@ -234,15 +275,38 @@ namespace LegendaryTools.ModifierSystem
 
         internal void RemoveCapabilityContribution(Guid id)
         {
+            EnsureMutationAllowed();
             if (!_capabilityContributionOwners.TryGetValue(id, out ICapabilitySlot slot)) return;
             slot.Remove(id);
             _capabilityContributionOwners.Remove(id);
             AdvanceVersion();
         }
 
+        internal CapabilityContributionRollbackState RemoveCapabilityContributionForEffect(Guid id)
+        {
+            EnsureMutationAllowed();
+            if (!_capabilityContributionOwners.TryGetValue(id, out ICapabilitySlot slot)) return null;
+            CapabilityDecisionContribution contribution =
+                slot.Contributions.First(item => item.Id == id);
+            slot.Remove(id);
+            _capabilityContributionOwners.Remove(id);
+            AdvanceVersion();
+            return new CapabilityContributionRollbackState(slot, contribution);
+        }
+
+        internal void RestoreCapabilityContributionForEffect(CapabilityContributionRollbackState state)
+        {
+            EnsureMutationAllowed();
+            if (state == null) throw new ArgumentNullException(nameof(state));
+            state.Slot.Add(state.Contribution);
+            _capabilityContributionOwners.Add(state.Contribution.Id, state.Slot);
+            AdvanceVersion();
+        }
+
         internal Guid AddCapabilityContribution<TEntity>(TEntity owner, CapabilityDefinition<TEntity> definition,
             CapabilityContribution decision, WorldEntity source, int priority, string sourceDescription,
-            Guid? contributionId, Guid? modifierInstanceId) where TEntity : WorldEntity
+            Guid? contributionId, Guid? modifierInstanceId,
+            StableId<CapabilitySourceIdKind>? sourceKey = null) where TEntity : WorldEntity
         {
             RequireOwned(owner);
             if (source != null) RequireOwned(source);
@@ -250,7 +314,10 @@ namespace LegendaryTools.ModifierSystem
             CapabilitySlot<TEntity> slot = GetCapabilitySlot(owner, definition);
             Guid id = contributionId ?? NextDeterministicGuid();
             slot.Add(new CapabilityDecisionContribution(id, decision, priority, source?.Id,
-                sourceDescription ?? source?.GetType().Name, modifierInstanceId));
+                sourceDescription ?? source?.GetType().Name, modifierInstanceId,
+                sourceKey ?? (!string.IsNullOrWhiteSpace(sourceDescription)
+                    ? new StableId<CapabilitySourceIdKind>(sourceDescription)
+                    : (StableId<CapabilitySourceIdKind>?)null)));
             _capabilityContributionOwners.Add(id, slot);
             AdvanceVersion();
             return id;

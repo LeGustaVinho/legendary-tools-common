@@ -16,6 +16,7 @@ namespace LegendaryTools.ModifierSystem
         public long? ExpirationTick { get; internal set; }
         public string StackingKey { get; internal set; }
         public bool IsActive { get; internal set; }
+        public ConditionEvaluationState SourceConditionEvaluation { get; internal set; }
         public IReadOnlyList<ModifierBindingState> Bindings => _bindings.AsReadOnly();
         internal void AddBinding(ModifierBindingState binding) => _bindings.Add(binding);
     }
@@ -41,9 +42,24 @@ namespace LegendaryTools.ModifierSystem
     }
 
     [Serializable]
+    public sealed class CollectionMembershipBindingState
+    {
+        private readonly List<long> _itemEntityIds = new List<long>();
+        private readonly List<long> _sequences = new List<long>();
+        public IReadOnlyList<long> ItemEntityIds => _itemEntityIds.AsReadOnly();
+        public IReadOnlyList<long> Sequences => _sequences.AsReadOnly();
+        internal void Add(EntityId itemId, long sequence)
+        {
+            _itemEntityIds.Add(itemId.Value);
+            _sequences.Add(sequence);
+        }
+    }
+
+    [Serializable]
     public sealed class SimulationRuntimeState
     {
         private readonly List<Guid> _completedEffectExecutions = new List<Guid>();
+        private readonly List<Guid> _compensatedEffectExecutions = new List<Guid>();
         private readonly List<ModifierInstanceState> _modifiers = new List<ModifierInstanceState>();
         private readonly List<CapabilitySlotState> _capabilities = new List<CapabilitySlotState>();
         private readonly List<CounterState> _counters = new List<CounterState>();
@@ -52,6 +68,9 @@ namespace LegendaryTools.ModifierSystem
         private readonly List<RandomStreamState> _randomStreams = new List<RandomStreamState>();
         private readonly List<AttributeHistoryState> _attributeHistories = new List<AttributeHistoryState>();
         private readonly List<PersistentTriggerState> _triggers = new List<PersistentTriggerState>();
+        private readonly List<HistoryStreamState> _historyStreams = new List<HistoryStreamState>();
+        private readonly List<DeclarativeCollectionState> _collections =
+            new List<DeclarativeCollectionState>();
         public long CurrentTick { get; internal set; }
         public long NextEntityId { get; internal set; }
         public long NextModifierSequence { get; internal set; }
@@ -59,6 +78,7 @@ namespace LegendaryTools.ModifierSystem
         public ulong RandomState { get; internal set; }
         public long NextTriggerRegistrationId { get; internal set; }
         public IReadOnlyList<Guid> CompletedEffectExecutions => _completedEffectExecutions.AsReadOnly();
+        public IReadOnlyList<Guid> CompensatedEffectExecutions => _compensatedEffectExecutions.AsReadOnly();
         public IReadOnlyList<ModifierInstanceState> Modifiers => _modifiers.AsReadOnly();
         public IReadOnlyList<CapabilitySlotState> Capabilities => _capabilities.AsReadOnly();
         public IReadOnlyList<CounterState> Counters => _counters.AsReadOnly();
@@ -67,7 +87,10 @@ namespace LegendaryTools.ModifierSystem
         public IReadOnlyList<RandomStreamState> RandomStreams => _randomStreams.AsReadOnly();
         public IReadOnlyList<AttributeHistoryState> AttributeHistories => _attributeHistories.AsReadOnly();
         public IReadOnlyList<PersistentTriggerState> Triggers => _triggers.AsReadOnly();
+        public IReadOnlyList<HistoryStreamState> HistoryStreams => _historyStreams.AsReadOnly();
+        public IReadOnlyList<DeclarativeCollectionState> Collections => _collections.AsReadOnly();
         internal void AddCompletedExecution(Guid id) => _completedEffectExecutions.Add(id);
+        internal void AddCompensatedExecution(Guid id) => _compensatedEffectExecutions.Add(id);
         internal void AddModifier(ModifierInstanceState modifier) => _modifiers.Add(modifier);
         internal void AddCapability(CapabilitySlotState capability) => _capabilities.Add(capability);
         internal void AddCounter(CounterState counter) => _counters.Add(counter);
@@ -76,6 +99,8 @@ namespace LegendaryTools.ModifierSystem
         internal void AddRandomStream(RandomStreamState stream) => _randomStreams.Add(stream);
         internal void AddAttributeHistory(AttributeHistoryState history) => _attributeHistories.Add(history);
         internal void AddTrigger(PersistentTriggerState trigger) => _triggers.Add(trigger);
+        internal void AddHistoryStream(HistoryStreamState history) => _historyStreams.Add(history);
+        internal void AddCollection(DeclarativeCollectionState collection) => _collections.Add(collection);
     }
 
     [Serializable]
@@ -96,6 +121,7 @@ namespace LegendaryTools.ModifierSystem
         public int Priority { get; internal set; }
         public long? SourceEntityId { get; internal set; }
         public string Source { get; internal set; }
+        public string SourceKey { get; internal set; }
     }
 
     [Serializable]
@@ -161,6 +187,9 @@ namespace LegendaryTools.ModifierSystem
         public object SummaryLast { get; internal set; }
         public object SummaryMinimum { get; internal set; }
         public object SummaryMaximum { get; internal set; }
+        public object SummaryTotal { get; internal set; }
+        public bool SummaryHasTotal { get; internal set; }
+        public long SummaryObservedCount { get; internal set; }
         public IReadOnlyList<HistoricalValueState> Records => _records.AsReadOnly();
         internal void AddRecord(HistoricalValueState record) => _records.Add(record);
     }
@@ -172,6 +201,49 @@ namespace LegendaryTools.ModifierSystem
         public object State { get; internal set; }
         public bool IsActive { get; internal set; }
         public string Explanation { get; internal set; }
+    }
+
+    [Serializable]
+    public sealed class DeclarativeCollectionState
+    {
+        private readonly List<long> _baseItemEntityIds = new List<long>();
+        public string DefinitionId { get; internal set; }
+        public long OwnerEntityId { get; internal set; }
+        public IReadOnlyList<long> BaseItemEntityIds => _baseItemEntityIds.AsReadOnly();
+        internal void AddBaseItem(EntityId id) => _baseItemEntityIds.Add(id.Value);
+    }
+
+    [Serializable]
+    public sealed class HistoryStateDuration
+    {
+        public object State { get; internal set; }
+        public long Ticks { get; internal set; }
+    }
+
+    [Serializable]
+    public sealed class HistoryStreamState
+    {
+        private readonly List<HistoricalValueState> _records = new List<HistoricalValueState>();
+        private readonly List<HistoryStateDuration> _stateDurations = new List<HistoryStateDuration>();
+        public string DefinitionId { get; internal set; }
+        public VariableOwnerKind? OwnerKind { get; internal set; }
+        public string OwnerKey { get; internal set; }
+        public long LastSampleTick { get; internal set; }
+        public long SummaryCount { get; internal set; }
+        public object SummaryFirst { get; internal set; }
+        public object SummaryLast { get; internal set; }
+        public object SummaryMinimum { get; internal set; }
+        public object SummaryMaximum { get; internal set; }
+        public object SummaryTotal { get; internal set; }
+        public bool SummaryHasTotal { get; internal set; }
+        public long SummaryObservedCount { get; internal set; }
+        public bool HasCurrentState { get; internal set; }
+        public object CurrentState { get; internal set; }
+        public long CurrentStateEnteredTick { get; internal set; }
+        public IReadOnlyList<HistoricalValueState> Records => _records.AsReadOnly();
+        public IReadOnlyList<HistoryStateDuration> StateDurations => _stateDurations.AsReadOnly();
+        internal void AddRecord(HistoricalValueState value) => _records.Add(value);
+        internal void AddStateDuration(HistoryStateDuration value) => _stateDurations.Add(value);
     }
 
     public interface ISimulationPersistenceAdapter
@@ -191,9 +263,19 @@ namespace LegendaryTools.ModifierSystem
 
     public sealed partial class SimulationWorld
     {
+        public event Action RuntimeStateRestored;
+        public event Action<Exception> RuntimeStateRestoreObserverFailed;
+        private bool _restoringRuntimeState;
+        internal bool IsRestoringRuntimeState => _restoringRuntimeState;
         public SimulationRuntimeState CaptureRuntimeState(ISimulationPersistenceAdapter adapter)
         {
             if (adapter == null) throw new ArgumentNullException(nameof(adapter));
+            // Normalize lazy attribute caches at the checkpoint boundary. Restore also
+            // materializes these caches, so doing the same before capture prevents the
+            // save/load boundary from changing which future transitions enter history.
+            foreach (WorldEntity entity in Entities)
+            foreach (IAttributeSlot slot in entity.Slots)
+                slot.RecalculateSilently();
             var state = new SimulationRuntimeState
             {
                 CurrentTick = CurrentTick,
@@ -205,6 +287,8 @@ namespace LegendaryTools.ModifierSystem
             };
             foreach (Guid execution in _completedEffectExecutions.OrderBy(item => item))
                 state.AddCompletedExecution(execution);
+            foreach (Guid execution in _compensatedEffectExecutions.OrderBy(item => item))
+                state.AddCompensatedExecution(execution);
             foreach (KeyValuePair<StableId<RandomStreamIdKind>, XorShiftRandom> stream in _randomStreams
                          .OrderBy(item => item.Key.Value, StringComparer.Ordinal))
                 state.AddRandomStream(new RandomStreamState { Id = stream.Key.Value, State = stream.Value.State });
@@ -213,6 +297,15 @@ namespace LegendaryTools.ModifierSystem
             {
                 AttributeHistoryState history = slot.CaptureHistory(entity.Id);
                 if (history != null) state.AddAttributeHistory(history);
+            }
+            foreach (IHistoryStream stream in _historyStreams.Values
+                         .OrderBy(item => item.DefinitionId.Value, StringComparer.Ordinal)
+                         .ThenBy(item => item.Owner.HasValue ? (int)item.Owner.Value.Kind : -1)
+                         .ThenBy(item => item.Owner.HasValue ? item.Owner.Value.Value : string.Empty,
+                             StringComparer.Ordinal))
+            {
+                HistoryStreamState history = stream.Capture();
+                if (history != null) state.AddHistoryStream(history);
             }
             foreach (ITriggerInstance trigger in _triggers.Values.Where(item => item.PersistState)
                          .OrderBy(item => item.DefinitionId.Value, StringComparer.Ordinal))
@@ -239,7 +332,8 @@ namespace LegendaryTools.ModifierSystem
                         Decision = contribution.Decision,
                         Priority = contribution.Priority,
                         SourceEntityId = contribution.SourceId?.Value,
-                        Source = contribution.Source
+                        Source = contribution.Source,
+                        SourceKey = contribution.SourceKey?.Value
                     });
                 state.AddCapability(capability);
             }
@@ -281,6 +375,18 @@ namespace LegendaryTools.ModifierSystem
                 foreach (EntityId id in collection.DisabledItems.OrderBy(item => item)) capacity.AddDisabled(id);
                 state.AddCapacity(capacity);
             }
+            foreach (IDeclarativeCollection collection in _declarativeCollections.Values
+                         .OrderBy(item => item.OwnerId)
+                         .ThenBy(item => item.DefinitionId.Value, StringComparer.Ordinal))
+            {
+                var saved = new DeclarativeCollectionState
+                {
+                    DefinitionId = collection.DefinitionId.Value,
+                    OwnerEntityId = collection.OwnerId.Value
+                };
+                foreach (EntityId id in collection.BaseItemIds) saved.AddBaseItem(id);
+                state.AddCollection(saved);
+            }
             foreach (ModifierInstance modifier in _modifierInstances)
             {
                 var modifierState = new ModifierInstanceState
@@ -292,7 +398,8 @@ namespace LegendaryTools.ModifierSystem
                     AppliedTick = modifier.AppliedTick,
                     ExpirationTick = modifier.ExpirationTick,
                     StackingKey = modifier.StackingKey,
-                    IsActive = modifier.IsActive
+                    IsActive = modifier.IsActive,
+                    SourceConditionEvaluation = modifier.SourceConditionEvaluation
                 };
                 for (int index = 0; index < modifier.DefinitionInternal.Bindings.Count; index++)
                     modifierState.AddBinding(modifier.DefinitionInternal.Bindings[index].Capture(this, modifier, index));
@@ -315,61 +422,91 @@ namespace LegendaryTools.ModifierSystem
 
         public void RestoreSaveState(SimulationSaveState save, ISimulationPersistenceAdapter adapter)
         {
-            using (BeginVersionPublicationScope())
+            EnsureMutationAllowed();
+            if (save == null) throw new ArgumentNullException(nameof(save));
+            if (adapter == null) throw new ArgumentNullException(nameof(adapter));
+            _restoringRuntimeState = true;
+            try
             {
-                if (save == null) throw new ArgumentNullException(nameof(save));
-                if (adapter == null) throw new ArgumentNullException(nameof(adapter));
-                foreach (ModifierInstance modifier in _modifierInstances.ToArray()) RemoveModifier(modifier);
-                _modifierExpirations.Clear();
-                adapter.RestoreDomainState(this, save.Domain);
-                RestoreContinuityMetadataCore(save.Runtime);
-
-                foreach (ModifierInstanceState saved in save.Runtime.Modifiers)
+                using (BeginVersionPublicationScope())
                 {
-                    if (!_modifierDefinitions.TryGetValue(saved.DefinitionId, out IModifierDefinition definition))
-                        throw new InvalidOperationException($"Modifier definition {saved.DefinitionId} must be registered before loading.");
-                    WorldEntity source = Get<WorldEntity>(new EntityId(saved.SourceEntityId));
-                    if (source == null || !definition.AcceptsSource(source))
-                        throw new InvalidOperationException($"Modifier source {saved.SourceEntityId} is missing or has the wrong type.");
-                    object parameters = adapter.DeserializeModifierParameters(definition.Id, saved.Parameters);
-                    var instance = new ModifierInstance(saved.InstanceId, definition, source, parameters,
-                        saved.AppliedTick, saved.StackingKey)
+                    foreach (ModifierInstance modifier in _modifierInstances.ToArray()) RemoveModifier(modifier);
+                    _modifierExpirations.Clear();
+                    adapter.RestoreDomainState(this, save.Domain);
+                    RestoreContinuityMetadataCore(save.Runtime);
+
+                    foreach (ModifierInstanceState saved in save.Runtime.Modifiers)
                     {
-                        ExpirationTick = saved.ExpirationTick,
-                        IsActive = saved.IsActive
-                    };
-                    instance.Conditions = string.IsNullOrEmpty(definition.ConditionDescription)
-                        ? Array.Empty<ConditionState>()
-                        : new[] { new ConditionState(definition.ConditionDescription, saved.IsActive) };
-                    _modifierInstances.Add(instance);
-                    foreach (ModifierBindingState bindingState in saved.Bindings)
-                    {
-                        if (bindingState.BindingIndex < 0 || bindingState.BindingIndex >= definition.Bindings.Count)
-                            throw new InvalidOperationException($"Invalid binding index in modifier {saved.DefinitionId}.");
-                        definition.Bindings[bindingState.BindingIndex].Restore(this, instance, bindingState);
+                        if (!_modifierDefinitions.TryGetValue(saved.DefinitionId, out IModifierDefinition definition))
+                            throw new InvalidOperationException($"Modifier definition {saved.DefinitionId} must be registered before loading.");
+                        WorldEntity source = Get<WorldEntity>(new EntityId(saved.SourceEntityId));
+                        if (source == null || !definition.AcceptsSource(source))
+                            throw new InvalidOperationException($"Modifier source {saved.SourceEntityId} is missing or has the wrong type.");
+                        object parameters = adapter.DeserializeModifierParameters(definition.Id, saved.Parameters);
+                        var instance = new ModifierInstance(saved.InstanceId, definition, source, parameters,
+                            saved.AppliedTick, saved.StackingKey)
+                        {
+                            ExpirationTick = saved.ExpirationTick,
+                            IsActive = saved.IsActive,
+                            SourceConditionEvaluation = saved.SourceConditionEvaluation
+                        };
+                        instance.Conditions = string.IsNullOrEmpty(definition.ConditionDescription)
+                            ? Array.Empty<ConditionState>()
+                            : new[] { new ConditionState(definition.ConditionDescription, saved.IsActive) };
+                        _modifierInstances.Add(instance);
+                        foreach (ModifierBindingState bindingState in saved.Bindings)
+                        {
+                            if (bindingState.BindingIndex < 0 || bindingState.BindingIndex >= definition.Bindings.Count)
+                                throw new InvalidOperationException($"Invalid binding index in modifier {saved.DefinitionId}.");
+                            definition.Bindings[bindingState.BindingIndex].Restore(this, instance, bindingState);
+                        }
+                        UpdateConditionStates(instance);
+                        ScheduleExpiration(instance);
+                        ReindexModifierDependencies(instance);
+                        if (definition.IsTimeDependent)
+                            _timeDependentModifiers[instance.InstanceId] = instance;
                     }
-                    UpdateConditionStates(instance);
-                    ScheduleExpiration(instance);
-                    ReindexModifierDependencies(instance);
-                    if (definition.IsTimeDependent)
-                        _timeDependentModifiers[instance.InstanceId] = instance;
+                    foreach (WorldEntity entity in Entities)
+                    foreach (IAttributeSlot slot in entity.Slots)
+                        slot.RecalculateSilently();
+                    RestoreAttributeHistories(save.Runtime);
+                    InvalidateAllStructuralQueryVersions();
+                    AdvanceVersion();
                 }
-                foreach (WorldEntity entity in Entities)
-                foreach (IAttributeSlot slot in entity.Slots)
-                    slot.RecalculateSilently();
-                RestoreAttributeHistories(save.Runtime);
-                AdvanceQueryVersion(null, null);
-                AdvanceVersion();
             }
+            finally { _restoringRuntimeState = false; }
+            NotifyRuntimeStateRestored();
         }
 
         public void RestoreContinuityMetadata(SimulationRuntimeState state)
         {
-            RestoreContinuityMetadataCore(state);
-            foreach (WorldEntity entity in Entities)
-            foreach (IAttributeSlot slot in entity.Slots)
-                slot.RecalculateSilently();
-            RestoreAttributeHistories(state);
+            EnsureMutationAllowed();
+            _restoringRuntimeState = true;
+            try
+            {
+                RestoreContinuityMetadataCore(state);
+                foreach (WorldEntity entity in Entities)
+                foreach (IAttributeSlot slot in entity.Slots)
+                    slot.RecalculateSilently();
+                RestoreAttributeHistories(state);
+            }
+            finally { _restoringRuntimeState = false; }
+            NotifyRuntimeStateRestored();
+        }
+
+        private void NotifyRuntimeStateRestored()
+        {
+            Action handlers = RuntimeStateRestored;
+            if (handlers == null) return;
+            foreach (Delegate handler in handlers.GetInvocationList())
+            {
+                try { ((Action)handler)(); }
+                catch (Exception exception)
+                {
+                    try { RuntimeStateRestoreObserverFailed?.Invoke(exception); }
+                    catch { }
+                }
+            }
         }
 
         private void RestoreContinuityMetadataCore(SimulationRuntimeState state)
@@ -383,11 +520,63 @@ namespace LegendaryTools.ModifierSystem
             RestoreRandomStreams(state);
             _completedEffectExecutions.Clear();
             foreach (Guid id in state.CompletedEffectExecutions) _completedEffectExecutions.Add(id);
+            _compensatedEffectExecutions.Clear();
+            foreach (Guid id in state.CompensatedEffectExecutions) _compensatedEffectExecutions.Add(id);
             RestoreCapabilities(state);
             RestoreCounters(state);
             RestoreVariables(state);
             RestoreCapacities(state);
+            RestoreDeclarativeCollections(state);
             RestoreTriggers(state);
+            RestoreHistoryStreams(state);
+        }
+
+        private void RestoreHistoryStreams(SimulationRuntimeState state)
+        {
+            _historyStreams.Clear();
+            foreach (HistoryStreamState saved in state.HistoryStreams)
+            {
+                if (!_historyDefinitions.TryGetValue(saved.DefinitionId,
+                    out IHistoryStreamDefinition definition))
+                    throw new InvalidOperationException(
+                        $"History {saved.DefinitionId} must be registered before loading.");
+                VariableOwnerId? owner = RestoreHistoryOwner(saved);
+                IHistoryStream stream = definition.Create(owner);
+                stream.Restore(saved);
+                _historyStreams.Add(Tuple.Create((object)definition, owner), stream);
+            }
+        }
+
+        private void RestoreDeclarativeCollections(SimulationRuntimeState state)
+        {
+            foreach (DeclarativeCollectionState saved in state.Collections)
+            {
+                var key = Tuple.Create(saved.DefinitionId, new EntityId(saved.OwnerEntityId));
+                if (!_declarativeCollections.TryGetValue(key, out IDeclarativeCollection collection))
+                    throw new InvalidOperationException(
+                        $"Collection {saved.DefinitionId} must be created before loading.");
+                collection.RestoreBaseItems(this,
+                    saved.BaseItemEntityIds.Select(value => new EntityId(value)).ToArray());
+            }
+        }
+
+        private static VariableOwnerId? RestoreHistoryOwner(HistoryStreamState saved)
+        {
+            if (!saved.OwnerKind.HasValue) return null;
+            switch (saved.OwnerKind.Value)
+            {
+                case VariableOwnerKind.Entity:
+                    if (long.TryParse(saved.OwnerKey, out long entityId) && entityId > 0)
+                        return VariableOwnerId.Entity(new EntityId(entityId));
+                    break;
+                case VariableOwnerKind.Effect:
+                    if (Guid.TryParse(saved.OwnerKey, out Guid effectId))
+                        return VariableOwnerId.Effect(effectId);
+                    break;
+                case VariableOwnerKind.EventChain:
+                    return VariableOwnerId.EventChain(saved.OwnerKey);
+            }
+            throw new InvalidOperationException($"Invalid owner for history {saved.DefinitionId}.");
         }
 
         private void RestoreCapabilities(SimulationRuntimeState state)
@@ -409,7 +598,12 @@ namespace LegendaryTools.ModifierSystem
                         contribution.Priority,
                         contribution.SourceEntityId.HasValue
                             ? new EntityId(contribution.SourceEntityId.Value) : (EntityId?)null,
-                        contribution.Source);
+                        contribution.Source, null,
+                        !string.IsNullOrWhiteSpace(contribution.SourceKey)
+                            ? new StableId<CapabilitySourceIdKind>(contribution.SourceKey)
+                            : !string.IsNullOrWhiteSpace(contribution.Source)
+                                ? new StableId<CapabilitySourceIdKind>(contribution.Source)
+                                : (StableId<CapabilitySourceIdKind>?)null);
                     slot.Add(value);
                     _capabilityContributionOwners.Add(contribution.Id, slot);
                 }

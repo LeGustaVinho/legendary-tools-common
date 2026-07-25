@@ -22,6 +22,28 @@ namespace LegendaryTools.ModifierSystem
         private List<IAttributeDefinition> _ownedAttributeDefinitions;
         private HashSet<object> _tags;
         private Dictionary<object, object> _components;
+        private Dictionary<RelationViewKey, object> _relationViews;
+
+        private readonly struct RelationViewKey : IEquatable<RelationViewKey>
+        {
+            private readonly object _definition;
+            private readonly byte _kind;
+            public RelationViewKey(object definition, byte kind)
+            {
+                _definition = definition;
+                _kind = kind;
+            }
+            public bool Equals(RelationViewKey other) =>
+                ReferenceEquals(_definition, other._definition) && _kind == other._kind;
+            public override bool Equals(object obj) => obj is RelationViewKey other && Equals(other);
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return ((System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(_definition) * 397) ^ _kind);
+                }
+            }
+        }
 
         public EntityId Id { get; private set; }
         public SimulationWorld World { get; private set; }
@@ -82,6 +104,62 @@ namespace LegendaryTools.ModifierSystem
             return World.HasRelation(from, relation, target);
         }
 
+        /// <summary>
+        /// Creates a cached, typed relationship collection suitable for exposing as
+        /// a natural domain property, for example <c>Empire.Planets</c>.
+        /// </summary>
+        protected RelatedEntityCollection<TFrom, TTarget> Relation<TFrom, TTarget>(
+            RelationDefinition<TFrom, TTarget> definition)
+            where TFrom : WorldEntity where TTarget : WorldEntity
+        {
+            if (!(this is TFrom from))
+                throw new InvalidOperationException($"{GetType().Name} is not {typeof(TFrom).Name}.");
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+            if (_relationViews == null) _relationViews = new Dictionary<RelationViewKey, object>();
+            var key = new RelationViewKey(definition, 0);
+            if (!_relationViews.TryGetValue(key, out object view))
+                _relationViews.Add(key, view = new RelatedEntityCollection<TFrom, TTarget>(from, definition));
+            return (RelatedEntityCollection<TFrom, TTarget>)view;
+        }
+
+        /// <summary>
+        /// Creates a cached, typed inverse relationship collection suitable for
+        /// properties such as <c>Planet.Owners</c>.
+        /// </summary>
+        protected IncomingRelatedEntityCollection<TFrom, TTarget> IncomingRelation<TFrom, TTarget>(
+            RelationDefinition<TFrom, TTarget> definition)
+            where TFrom : WorldEntity where TTarget : WorldEntity
+        {
+            if (!(this is TTarget target))
+                throw new InvalidOperationException($"{GetType().Name} is not {typeof(TTarget).Name}.");
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+            if (_relationViews == null) _relationViews = new Dictionary<RelationViewKey, object>();
+            var key = new RelationViewKey(definition, 1);
+            if (!_relationViews.TryGetValue(key, out object view))
+                _relationViews.Add(key,
+                    view = new IncomingRelatedEntityCollection<TFrom, TTarget>(target, definition));
+            return (IncomingRelatedEntityCollection<TFrom, TTarget>)view;
+        }
+
+        /// <summary>
+        /// Creates a controlled property-like reference for a relation whose
+        /// outbound cardinality is one.
+        /// </summary>
+        protected RelatedEntityReference<TFrom, TTarget> RelationReference<TFrom, TTarget>(
+            RelationDefinition<TFrom, TTarget> definition)
+            where TFrom : WorldEntity where TTarget : WorldEntity
+        {
+            if (!(this is TFrom from))
+                throw new InvalidOperationException($"{GetType().Name} is not {typeof(TFrom).Name}.");
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+            if (_relationViews == null) _relationViews = new Dictionary<RelationViewKey, object>();
+            var key = new RelationViewKey(definition, 2);
+            if (!_relationViews.TryGetValue(key, out object reference))
+                _relationViews.Add(key,
+                    reference = new RelatedEntityReference<TFrom, TTarget>(from, definition));
+            return (RelatedEntityReference<TFrom, TTarget>)reference;
+        }
+
         public bool HasTag<TEntity>(TagDefinition<TEntity> definition) where TEntity : WorldEntity
         {
             if (!(this is TEntity)) return false;
@@ -139,9 +217,120 @@ namespace LegendaryTools.ModifierSystem
         internal bool RemoveComponent(object definition) => _components != null && _components.Remove(definition);
     }
 
+    public sealed class RelatedEntityCollection<TFrom, TTo> : IReadOnlyList<TTo>
+        where TFrom : WorldEntity where TTo : WorldEntity
+    {
+        private PreparedQuery<TTo> _query;
+        public TFrom Owner { get; }
+        public RelationDefinition<TFrom, TTo> Definition { get; }
+        public PreparedQuery<TTo> Query => _query ??
+            (_query = LegendaryTools.ModifierSystem.Query.Related(Owner, Definition));
+        public int Count => Owner.World.RelatedCount(Owner, Definition);
+        public TTo this[int index] => Owner.World.RelatedAt(Owner, Definition, index);
+
+        internal RelatedEntityCollection(TFrom owner, RelationDefinition<TFrom, TTo> definition)
+        {
+            Owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            Definition = definition ?? throw new ArgumentNullException(nameof(definition));
+        }
+
+        public bool Contains(TTo target) =>
+            target != null && Owner.World.HasRelation(Owner, Definition, target);
+
+        public IEnumerator<TTo> GetEnumerator() => Owner.World.Related(Owner, Definition).GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    public sealed class IncomingRelatedEntityCollection<TFrom, TTo> : IReadOnlyList<TFrom>
+        where TFrom : WorldEntity where TTo : WorldEntity
+    {
+        private PreparedQuery<TFrom> _query;
+        public TTo Owner { get; }
+        public RelationDefinition<TFrom, TTo> Definition { get; }
+        public PreparedQuery<TFrom> Query => _query ??
+            (_query = LegendaryTools.ModifierSystem.Query.RelatedFrom(Owner, Definition));
+        public int Count => Owner.World.RelatedFromCount(Owner, Definition);
+        public TFrom this[int index] => Owner.World.RelatedFromAt(Owner, Definition, index);
+
+        internal IncomingRelatedEntityCollection(TTo owner, RelationDefinition<TFrom, TTo> definition)
+        {
+            Owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            Definition = definition ?? throw new ArgumentNullException(nameof(definition));
+        }
+
+        public bool Contains(TFrom source) =>
+            source != null && Owner.World.HasRelation(source, Definition, Owner);
+
+        public IEnumerator<TFrom> GetEnumerator() => Owner.World.RelatedFrom(Owner, Definition).GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    public sealed class RelatedEntityReference<TFrom, TTo>
+        where TFrom : WorldEntity where TTo : WorldEntity
+    {
+        public TFrom Owner { get; }
+        public RelationDefinition<TFrom, TTo> Definition { get; }
+        public TTo Value => Owner.World.RelatedAtOrDefault(Owner, Definition, 0);
+        public bool HasValue => Value != null;
+
+        internal RelatedEntityReference(TFrom owner, RelationDefinition<TFrom, TTo> definition)
+        {
+            Owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            Definition = definition ?? throw new ArgumentNullException(nameof(definition));
+            if (definition.MaximumFromCount != 1)
+                throw new InvalidOperationException(
+                    $"Relation {definition.Id} must declare maximumFromCount: 1 to behave as a property.");
+        }
+
+        public bool Set(TTo value)
+        {
+            if (value == null) return Clear();
+            SimulationWorld world = Owner.World;
+            TTo previous = Value;
+            if (ReferenceEquals(previous, value)) return false;
+            using (world.BeginMutationBatch())
+            {
+                bool removed = previous != null && world.RemoveRelation(Owner, Definition, previous);
+                try { world.AddRelation(Owner, Definition, value); }
+                catch
+                {
+                    if (removed) world.AddRelation(Owner, Definition, previous);
+                    throw;
+                }
+            }
+            return true;
+        }
+
+        public bool Clear()
+        {
+            TTo previous = Value;
+            return previous != null && Owner.World.RemoveRelation(Owner, Definition, previous);
+        }
+    }
+
     internal interface IRelationDefinition
     {
         string StableId { get; }
+        Type FromType { get; }
+        Type ToType { get; }
+    }
+
+    internal readonly struct RelationMutation
+    {
+        public long Sequence { get; }
+        public object Definition { get; }
+        public WorldEntity From { get; }
+        public WorldEntity To { get; }
+        public bool Added { get; }
+
+        public RelationMutation(long sequence, object definition, WorldEntity from, WorldEntity to, bool added)
+        {
+            Sequence = sequence;
+            Definition = definition ?? throw new ArgumentNullException(nameof(definition));
+            From = from ?? throw new ArgumentNullException(nameof(from));
+            To = to ?? throw new ArgumentNullException(nameof(to));
+            Added = added;
+        }
     }
 
     public sealed class RelationDefinition<TFrom, TTo> : IRelationDefinition
@@ -152,6 +341,8 @@ namespace LegendaryTools.ModifierSystem
         public int MaximumToCount { get; }
         public bool AllowSelfRelation { get; }
         string IRelationDefinition.StableId => Id.Value;
+        Type IRelationDefinition.FromType => typeof(TFrom);
+        Type IRelationDefinition.ToType => typeof(TTo);
 
         public RelationDefinition(string id, int maximumFromCount = 0, int maximumToCount = 0,
             bool allowSelfRelation = false)
@@ -168,6 +359,7 @@ namespace LegendaryTools.ModifierSystem
     internal interface IRelationStore
     {
         bool RemoveEntity(EntityId id);
+        IEnumerable<Tuple<EntityId, EntityId>> EdgesFor(EntityId id);
     }
 
     internal sealed class RelationStore<TFrom, TTo> : IRelationStore
@@ -182,15 +374,19 @@ namespace LegendaryTools.ModifierSystem
         {
             if (!definition.AllowSelfRelation && from.Id == to.Id)
                 throw new InvalidOperationException($"Relation {definition.Id} does not allow self edges.");
-            if (!_outgoing.TryGetValue(from.Id, out SortedSet<EntityId> targets))
-                _outgoing.Add(from.Id, targets = new SortedSet<EntityId>());
-            if (targets.Contains(to.Id)) return false;
-            if (definition.MaximumFromCount > 0 && targets.Count >= definition.MaximumFromCount)
+            _outgoing.TryGetValue(from.Id, out SortedSet<EntityId> targets);
+            _incoming.TryGetValue(to.Id, out SortedSet<EntityId> sources);
+            if (targets != null && targets.Contains(to.Id)) return false;
+            int outgoingCount = targets?.Count ?? 0;
+            int incomingCount = sources?.Count ?? 0;
+            if (definition.MaximumFromCount > 0 && outgoingCount >= definition.MaximumFromCount)
                 throw new InvalidOperationException($"Relation {definition.Id} outbound cardinality exceeded.");
-            if (!_incoming.TryGetValue(to.Id, out SortedSet<EntityId> sources))
-                _incoming.Add(to.Id, sources = new SortedSet<EntityId>());
-            if (definition.MaximumToCount > 0 && sources.Count >= definition.MaximumToCount)
+            if (definition.MaximumToCount > 0 && incomingCount >= definition.MaximumToCount)
                 throw new InvalidOperationException($"Relation {definition.Id} inbound cardinality exceeded.");
+            if (targets == null)
+                _outgoing.Add(from.Id, targets = new SortedSet<EntityId>());
+            if (sources == null)
+                _incoming.Add(to.Id, sources = new SortedSet<EntityId>());
             targets.Add(to.Id);
             sources.Add(from.Id);
             return true;
@@ -217,6 +413,23 @@ namespace LegendaryTools.ModifierSystem
         public bool Contains(EntityId from, EntityId to) =>
             _outgoing.TryGetValue(from, out SortedSet<EntityId> values) && values.Contains(to);
 
+        public int OutgoingCount(EntityId id) =>
+            _outgoing.TryGetValue(id, out SortedSet<EntityId> values) ? values.Count : 0;
+
+        public int IncomingCount(EntityId id) =>
+            _incoming.TryGetValue(id, out SortedSet<EntityId> values) ? values.Count : 0;
+
+        public EntityId OutgoingAt(EntityId id, int index) => At(Outgoing(id), index);
+        public EntityId IncomingAt(EntityId id, int index) => At(Incoming(id), index);
+
+        public IEnumerable<Tuple<EntityId, EntityId>> EdgesFor(EntityId id)
+        {
+            if (_outgoing.TryGetValue(id, out SortedSet<EntityId> targets))
+                foreach (EntityId target in targets) yield return Tuple.Create(id, target);
+            if (_incoming.TryGetValue(id, out SortedSet<EntityId> sources))
+                foreach (EntityId source in sources) yield return Tuple.Create(source, id);
+        }
+
         public bool RemoveEntity(EntityId id)
         {
             bool changed = false;
@@ -235,6 +448,18 @@ namespace LegendaryTools.ModifierSystem
                 changed = true;
             }
             return changed;
+        }
+
+        private static EntityId At(IEnumerable<EntityId> values, int index)
+        {
+            if (index < 0) throw new ArgumentOutOfRangeException(nameof(index));
+            int current = 0;
+            foreach (EntityId value in values)
+            {
+                if (current == index) return value;
+                current++;
+            }
+            throw new ArgumentOutOfRangeException(nameof(index));
         }
     }
 
@@ -275,6 +500,8 @@ namespace LegendaryTools.ModifierSystem
         private readonly HashSet<object> _batchedRelationChanges = new HashSet<object>();
         private readonly HashSet<Tuple<object, EntityId>> _batchedRelationSourceChanges =
             new HashSet<Tuple<object, EntityId>>();
+        private readonly List<RelationMutation> _batchedRelationMutations = new List<RelationMutation>();
+        private long _nextRelationMutationSequence = 1;
         private bool _batchedFullStructureChange;
         private EntityId? _currentChangedRelationSource;
         private readonly Dictionary<object, long> _relationQueryVersions = new Dictionary<object, long>();
@@ -292,6 +519,7 @@ namespace LegendaryTools.ModifierSystem
         public long StructureQueryVersion => _structureQueryVersion;
         public IReadOnlyCollection<WorldEntity> Entities => _entityCollection;
         public XorShiftRandom Random { get; }
+        internal event Action<RelationMutation> RelationMutated;
 
         public SimulationWorld(ulong randomSeed = 1)
         {
@@ -300,12 +528,13 @@ namespace LegendaryTools.ModifierSystem
             Random = new XorShiftRandom(randomSeed);
             _randomStreams.Add(DefaultRandomStreamId, Random);
             Variables = new TypedVariableStore(AdvanceVersion,
-                id => Get<WorldEntity>(id) != null);
+                id => Get<WorldEntity>(id) != null, EnsureMutationAllowed);
         }
 
         public XorShiftRandom GetRandomStream(StableId<RandomStreamIdKind> id)
         {
             if (_randomStreams.TryGetValue(id, out XorShiftRandom stream)) return stream;
+            EnsureMutationAllowed();
             ulong hash = 14695981039346656037UL;
             foreach (char character in id.Value)
             {
@@ -319,6 +548,7 @@ namespace LegendaryTools.ModifierSystem
 
         public IDisposable BeginMutationBatch()
         {
+            EnsureMutationAllowed();
             if (_mutationBatchDepth == 0) BeginVersionPublication();
             _mutationBatchDepth++;
             return new MutationBatch(this);
@@ -326,6 +556,7 @@ namespace LegendaryTools.ModifierSystem
 
         public TEntity Create<TEntity>(Action<TEntity> initialize = null) where TEntity : WorldEntity, new()
         {
+            EnsureMutationAllowed();
             if (_mutationBatchDepth > 0) return CreateCore(initialize);
             using (BeginMutationBatch()) return CreateCore(initialize);
         }
@@ -351,10 +582,10 @@ namespace LegendaryTools.ModifierSystem
             }
             catch
             {
+                RemoveEntityRelations(entity);
                 _entitySlots[(int)entity.Id.Value] = null;
                 _liveEntityCount--;
                 typeIds.Remove(entity.Id);
-                foreach (IRelationStore relation in _relations.Values) relation.RemoveEntity(entity.Id);
                 RemoveModifiersOwnedByOrTargeting(entity.Id);
                 RemoveRuntimeStateOwnedByOrReferencing(entity.Id);
                 throw;
@@ -363,6 +594,7 @@ namespace LegendaryTools.ModifierSystem
 
         public bool Destroy(WorldEntity entity)
         {
+            EnsureMutationAllowed();
             if (_mutationBatchDepth > 0) return DestroyCore(entity);
             using (BeginMutationBatch()) return DestroyCore(entity);
         }
@@ -372,9 +604,11 @@ namespace LegendaryTools.ModifierSystem
             RequireOwned(entity);
             if (entity.Id.Value >= _entitySlots.Count ||
                 !ReferenceEquals(_entitySlots[(int)entity.Id.Value], entity)) return false;
+            RemoveEntityRelations(entity);
             _entitySlots[(int)entity.Id.Value] = null;
             _liveEntityCount--;
-            foreach (IRelationStore relation in _relations.Values) relation.RemoveEntity(entity.Id);
+            if (_entitiesByExactType.TryGetValue(entity.GetType(), out List<EntityId> typeIds))
+                typeIds.Remove(entity.Id);
             foreach (Dictionary<EntityId, long> versions in _relationSourceQueryVersions.Values)
                 versions.Remove(entity.Id);
             foreach (Dictionary<EntityId, long> versions in _entityAttributeQueryVersions.Values)
@@ -479,19 +713,29 @@ namespace LegendaryTools.ModifierSystem
         public void AddRelation<TFrom, TTo>(TFrom from, RelationDefinition<TFrom, TTo> definition, TTo to)
             where TFrom : WorldEntity where TTo : WorldEntity
         {
+            EnsureMutationAllowed();
             RequireOwned(from);
             RequireOwned(to);
             RelationStore<TFrom, TTo> store = GetRelationStore(definition);
-            if (store.Add(definition, from, to)) NotifyStructureChanged(definition, from.Id);
+            if (store.Add(definition, from, to))
+            {
+                RecordRelationMutation(definition, from, to, true);
+                NotifyStructureChanged(definition, from.Id);
+            }
         }
 
         public bool RemoveRelation<TFrom, TTo>(TFrom from, RelationDefinition<TFrom, TTo> definition, TTo to)
             where TFrom : WorldEntity where TTo : WorldEntity
         {
+            EnsureMutationAllowed();
             RequireOwned(from);
             RequireOwned(to);
             bool removed = GetRelationStore(definition).Remove(from, to);
-            if (removed) NotifyStructureChanged(definition, from.Id);
+            if (removed)
+            {
+                RecordRelationMutation(definition, from, to, false);
+                NotifyStructureChanged(definition, from.Id);
+            }
             return removed;
         }
 
@@ -499,14 +743,65 @@ namespace LegendaryTools.ModifierSystem
             where TFrom : WorldEntity where TTo : WorldEntity
         {
             RequireOwned(from);
-            return GetRelationStore(definition).Outgoing(from.Id).Select(Get<TTo>).Where(item => item != null).ToArray();
+            var result = new List<TTo>();
+            foreach (EntityId id in GetRelationStore(definition).Outgoing(from.Id))
+            {
+                TTo entity = Get<TTo>(id);
+                if (entity != null) result.Add(entity);
+            }
+            return result.AsReadOnly();
         }
 
         public IReadOnlyList<TFrom> RelatedFrom<TFrom, TTo>(TTo to, RelationDefinition<TFrom, TTo> definition)
             where TFrom : WorldEntity where TTo : WorldEntity
         {
             RequireOwned(to);
-            return GetRelationStore(definition).Incoming(to.Id).Select(Get<TFrom>).Where(item => item != null).ToArray();
+            var result = new List<TFrom>();
+            foreach (EntityId id in GetRelationStore(definition).Incoming(to.Id))
+            {
+                TFrom entity = Get<TFrom>(id);
+                if (entity != null) result.Add(entity);
+            }
+            return result.AsReadOnly();
+        }
+
+        internal int RelatedCount<TFrom, TTo>(TFrom from, RelationDefinition<TFrom, TTo> definition)
+            where TFrom : WorldEntity where TTo : WorldEntity
+        {
+            RequireOwned(from);
+            return GetRelationStore(definition).OutgoingCount(from.Id);
+        }
+
+        internal int RelatedFromCount<TFrom, TTo>(TTo to, RelationDefinition<TFrom, TTo> definition)
+            where TFrom : WorldEntity where TTo : WorldEntity
+        {
+            RequireOwned(to);
+            return GetRelationStore(definition).IncomingCount(to.Id);
+        }
+
+        internal TTo RelatedAt<TFrom, TTo>(TFrom from, RelationDefinition<TFrom, TTo> definition, int index)
+            where TFrom : WorldEntity where TTo : WorldEntity
+        {
+            RequireOwned(from);
+            return Get<TTo>(GetRelationStore(definition).OutgoingAt(from.Id, index));
+        }
+
+        internal TTo RelatedAtOrDefault<TFrom, TTo>(TFrom from,
+            RelationDefinition<TFrom, TTo> definition, int index)
+            where TFrom : WorldEntity where TTo : WorldEntity
+        {
+            if (index < 0) return null;
+            RequireOwned(from);
+            RelationStore<TFrom, TTo> store = GetRelationStore(definition);
+            return index >= store.OutgoingCount(from.Id) ? null : Get<TTo>(store.OutgoingAt(from.Id, index));
+        }
+
+        internal TFrom RelatedFromAt<TFrom, TTo>(TTo to,
+            RelationDefinition<TFrom, TTo> definition, int index)
+            where TFrom : WorldEntity where TTo : WorldEntity
+        {
+            RequireOwned(to);
+            return Get<TFrom>(GetRelationStore(definition).IncomingAt(to.Id, index));
         }
 
         public bool HasRelation<TFrom, TTo>(TFrom from, RelationDefinition<TFrom, TTo> definition, TTo to)
@@ -519,6 +814,7 @@ namespace LegendaryTools.ModifierSystem
 
         public bool AddTag<TEntity>(TEntity entity, TagDefinition<TEntity> definition) where TEntity : WorldEntity
         {
+            EnsureMutationAllowed();
             RequireOwned(entity);
             if (definition == null) throw new ArgumentNullException(nameof(definition));
             RegisterStructuralDefinition("tag:", definition.Id.Value, definition);
@@ -529,6 +825,7 @@ namespace LegendaryTools.ModifierSystem
 
         public bool RemoveTag<TEntity>(TEntity entity, TagDefinition<TEntity> definition) where TEntity : WorldEntity
         {
+            EnsureMutationAllowed();
             RequireOwned(entity);
             if (definition == null) throw new ArgumentNullException(nameof(definition));
             RegisterStructuralDefinition("tag:", definition.Id.Value, definition);
@@ -540,6 +837,7 @@ namespace LegendaryTools.ModifierSystem
         public bool SetComponent<TEntity, TValue>(TEntity entity,
             ComponentDefinition<TEntity, TValue> definition, TValue value) where TEntity : WorldEntity
         {
+            EnsureMutationAllowed();
             RequireOwned(entity);
             if (definition == null) throw new ArgumentNullException(nameof(definition));
             RegisterStructuralDefinition("component:", definition.Id.Value, definition);
@@ -551,6 +849,7 @@ namespace LegendaryTools.ModifierSystem
         public bool RemoveComponent<TEntity, TValue>(TEntity entity,
             ComponentDefinition<TEntity, TValue> definition) where TEntity : WorldEntity
         {
+            EnsureMutationAllowed();
             RequireOwned(entity);
             if (definition == null) throw new ArgumentNullException(nameof(definition));
             RegisterStructuralDefinition("component:", definition.Id.Value, definition);
@@ -622,7 +921,7 @@ namespace LegendaryTools.ModifierSystem
             using (BeginVersionPublicationScope())
             {
                 AdvanceVersion();
-                InvalidateRelationDerivedAttributes(changedRelation);
+                InvalidateRelationDerivedAttributes(changedRelation, changedSource);
                 _currentChangedRelationSource = changedSource;
                 try { ReconcileLiveModifiers(changedRelation); }
                 finally { _currentChangedRelationSource = null; }
@@ -666,15 +965,14 @@ namespace LegendaryTools.ModifierSystem
                 _processingMutationBatch = true;
                 AdvanceVersionCore();
                 if (_batchedFullStructureChange) AdvanceQueryVersion(null, null);
-                else
+                foreach (object relation in _batchedRelationChanges.OrderBy(StableDefinitionId,
+                             StringComparer.Ordinal))
+                    AdvanceQueryVersion(relation, null);
+                foreach (Tuple<object, EntityId> change in _batchedRelationSourceChanges
+                             .OrderBy(item => StableDefinitionId(item.Item1), StringComparer.Ordinal)
+                             .ThenBy(item => item.Item2))
                 {
-                    foreach (object relation in _batchedRelationChanges.OrderBy(StableDefinitionId,
-                                 StringComparer.Ordinal))
-                        AdvanceQueryVersion(relation, null);
-                    foreach (Tuple<object, EntityId> change in _batchedRelationSourceChanges
-                                 .OrderBy(item => StableDefinitionId(item.Item1), StringComparer.Ordinal)
-                                 .ThenBy(item => item.Item2))
-                        AdvanceRelationSourceQueryVersion(change.Item1, change.Item2);
+                    AdvanceRelationSourceQueryVersion(change.Item1, change.Item2);
                 }
                 foreach (Tuple<WorldEntity, IAttributeDefinition> change in _batchedAttributeChanges
                              .OrderBy(item => item.Item1.Id)
@@ -693,11 +991,20 @@ namespace LegendaryTools.ModifierSystem
                         InvalidateModifiersForAttribute(change.Item1, change.Item2);
                         InvalidateGlobalDerivedAttributes(change.Item2, new HashSet<IAttributeDefinition>());
                     }
-                    if (_batchedFullStructureChange) InvalidateRelationDerivedAttributes(null);
+                    if (_batchedFullStructureChange) InvalidateRelationDerivedAttributes(null, null);
                     else
                         foreach (object relation in _batchedRelationChanges.OrderBy(StableDefinitionId,
                                      StringComparer.Ordinal))
-                            InvalidateRelationDerivedAttributes(relation);
+                        {
+                            EntityId[] sources = _batchedRelationSourceChanges
+                                .Where(item => ReferenceEquals(item.Item1, relation))
+                                .Select(item => item.Item2).Distinct().OrderBy(item => item).ToArray();
+                            if (sources.Length == 0)
+                                InvalidateRelationDerivedAttributes(relation, null);
+                            else
+                                foreach (EntityId source in sources)
+                                    InvalidateRelationDerivedAttributes(relation, source);
+                        }
                     if (_batchedFullStructureChange) ReconcileLiveModifiers(null);
                     else
                         foreach (object relation in _batchedRelationChanges.OrderBy(StableDefinitionId,
@@ -720,6 +1027,7 @@ namespace LegendaryTools.ModifierSystem
                                 finally { _currentChangedRelationSource = null; }
                             }
                         }
+                    PublishBatchedRelationMutations();
                 }
                 finally { EndModifierInvalidationBatch(); }
             }
@@ -728,6 +1036,7 @@ namespace LegendaryTools.ModifierSystem
                 _batchedAttributeChanges.Clear();
                 _batchedRelationChanges.Clear();
                 _batchedRelationSourceChanges.Clear();
+                _batchedRelationMutations.Clear();
                 _batchedFullStructureChange = false;
                 _batchedVersionChange = false;
                 _processingMutationBatch = false;
@@ -803,6 +1112,19 @@ namespace LegendaryTools.ModifierSystem
                 new QueryDependencyKey(QueryDependencyKind.SourceRelation, relation, source));
         }
 
+        internal void InvalidateAllStructuralQueryVersions()
+        {
+            AdvanceQueryVersion(null, null);
+            foreach (object relation in _relations.Keys.OrderBy(StableDefinitionId, StringComparer.Ordinal))
+            {
+                AdvanceQueryVersion(relation, null);
+                if (!_relationSourceQueryVersions.TryGetValue(relation,
+                        out Dictionary<EntityId, long> sources)) continue;
+                foreach (EntityId source in sources.Keys.OrderBy(item => item).ToArray())
+                    AdvanceRelationSourceQueryVersion(relation, source);
+            }
+        }
+
         private sealed class MutationBatch : IDisposable
         {
             private SimulationWorld _world;
@@ -873,7 +1195,7 @@ namespace LegendaryTools.ModifierSystem
             }
         }
 
-        private void InvalidateRelationDerivedAttributes(object changedRelation)
+        private void InvalidateRelationDerivedAttributes(object changedRelation, EntityId? changedSource)
         {
             IEnumerable<IAttributeDefinition> definitions = changedRelation == null
                 ? _relationAttributeDependents.Values.SelectMany(item => item)
@@ -884,7 +1206,15 @@ namespace LegendaryTools.ModifierSystem
             foreach (IAttributeDefinition definition in definitions.Distinct()
                          .OrderBy(item => item.Id.Value, StringComparer.Ordinal))
             {
-                InvalidateDerivedDefinition(definition);
+                bool sourceScoped = changedSource.HasValue &&
+                    changedRelation is IRelationDefinition relation &&
+                    definition.EntityType == relation.FromType;
+                if (sourceScoped)
+                {
+                    WorldEntity entity = Get<WorldEntity>(changedSource.Value);
+                    if (entity != null) InvalidateDerivedAttribute(entity, definition);
+                }
+                else InvalidateDerivedDefinition(definition);
                 InvalidateGlobalDerivedAttributes(definition, new HashSet<IAttributeDefinition>());
             }
         }
@@ -893,13 +1223,18 @@ namespace LegendaryTools.ModifierSystem
         {
             foreach (WorldEntity entity in Entities)
             {
-                if (!definition.EntityType.IsInstanceOfType(entity) ||
-                    !entity.TryGetSlot(definition, out IAttributeSlot slot)) continue;
-                slot.MarkDirty();
-                InvalidateDependents(entity, definition, new HashSet<IAttributeDefinition>());
-                AdvanceAttributeQueryVersions(entity, definition, new HashSet<IAttributeDefinition>());
-                InvalidateModifiersForAttribute(entity, definition);
+                if (definition.EntityType.IsInstanceOfType(entity))
+                    InvalidateDerivedAttribute(entity, definition);
             }
+        }
+
+        private void InvalidateDerivedAttribute(WorldEntity entity, IAttributeDefinition definition)
+        {
+            if (!entity.TryGetSlot(definition, out IAttributeSlot slot)) return;
+            slot.MarkDirty();
+            InvalidateDependents(entity, definition, new HashSet<IAttributeDefinition>());
+            AdvanceAttributeQueryVersions(entity, definition, new HashSet<IAttributeDefinition>());
+            InvalidateModifiersForAttribute(entity, definition);
         }
 
         private RelationStore<TFrom, TTo> GetRelationStore<TFrom, TTo>(RelationDefinition<TFrom, TTo> definition)
@@ -910,6 +1245,54 @@ namespace LegendaryTools.ModifierSystem
             if (!_relations.TryGetValue(definition, out IRelationStore store))
                 _relations.Add(definition, store = new RelationStore<TFrom, TTo>());
             return (RelationStore<TFrom, TTo>)store;
+        }
+
+        private void RemoveEntityRelations(WorldEntity entity)
+        {
+            foreach (KeyValuePair<object, IRelationStore> pair in _relations
+                         .OrderBy(item => StableDefinitionId(item.Key), StringComparer.Ordinal))
+            {
+                Tuple<EntityId, EntityId>[] edges = pair.Value.EdgesFor(entity.Id).ToArray();
+                if (edges.Length == 0) continue;
+                foreach (Tuple<EntityId, EntityId> edge in edges)
+                {
+                    WorldEntity from = edge.Item1 == entity.Id ? entity : Get<WorldEntity>(edge.Item1);
+                    WorldEntity to = edge.Item2 == entity.Id ? entity : Get<WorldEntity>(edge.Item2);
+                    if (from != null && to != null) RecordRelationMutation(pair.Key, from, to, false);
+                    NotifyStructureChanged(pair.Key, edge.Item1);
+                }
+                pair.Value.RemoveEntity(entity.Id);
+            }
+        }
+
+        private void RecordRelationMutation(object definition, WorldEntity from, WorldEntity to, bool added)
+        {
+            var mutation = new RelationMutation(_nextRelationMutationSequence++, definition, from, to, added);
+            if (_mutationBatchDepth > 0 || _processingMutationBatch)
+                _batchedRelationMutations.Add(mutation);
+            else PublishRelationMutation(mutation);
+        }
+
+        private void PublishBatchedRelationMutations()
+        {
+            if (_batchedRelationMutations.Count == 0) return;
+            foreach (RelationMutation mutation in _batchedRelationMutations.OrderBy(item => item.Sequence))
+                PublishRelationMutation(mutation);
+        }
+
+        private void PublishRelationMutation(RelationMutation mutation)
+        {
+            Action<RelationMutation> handlers = RelationMutated;
+            if (handlers == null) return;
+            foreach (Delegate handler in handlers.GetInvocationList())
+            {
+                Delegate capturedHandler = handler;
+                PublishEffectAwareNotification(capturedHandler, () =>
+                {
+                    try { ((Action<RelationMutation>)capturedHandler)(mutation); }
+                    catch { }
+                });
+            }
         }
 
         private void RegisterStructuralDefinition(string category, string id, object definition)

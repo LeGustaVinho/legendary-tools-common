@@ -44,14 +44,17 @@ namespace LegendaryTools.ModifierSystem
     public sealed class RelationIdKind { private RelationIdKind() { } }
     public sealed class ModifierIdKind { private ModifierIdKind() { } }
     public sealed class CapabilityIdKind { private CapabilityIdKind() { } }
+    public sealed class CapabilitySourceIdKind { private CapabilitySourceIdKind() { } }
     public sealed class CounterIdKind { private CounterIdKind() { } }
     public sealed class VariableIdKind { private VariableIdKind() { } }
     public sealed class EffectIdKind { private EffectIdKind() { } }
     public sealed class CapacityIdKind { private CapacityIdKind() { } }
+    public sealed class CollectionIdKind { private CollectionIdKind() { } }
     public sealed class RandomStreamIdKind { private RandomStreamIdKind() { } }
     public sealed class TagIdKind { private TagIdKind() { } }
     public sealed class ComponentIdKind { private ComponentIdKind() { } }
     public sealed class TriggerIdKind { private TriggerIdKind() { } }
+    public sealed class HistoryIdKind { private HistoryIdKind() { } }
 
     public enum ModifierOperation
     {
@@ -155,6 +158,19 @@ namespace LegendaryTools.ModifierSystem
     public enum EffectAtomicity { Atomic, PartialAllowed }
     public enum EffectReversibility { Rollback, Compensation, None }
 
+    public enum ConditionEvaluationState
+    {
+        Waiting,
+        Satisfied,
+        Unsatisfied
+    }
+
+    public enum CollectionMembershipDecision
+    {
+        Include,
+        Exclude
+    }
+
     public enum HistoryRecordMode
     {
         None,
@@ -169,7 +185,9 @@ namespace LegendaryTools.ModifierSystem
         None = 0,
         BaseValue = 1,
         FinalValue = 2,
-        All = BaseValue | FinalValue
+        Event = 4,
+        StateTransition = 8,
+        All = BaseValue | FinalValue | Event | StateTransition
     }
 
     public enum HistoryOverflowPolicy
@@ -177,6 +195,19 @@ namespace LegendaryTools.ModifierSystem
         DiscardOldest,
         RejectNewest,
         MergeOldest
+    }
+
+    [Flags]
+    public enum HistoryAggregateKind
+    {
+        None = 0,
+        First = 1,
+        Last = 2,
+        Minimum = 4,
+        Maximum = 8,
+        Total = 16,
+        Count = 32,
+        All = First | Last | Minimum | Maximum | Total | Count
     }
 
     public enum AttributeEvaluationStage

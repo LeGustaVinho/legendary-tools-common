@@ -235,6 +235,15 @@ namespace LegendaryTools.ModifierSystem
 
     public sealed class GameAttribute<TEntity, TValue> : IAttributeSlot where TEntity : WorldEntity
     {
+        internal sealed class TransactionalState
+        {
+            public TValue BaseValue;
+            public TValue FinalValue;
+            public bool Dirty;
+            public EvaluationStage<TValue>[] Stages;
+            public AttributeHistoryState History;
+        }
+
         private readonly TEntity _owner;
         private readonly AttributeDefinition<TEntity, TValue> _definition;
         private readonly List<AttributeContribution<TValue>> _contributions = new List<AttributeContribution<TValue>>();
@@ -242,6 +251,10 @@ namespace LegendaryTools.ModifierSystem
         private readonly IReadOnlyList<AttributeContribution<TValue>> _contributionsView;
         private readonly IReadOnlyList<EvaluationStage<TValue>> _stagesView;
         private readonly HistoryBuffer<TValue> _history;
+        private IReadOnlyList<AttributeContribution<TValue>> _combinedContributions;
+        private long _combinedSharedVersion = -1;
+        private int _localContributionVersion;
+        private int _combinedLocalVersion = -1;
         private TValue _baseValue;
         private TValue _finalValue;
         private bool _dirty = true;
@@ -254,7 +267,7 @@ namespace LegendaryTools.ModifierSystem
         public TEntity Owner => _owner;
         public TValue BaseValue => _baseValue;
         public TValue FinalValue { get { Evaluate(); return _finalValue; } }
-        public IReadOnlyList<AttributeContribution<TValue>> Modifiers => _contributionsView;
+        public IReadOnlyList<AttributeContribution<TValue>> Modifiers => AllContributions();
         public IReadOnlyList<EvaluationStage<TValue>> EvaluationStages { get { Evaluate(); return _stagesView; } }
         public IReadOnlyList<ValueChange<TValue>> History => _history.Records;
         public HistorySummary<TValue> HistorySummary => _history.Summary;
@@ -284,6 +297,7 @@ namespace LegendaryTools.ModifierSystem
 
         public void SetBaseValue(TValue value, string reason = null)
         {
+            _owner.World.EnsureMutationAllowed();
             if (_definition.IsDerived) throw new InvalidOperationException($"{_definition.Id} is derived and has no mutable base value.");
             Validate(value);
             if (EqualityComparer<TValue>.Default.Equals(_baseValue, value)) return;
@@ -292,8 +306,16 @@ namespace LegendaryTools.ModifierSystem
             MarkDirty();
             _history.Record(_owner.World.CurrentTick, previous, value, reason ?? "Base value changed",
                 HistoryChangeKind.BaseValue);
-            BaseValueChanged?.Invoke(this, previous, value);
             _owner.World.NotifyAttributeChanged(_owner, _definition);
+            Action<GameAttribute<TEntity, TValue>, TValue, TValue> handlers = BaseValueChanged;
+            if (handlers != null)
+                foreach (Delegate handler in handlers.GetInvocationList())
+                {
+                    Delegate capturedHandler = handler;
+                    _owner.World.PublishEffectAwareNotification(capturedHandler,
+                        () => ((Action<GameAttribute<TEntity, TValue>, TValue, TValue>)capturedHandler)(
+                            this, previous, value));
+                }
         }
 
         internal void AddContribution(AttributeContribution<TValue> contribution)
@@ -302,8 +324,24 @@ namespace LegendaryTools.ModifierSystem
                 throw new InvalidOperationException($"{_definition.Id} is not registered as modifiable.");
             if (!_definition.Policy.SupportedOperations.Contains(contribution.Operation))
                 throw new InvalidOperationException($"{_definition.Id} rejects {contribution.Operation}.");
-            _contributions.Add(contribution);
-            _contributions.Sort(CompareContributions);
+            if (_contributions.Count == 0 ||
+                CompareContributions(_contributions[_contributions.Count - 1], contribution) <= 0)
+                _contributions.Add(contribution);
+            else
+            {
+                int low = 0;
+                int high = _contributions.Count;
+                while (low < high)
+                {
+                    int middle = low + ((high - low) >> 1);
+                    if (CompareContributions(_contributions[middle], contribution) <= 0)
+                        low = middle + 1;
+                    else high = middle;
+                }
+                _contributions.Insert(low, contribution);
+            }
+            _localContributionVersion++;
+            _combinedContributions = null;
             MarkDirty();
             _owner.World.NotifyAttributeContributionChanged(_owner, _definition);
         }
@@ -314,6 +352,8 @@ namespace LegendaryTools.ModifierSystem
                 (!bindingIndex.HasValue || item.BindingIndex == bindingIndex.Value));
             if (removed > 0)
             {
+                _localContributionVersion++;
+                _combinedContributions = null;
                 MarkDirty();
                 _owner.World.NotifyAttributeContributionChanged(_owner, _definition);
             }
@@ -325,6 +365,28 @@ namespace LegendaryTools.ModifierSystem
         internal void MarkDirty() => _dirty = true;
         void IAttributeSlot.MarkDirty() => MarkDirty();
 
+        internal TransactionalState CaptureTransactionalState() =>
+            new TransactionalState
+            {
+                BaseValue = _baseValue,
+                FinalValue = _finalValue,
+                Dirty = _dirty,
+                Stages = _stages.ToArray(),
+                History = _history.CaptureTransactional(_owner.Id, _definition.Id.Value),
+            };
+
+        internal void RestoreTransactionalState(TransactionalState state)
+        {
+            if (state == null) throw new ArgumentNullException(nameof(state));
+            _baseValue = state.BaseValue;
+            _finalValue = state.FinalValue;
+            _dirty = state.Dirty;
+            _stages.Clear();
+            _stages.AddRange(state.Stages);
+            _history.Restore(state.History);
+            _owner.World.NotifyAttributeChanged(_owner, _definition);
+        }
+
         private void Evaluate(bool recordChanges = true)
         {
             if (!_dirty) return;
@@ -334,7 +396,7 @@ namespace LegendaryTools.ModifierSystem
             _stages.Add(new EvaluationStage<TValue>(AttributeEvaluationStage.Base, value, null,
                 _definition.IsDerived ? _definition.Explain(_owner) : "Base value"));
 
-            foreach (AttributeContribution<TValue> contribution in _contributions)
+            foreach (AttributeContribution<TValue> contribution in AllContributions())
             {
                 if (!contribution.IsActive) continue;
                 value = _definition.Policy.Apply(value, contribution.Operation, contribution.Magnitude);
@@ -350,8 +412,39 @@ namespace LegendaryTools.ModifierSystem
             {
                 _history.Record(_owner.World.CurrentTick, previous, value, "Final value evaluated",
                     HistoryChangeKind.FinalValue);
-                FinalValueChanged?.Invoke(this, previous, value);
+                Action<GameAttribute<TEntity, TValue>, TValue, TValue> handlers = FinalValueChanged;
+                if (handlers != null)
+                    foreach (Delegate handler in handlers.GetInvocationList())
+                    {
+                        Delegate capturedHandler = handler;
+                        _owner.World.PublishEffectAwareNotification(capturedHandler,
+                            () => ((Action<GameAttribute<TEntity, TValue>, TValue, TValue>)capturedHandler)(
+                                this, previous, value));
+                    }
             }
+        }
+
+        private IReadOnlyList<AttributeContribution<TValue>> AllContributions()
+        {
+            long sharedVersion = _owner.World.GetSharedAttributeContributionVersion(_definition);
+            if (_combinedContributions != null && _combinedSharedVersion == sharedVersion &&
+                _combinedLocalVersion == _localContributionVersion)
+                return _combinedContributions;
+            var combined = new List<AttributeContribution<TValue>>(_contributions.Count + 4);
+            combined.AddRange(_contributions);
+            _owner.World.AppendSharedAttributeContributions(_owner, _definition, combined);
+            if (combined.Count == _contributions.Count)
+            {
+                _combinedContributions = _contributionsView;
+                _combinedSharedVersion = sharedVersion;
+                _combinedLocalVersion = _localContributionVersion;
+                return _combinedContributions;
+            }
+            combined.Sort(CompareContributions);
+            _combinedContributions = combined.AsReadOnly();
+            _combinedSharedVersion = sharedVersion;
+            _combinedLocalVersion = _localContributionVersion;
+            return _combinedContributions;
         }
 
         private void Validate(TValue value)

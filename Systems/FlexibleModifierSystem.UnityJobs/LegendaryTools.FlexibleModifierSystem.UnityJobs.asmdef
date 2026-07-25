@@ -1,0 +1,10 @@
+{
+    "name": "LegendaryTools.FlexibleModifierSystem.UnityJobs",
+    "references": [
+        "LegendaryTools",
+        "LegendaryTools.FlexibleModifierSystem",
+        "Unity.Burst",
+        "Unity.Collections"
+    ],
+    "autoReferenced": true
+}

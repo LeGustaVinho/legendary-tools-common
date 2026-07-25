@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DeterministicFixedPoint;
 
 namespace LegendaryTools.ModifierSystem
 {
@@ -80,10 +81,27 @@ namespace LegendaryTools.ModifierSystem
         }
     }
 
+    public readonly struct AffectedCollection
+    {
+        public EntityId EntityId { get; }
+        public StableId<CollectionIdKind> CollectionId { get; }
+        public int BindingIndex { get; }
+
+        public AffectedCollection(EntityId entityId, StableId<CollectionIdKind> collectionId,
+            int bindingIndex)
+        {
+            EntityId = entityId;
+            CollectionId = collectionId;
+            BindingIndex = bindingIndex;
+        }
+    }
+
     public readonly struct ConditionState
     {
         public string Description { get; }
-        public bool IsSatisfied { get; }
+        public ConditionEvaluationState Evaluation { get; }
+        public bool IsSatisfied => Evaluation == ConditionEvaluationState.Satisfied;
+        public bool IsWaiting => Evaluation == ConditionEvaluationState.Waiting;
         public EntityId? TargetEntityId { get; }
         public int? BindingIndex { get; }
 
@@ -93,9 +111,16 @@ namespace LegendaryTools.ModifierSystem
         }
 
         public ConditionState(string description, bool isSatisfied, EntityId? targetEntityId, int? bindingIndex)
+            : this(description, isSatisfied ? ConditionEvaluationState.Satisfied :
+                ConditionEvaluationState.Unsatisfied, targetEntityId, bindingIndex)
+        {
+        }
+
+        public ConditionState(string description, ConditionEvaluationState evaluation,
+            EntityId? targetEntityId = null, int? bindingIndex = null)
         {
             Description = description ?? string.Empty;
-            IsSatisfied = isSatisfied;
+            Evaluation = evaluation;
             TargetEntityId = targetEntityId;
             BindingIndex = bindingIndex;
         }
@@ -132,8 +157,8 @@ namespace LegendaryTools.ModifierSystem
         long? DurationTicks { get; }
         Type SourceType { get; }
         bool AcceptsSource(object source);
-        double GetStrength(object source, object parameters);
-        bool SourceCondition(SimulationWorld world, object source, object parameters);
+        DetS64 GetStrength(object source, object parameters);
+        ConditionEvaluationState EvaluateSourceCondition(SimulationWorld world, object source, object parameters);
         string ConditionDescription { get; }
         bool IsTimeDependent { get; }
         bool IsFrozen { get; }
@@ -156,11 +181,19 @@ namespace LegendaryTools.ModifierSystem
         IEnumerable<ConditionState> EvaluateConditions(SimulationWorld world, ModifierInstance instance);
     }
 
+    internal interface ISharedAttributeContribution
+    {
+        IAttributeDefinition Definition { get; }
+        Guid ModifierInstanceId { get; }
+        bool Matches(EntityId entityId);
+        object ContributionFor(WorldEntity target);
+    }
+
     public sealed class ModifierDefinition<TSource, TParameters> : IModifierDefinition where TSource : WorldEntity
     {
         private readonly List<IModifierBinding> _bindings = new List<IModifierBinding>();
-        private readonly Func<TSource, TParameters, double> _strength;
-        private readonly Func<SimulationWorld, TSource, TParameters, bool> _condition;
+        private readonly Func<TSource, TParameters, DetS64> _strength;
+        private Func<SimulationWorld, TSource, TParameters, ConditionEvaluationState> _condition;
         private readonly List<ModifierDependency> _attributeDependencies = new List<ModifierDependency>();
         private readonly List<ModifierRelationDependency> _relationDependencies =
             new List<ModifierRelationDependency>();
@@ -180,7 +213,7 @@ namespace LegendaryTools.ModifierSystem
         IReadOnlyList<IModifierBinding> IModifierDefinition.Bindings => _bindings;
 
         public ModifierDefinition(string id, StackingPolicy stacking = null, long? durationTicks = null,
-            Func<TSource, TParameters, double> strength = null,
+            Func<TSource, TParameters, DetS64> strength = null,
             Func<SimulationWorld, TSource, TParameters, bool> condition = null,
             string conditionDescription = null)
         {
@@ -192,8 +225,20 @@ namespace LegendaryTools.ModifierSystem
                 throw new ArgumentException("Refresh-duration stacking requires a duration.", nameof(durationTicks));
             DurationTicks = durationTicks;
             _strength = strength;
-            _condition = condition;
+            _condition = condition == null
+                ? (Func<SimulationWorld, TSource, TParameters, ConditionEvaluationState>)null
+                : (world, source, parameters) => condition(world, source, parameters)
+                    ? ConditionEvaluationState.Satisfied
+                    : ConditionEvaluationState.Unsatisfied;
             ConditionDescription = conditionDescription ?? string.Empty;
+        }
+
+        public ModifierDefinition<TSource, TParameters> WithCondition(
+            Func<SimulationWorld, TSource, TParameters, ConditionEvaluationState> condition)
+        {
+            EnsureMutable();
+            _condition = condition ?? throw new ArgumentNullException(nameof(condition));
+            return this;
         }
 
         public ModifierDefinition<TSource, TParameters> Affects<TTarget, TValue>(
@@ -296,6 +341,49 @@ namespace LegendaryTools.ModifierSystem
             return this;
         }
 
+        public ModifierDefinition<TSource, TParameters> AffectsScope<TTarget, TValue>(
+            PreparedTargetQuery<TSource, TTarget> targets,
+            AttributeDefinition<TTarget, TValue> attribute,
+            ModifierOperation operation,
+            Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, TValue> magnitude,
+            Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, bool> condition = null,
+            string conditionDescription = null,
+            int priority = 0)
+            where TTarget : WorldEntity
+        {
+            EnsureMutable();
+            if (targets == null) throw new ArgumentNullException(nameof(targets));
+            if (attribute == null) throw new ArgumentNullException(nameof(attribute));
+            if (magnitude == null) throw new ArgumentNullException(nameof(magnitude));
+            if (!attribute.IsModifiable || !attribute.Policy.SupportedOperations.Contains(operation))
+                throw new InvalidOperationException($"Attribute {attribute.Id} rejects {operation}.");
+            _bindings.Add(new SharedScopeModifierBinding<TSource, TTarget, TParameters, TValue>(
+                _bindings.Count, targets, attribute, operation, magnitude, condition,
+                conditionDescription, priority));
+            return this;
+        }
+
+        public ModifierDefinition<TSource, TParameters> AffectsCollectionMembership<TTarget, TItem>(
+            PreparedTargetQuery<TSource, TTarget> targets,
+            CollectionDefinition<TTarget, TItem> collection,
+            Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, IEnumerable<TItem>> items,
+            CollectionMembershipDecision decision = CollectionMembershipDecision.Include,
+            TargetTracking targetTracking = TargetTracking.Live,
+            Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, bool> condition = null,
+            string conditionDescription = null,
+            int priority = 0)
+            where TTarget : WorldEntity where TItem : WorldEntity
+        {
+            EnsureMutable();
+            if (targets == null) throw new ArgumentNullException(nameof(targets));
+            if (collection == null) throw new ArgumentNullException(nameof(collection));
+            if (items == null) throw new ArgumentNullException(nameof(items));
+            _bindings.Add(new CollectionModifierBinding<TSource, TTarget, TItem, TParameters>(
+                _bindings.Count, targets, collection, items, decision, targetTracking, condition,
+                conditionDescription, priority));
+            return this;
+        }
+
         private void EnsureMutable()
         {
             if (_isFrozen)
@@ -305,11 +393,13 @@ namespace LegendaryTools.ModifierSystem
 
         void IModifierDefinition.Freeze() => _isFrozen = true;
 
-        double IModifierDefinition.GetStrength(object source, object parameters) =>
-            _strength?.Invoke((TSource)source, (TParameters)parameters) ?? 0d;
+        DetS64 IModifierDefinition.GetStrength(object source, object parameters) =>
+            _strength?.Invoke((TSource)source, (TParameters)parameters) ?? DetS64.Zero;
 
-        bool IModifierDefinition.SourceCondition(SimulationWorld world, object source, object parameters) =>
-            _condition?.Invoke(world, (TSource)source, (TParameters)parameters) ?? true;
+        ConditionEvaluationState IModifierDefinition.EvaluateSourceCondition(SimulationWorld world,
+            object source, object parameters) =>
+            _condition?.Invoke(world, (TSource)source, (TParameters)parameters) ??
+            ConditionEvaluationState.Satisfied;
 
         bool IModifierDefinition.AcceptsSource(object source) => source is TSource;
     }
@@ -319,9 +409,11 @@ namespace LegendaryTools.ModifierSystem
         private readonly List<AffectedAttribute> _affected = new List<AffectedAttribute>();
         private readonly List<AffectedCapability> _affectedCapabilities = new List<AffectedCapability>();
         private readonly List<AffectedCapacity> _affectedCapacities = new List<AffectedCapacity>();
+        private readonly List<AffectedCollection> _affectedCollections = new List<AffectedCollection>();
         private readonly IReadOnlyList<AffectedAttribute> _affectedView;
         private readonly IReadOnlyList<AffectedCapability> _affectedCapabilitiesView;
         private readonly IReadOnlyList<AffectedCapacity> _affectedCapacitiesView;
+        private readonly IReadOnlyList<AffectedCollection> _affectedCollectionsView;
         private readonly Dictionary<IModifierBinding, HashSet<EntityId>> _bindingTargets =
             new Dictionary<IModifierBinding, HashSet<EntityId>>();
         private readonly Dictionary<IModifierBinding, object> _bindingRuntime =
@@ -340,10 +432,13 @@ namespace LegendaryTools.ModifierSystem
         public long? ExpirationTick { get; internal set; }
         public string StackingKey { get; }
         public bool IsActive { get; internal set; }
-        public double Strength { get; }
+        internal ConditionEvaluationState SourceConditionEvaluation { get; set; } =
+            ConditionEvaluationState.Satisfied;
+        public DetS64 Strength { get; }
         public IReadOnlyList<AffectedAttribute> AffectedAttributes => _affectedView;
         public IReadOnlyList<AffectedCapability> AffectedCapabilities => _affectedCapabilitiesView;
         public IReadOnlyList<AffectedCapacity> AffectedCapacities => _affectedCapacitiesView;
+        public IReadOnlyList<AffectedCollection> AffectedCollections => _affectedCollectionsView;
         private IReadOnlyList<ConditionState> _conditions = Array.Empty<ConditionState>();
         public IReadOnlyList<ConditionState> Conditions
         {
@@ -363,6 +458,7 @@ namespace LegendaryTools.ModifierSystem
             _affectedView = _affected.AsReadOnly();
             _affectedCapabilitiesView = _affectedCapabilities.AsReadOnly();
             _affectedCapacitiesView = _affectedCapacities.AsReadOnly();
+            _affectedCollectionsView = _affectedCollections.AsReadOnly();
             DefinitionInternal = definition;
             SourceInternal = source;
             ParametersInternal = parameters;
@@ -403,12 +499,206 @@ namespace LegendaryTools.ModifierSystem
             _affectedCapacities.RemoveAll(item => item.EntityId == entityId && item.CapacityId == capacityId &&
                 item.BindingIndex == bindingIndex);
 
+        internal void AddAffectedCollection(EntityId entityId, StableId<CollectionIdKind> collectionId,
+            int bindingIndex) =>
+            _affectedCollections.Add(new AffectedCollection(entityId, collectionId, bindingIndex));
+
+        internal void RemoveAffectedCollection(EntityId entityId,
+            StableId<CollectionIdKind> collectionId, int bindingIndex) =>
+            _affectedCollections.RemoveAll(item => item.EntityId == entityId &&
+                item.CollectionId == collectionId && item.BindingIndex == bindingIndex);
+
         internal TRuntime RuntimeFor<TRuntime>(IModifierBinding binding, Func<TRuntime> create)
             where TRuntime : class
         {
             if (!_bindingRuntime.TryGetValue(binding, out object runtime))
                 _bindingRuntime.Add(binding, runtime = create());
             return (TRuntime)runtime;
+        }
+    }
+
+    internal sealed class SharedScopeContribution<TSource, TTarget, TParameters, TValue> :
+        ISharedAttributeContribution
+        where TSource : WorldEntity where TTarget : WorldEntity
+    {
+        private readonly SimulationWorld _world;
+        private readonly ModifierInstance _instance;
+        private readonly IModifierBinding _binding;
+        private readonly AttributeDefinition<TTarget, TValue> _attribute;
+        private readonly ModifierOperation _operation;
+        private readonly Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, TValue> _magnitude;
+        private readonly Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, bool> _condition;
+        private readonly string _conditionDescription;
+        private readonly int _priority;
+        private readonly long _sequence;
+
+        public IAttributeDefinition Definition => _attribute;
+        public Guid ModifierInstanceId => _instance.InstanceId;
+
+        internal SharedScopeContribution(SimulationWorld world, ModifierInstance instance,
+            IModifierBinding binding, AttributeDefinition<TTarget, TValue> attribute,
+            ModifierOperation operation,
+            Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, TValue> magnitude,
+            Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, bool> condition,
+            string conditionDescription, int priority, long sequence)
+        {
+            _world = world;
+            _instance = instance;
+            _binding = binding;
+            _attribute = attribute;
+            _operation = operation;
+            _magnitude = magnitude;
+            _condition = condition;
+            _conditionDescription = conditionDescription;
+            _priority = priority;
+            _sequence = sequence;
+        }
+
+        public bool Matches(EntityId entityId) => _instance.TargetsFor(_binding).Contains(entityId);
+
+        public object ContributionFor(WorldEntity target)
+        {
+            var typedTarget = (TTarget)target;
+            var context = new ModifierMagnitudeContext<TSource, TTarget, TParameters>(_world,
+                (TSource)_instance.SourceInternal, typedTarget,
+                (TParameters)_instance.ParametersInternal);
+            Func<bool> active = () => _instance.IsActive && (_condition?.Invoke(context) ?? true);
+            return new AttributeContribution<TValue>(_instance.InstanceId, _instance.DefinitionId,
+                _instance.Source.Id, _operation, _priority, _sequence, () => _magnitude(context),
+                active, _instance.DefinitionId.Value, _conditionDescription, _binding.BindingIndex);
+        }
+    }
+
+    internal sealed class SharedScopeModifierBinding<TSource, TTarget, TParameters, TValue> :
+        IModifierBinding
+        where TSource : WorldEntity where TTarget : WorldEntity
+    {
+        private sealed class Runtime
+        {
+            public ISharedAttributeContribution Contribution;
+        }
+
+        private readonly PreparedTargetQuery<TSource, TTarget> _targets;
+        private readonly AttributeDefinition<TTarget, TValue> _attribute;
+        private readonly ModifierOperation _operation;
+        private readonly Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, TValue> _magnitude;
+        private readonly Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, bool> _condition;
+        private readonly string _conditionDescription;
+        private readonly int _priority;
+        public int BindingIndex { get; }
+        public TargetTracking TargetTracking => TargetTracking.Live;
+
+        internal SharedScopeModifierBinding(int bindingIndex,
+            PreparedTargetQuery<TSource, TTarget> targets,
+            AttributeDefinition<TTarget, TValue> attribute, ModifierOperation operation,
+            Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, TValue> magnitude,
+            Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, bool> condition,
+            string conditionDescription, int priority)
+        {
+            BindingIndex = bindingIndex;
+            _targets = targets;
+            _attribute = attribute;
+            _operation = operation;
+            _magnitude = magnitude;
+            _condition = condition;
+            _conditionDescription = conditionDescription ?? string.Empty;
+            _priority = priority;
+        }
+
+        public void Validate(SimulationWorld world, ModifierInstance instance)
+        {
+            foreach (TTarget target in _targets.Execute(world, (TSource)instance.SourceInternal))
+                if (target.GetAttribute(_attribute) == null)
+                    throw new InvalidOperationException(
+                        $"Target {target.Id} does not expose attribute {_attribute.Id}.");
+        }
+
+        public void Reconcile(SimulationWorld world, ModifierInstance instance, bool initial)
+        {
+            Runtime runtime = instance.RuntimeFor(this, () => new Runtime());
+            if (runtime.Contribution == null)
+            {
+                runtime.Contribution = new SharedScopeContribution<TSource, TTarget, TParameters, TValue>(
+                    world, instance, this, _attribute, _operation, _magnitude, _condition,
+                    _conditionDescription, _priority, world.NextContributionSequence());
+                world.AddSharedAttributeContribution(runtime.Contribution);
+            }
+
+            HashSet<EntityId> existing = instance.TargetsFor(this);
+            var desired = new HashSet<EntityId>(
+                _targets.Execute(world, (TSource)instance.SourceInternal).Select(item => item.Id));
+            foreach (EntityId departed in existing.Where(id => !desired.Contains(id)).ToArray())
+            {
+                TTarget target = world.Get<TTarget>(departed);
+                existing.Remove(departed);
+                instance.RemoveAffected(departed, _attribute.Id, BindingIndex);
+                MarkChanged(world, target);
+            }
+            foreach (EntityId arrived in desired.Where(id => !existing.Contains(id)).OrderBy(id => id))
+            {
+                existing.Add(arrived);
+                instance.AddAffected(arrived, _attribute.Id, BindingIndex);
+                MarkChanged(world, world.Get<TTarget>(arrived));
+            }
+            foreach (EntityId retained in existing.Intersect(desired).ToArray())
+                MarkChanged(world, world.Get<TTarget>(retained));
+        }
+
+        public ModifierBindingState Capture(SimulationWorld world, ModifierInstance instance,
+            int bindingIndex)
+        {
+            var state = new ModifierBindingState { BindingIndex = bindingIndex };
+            foreach (EntityId id in instance.TargetsFor(this).OrderBy(item => item))
+                state.AddTarget(new ModifierTargetState { EntityId = id.Value, Applied = true });
+            return state;
+        }
+
+        public void Restore(SimulationWorld world, ModifierInstance instance, ModifierBindingState state) =>
+            Reconcile(world, instance, true);
+
+        public void Remove(SimulationWorld world, ModifierInstance instance)
+        {
+            Runtime runtime = instance.RuntimeFor(this, () => new Runtime());
+            if (runtime.Contribution != null)
+            {
+                world.RemoveSharedAttributeContribution(runtime.Contribution);
+                runtime.Contribution = null;
+            }
+            foreach (EntityId id in instance.TargetsFor(this).ToArray())
+            {
+                TTarget target = world.Get<TTarget>(id);
+                instance.RemoveAffected(id, _attribute.Id, BindingIndex);
+                MarkChanged(world, target);
+            }
+            instance.TargetsFor(this).Clear();
+        }
+
+        public IEnumerable<EntityId> DependencyTargets(ModifierInstance instance) =>
+            instance.TargetsFor(this);
+
+        public IEnumerable<ConditionState> EvaluateConditions(SimulationWorld world,
+            ModifierInstance instance)
+        {
+            if (_condition == null || string.IsNullOrEmpty(_conditionDescription)) yield break;
+            TSource source = (TSource)instance.SourceInternal;
+            TParameters parameters = (TParameters)instance.ParametersInternal;
+            foreach (EntityId id in instance.TargetsFor(this).OrderBy(item => item))
+            {
+                TTarget target = world.Get<TTarget>(id);
+                if (target == null) continue;
+                var context = new ModifierMagnitudeContext<TSource, TTarget, TParameters>(
+                    world, source, target, parameters);
+                yield return new ConditionState(_conditionDescription, _condition(context), id,
+                    BindingIndex);
+            }
+        }
+
+        private void MarkChanged(SimulationWorld world, TTarget target)
+        {
+            GameAttribute<TTarget, TValue> attribute = target?.GetAttribute(_attribute);
+            if (attribute == null) return;
+            attribute.MarkDirty();
+            world.NotifyAttributeContributionChanged(target, _attribute);
         }
     }
 
@@ -748,6 +1038,180 @@ namespace LegendaryTools.ModifierSystem
         }
     }
 
+    internal sealed class CollectionModifierBinding<TSource, TTarget, TItem, TParameters> : IModifierBinding
+        where TSource : WorldEntity where TTarget : WorldEntity where TItem : WorldEntity
+    {
+        private readonly PreparedTargetQuery<TSource, TTarget> _targets;
+        private readonly CollectionDefinition<TTarget, TItem> _collection;
+        private readonly Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>,
+            IEnumerable<TItem>> _items;
+        private readonly CollectionMembershipDecision _decision;
+        private readonly Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, bool> _condition;
+        private readonly string _conditionDescription;
+        private readonly int _priority;
+
+        public int BindingIndex { get; }
+        public TargetTracking TargetTracking { get; }
+
+        public CollectionModifierBinding(int bindingIndex,
+            PreparedTargetQuery<TSource, TTarget> targets,
+            CollectionDefinition<TTarget, TItem> collection,
+            Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, IEnumerable<TItem>> items,
+            CollectionMembershipDecision decision, TargetTracking targetTracking,
+            Func<ModifierMagnitudeContext<TSource, TTarget, TParameters>, bool> condition,
+            string conditionDescription, int priority)
+        {
+            BindingIndex = bindingIndex;
+            _targets = targets;
+            _collection = collection;
+            _items = items;
+            _decision = decision;
+            TargetTracking = targetTracking;
+            _condition = condition;
+            _conditionDescription = conditionDescription ?? string.Empty;
+            _priority = priority;
+        }
+
+        public void Validate(SimulationWorld world, ModifierInstance instance)
+        {
+            foreach (TTarget target in _targets.Execute(world, (TSource)instance.SourceInternal))
+                if (world.GetCollection(target, _collection) == null)
+                    throw new InvalidOperationException(
+                        $"Collection {_collection.Id} does not exist for target {target.Id}.");
+        }
+
+        public void Reconcile(SimulationWorld world, ModifierInstance instance, bool initial)
+        {
+            if (!initial && TargetTracking == TargetTracking.Snapshot) return;
+            TSource source = (TSource)instance.SourceInternal;
+            TParameters parameters = (TParameters)instance.ParametersInternal;
+            HashSet<EntityId> existing = instance.TargetsFor(this);
+            var desired = new HashSet<EntityId>(_targets.Execute(world, source).Select(item => item.Id));
+
+            foreach (EntityId departed in existing.Where(id => !desired.Contains(id)).ToArray())
+                RemoveOwner(world, instance, existing, departed);
+
+            foreach (EntityId ownerId in desired.OrderBy(item => item))
+            {
+                TTarget owner = world.Get<TTarget>(ownerId);
+                DeclarativeCollection<TTarget, TItem> collection =
+                    owner == null ? null : world.GetCollection(owner, _collection);
+                if (collection == null) continue;
+                if (existing.Contains(ownerId))
+                    collection.RemoveContributions(instance.InstanceId, BindingIndex);
+                else
+                {
+                    existing.Add(ownerId);
+                    instance.AddAffectedCollection(ownerId, _collection.Id, BindingIndex);
+                }
+
+                var context = new ModifierMagnitudeContext<TSource, TTarget, TParameters>(
+                    world, source, owner, parameters);
+                Func<bool> active = () => instance.IsActive && (_condition?.Invoke(context) ?? true);
+                IEnumerable<TItem> selected = _items(context) ?? Enumerable.Empty<TItem>();
+                foreach (TItem item in selected.Where(item => item != null)
+                             .GroupBy(item => item.Id).Select(group => group.First())
+                             .OrderBy(item => item.Id))
+                    collection.AddContribution(new CollectionMembershipContribution<TItem>(
+                        instance.InstanceId, BindingIndex, item, _decision, _priority,
+                        world.NextContributionSequence(), active));
+            }
+        }
+
+        public ModifierBindingState Capture(SimulationWorld world, ModifierInstance instance, int bindingIndex)
+        {
+            var state = new ModifierBindingState { BindingIndex = bindingIndex };
+            foreach (EntityId ownerId in instance.TargetsFor(this).OrderBy(item => item))
+            {
+                TTarget owner = world.Get<TTarget>(ownerId);
+                DeclarativeCollection<TTarget, TItem> collection =
+                    owner == null ? null : world.GetCollection(owner, _collection);
+                if (collection == null) continue;
+                var snapshot = new CollectionMembershipBindingState();
+                foreach (CollectionMembershipContribution<TItem> contribution in collection.Contributions
+                             .Where(item => item.ModifierInstanceId == instance.InstanceId &&
+                                 item.BindingIndex == BindingIndex)
+                             .OrderBy(item => item.Item.Id))
+                    snapshot.Add(contribution.Item.Id, contribution.Sequence);
+                state.AddTarget(new ModifierTargetState
+                {
+                    EntityId = ownerId.Value,
+                    Applied = true,
+                    SnapshotMagnitude = snapshot
+                });
+            }
+            return state;
+        }
+
+        public void Restore(SimulationWorld world, ModifierInstance instance, ModifierBindingState state)
+        {
+            TSource source = (TSource)instance.SourceInternal;
+            TParameters parameters = (TParameters)instance.ParametersInternal;
+            foreach (ModifierTargetState saved in state.Targets.OrderBy(item => item.EntityId))
+            {
+                var ownerId = new EntityId(saved.EntityId);
+                TTarget owner = world.Get<TTarget>(ownerId);
+                DeclarativeCollection<TTarget, TItem> collection =
+                    owner == null ? null : world.GetCollection(owner, _collection);
+                if (collection == null ||
+                    !(saved.SnapshotMagnitude is CollectionMembershipBindingState snapshot)) continue;
+                var context = new ModifierMagnitudeContext<TSource, TTarget, TParameters>(
+                    world, source, owner, parameters);
+                Func<bool> active = () => instance.IsActive && (_condition?.Invoke(context) ?? true);
+                for (int index = 0; index < snapshot.ItemEntityIds.Count; index++)
+                {
+                    TItem item = world.Get<TItem>(new EntityId(snapshot.ItemEntityIds[index]));
+                    if (item == null) continue;
+                    long sequence = index < snapshot.Sequences.Count
+                        ? snapshot.Sequences[index]
+                        : world.NextContributionSequence();
+                    collection.AddContribution(new CollectionMembershipContribution<TItem>(
+                        instance.InstanceId, BindingIndex, item, _decision, _priority, sequence, active));
+                }
+                instance.TargetsFor(this).Add(ownerId);
+                instance.AddAffectedCollection(ownerId, _collection.Id, BindingIndex);
+            }
+        }
+
+        public void Remove(SimulationWorld world, ModifierInstance instance)
+        {
+            HashSet<EntityId> existing = instance.TargetsFor(this);
+            foreach (EntityId ownerId in existing.ToArray())
+                RemoveOwner(world, instance, existing, ownerId);
+        }
+
+        public IEnumerable<EntityId> DependencyTargets(ModifierInstance instance) =>
+            instance.TargetsFor(this);
+
+        public IEnumerable<ConditionState> EvaluateConditions(SimulationWorld world,
+            ModifierInstance instance)
+        {
+            if (_condition == null || string.IsNullOrEmpty(_conditionDescription)) yield break;
+            TSource source = (TSource)instance.SourceInternal;
+            TParameters parameters = (TParameters)instance.ParametersInternal;
+            foreach (EntityId ownerId in instance.TargetsFor(this).OrderBy(item => item))
+            {
+                TTarget owner = world.Get<TTarget>(ownerId);
+                if (owner == null) continue;
+                var context = new ModifierMagnitudeContext<TSource, TTarget, TParameters>(
+                    world, source, owner, parameters);
+                yield return new ConditionState(_conditionDescription, _condition(context),
+                    ownerId, BindingIndex);
+            }
+        }
+
+        private void RemoveOwner(SimulationWorld world, ModifierInstance instance,
+            HashSet<EntityId> existing, EntityId ownerId)
+        {
+            TTarget owner = world.Get<TTarget>(ownerId);
+            if (owner != null)
+                world.GetCollection(owner, _collection)?.RemoveContributions(
+                    instance.InstanceId, BindingIndex);
+            existing.Remove(ownerId);
+            instance.RemoveAffectedCollection(ownerId, _collection.Id, BindingIndex);
+        }
+    }
+
     internal sealed class CapacityModifierBinding<TSource, TTarget, TItem, TParameters> : IModifierBinding
         where TSource : WorldEntity where TTarget : WorldEntity where TItem : WorldEntity
     {
@@ -912,6 +1376,11 @@ namespace LegendaryTools.ModifierSystem
 
     public sealed partial class SimulationWorld
     {
+        private readonly Dictionary<IAttributeDefinition, List<ISharedAttributeContribution>>
+            _sharedAttributeContributions =
+                new Dictionary<IAttributeDefinition, List<ISharedAttributeContribution>>();
+        private readonly Dictionary<IAttributeDefinition, long> _sharedAttributeContributionVersions =
+            new Dictionary<IAttributeDefinition, long>();
         private readonly List<ModifierInstance> _modifierInstances = new List<ModifierInstance>();
         private IReadOnlyList<ModifierInstance> _modifierInstancesView;
         private readonly SortedDictionary<long, List<Guid>> _modifierExpirations =
@@ -944,10 +1413,56 @@ namespace LegendaryTools.ModifierSystem
         public IReadOnlyList<ModifierInstance> Modifiers =>
             _modifierInstancesView ?? (_modifierInstancesView = _modifierInstances.AsReadOnly());
 
+        internal void AddSharedAttributeContribution(ISharedAttributeContribution contribution)
+        {
+            if (!_sharedAttributeContributions.TryGetValue(contribution.Definition,
+                out List<ISharedAttributeContribution> values))
+                _sharedAttributeContributions.Add(contribution.Definition,
+                    values = new List<ISharedAttributeContribution>());
+            values.Add(contribution);
+            AdvanceSharedAttributeContributionVersion(contribution.Definition);
+        }
+
+        internal void RemoveSharedAttributeContribution(ISharedAttributeContribution contribution)
+        {
+            if (!_sharedAttributeContributions.TryGetValue(contribution.Definition,
+                out List<ISharedAttributeContribution> values)) return;
+            values.Remove(contribution);
+            if (values.Count == 0) _sharedAttributeContributions.Remove(contribution.Definition);
+            AdvanceSharedAttributeContributionVersion(contribution.Definition);
+        }
+
+        internal long GetSharedAttributeContributionVersion(IAttributeDefinition definition)
+        {
+            return _sharedAttributeContributionVersions.TryGetValue(definition, out long version)
+                ? version
+                : 0;
+        }
+
+        internal void AppendSharedAttributeContributions<TEntity, TValue>(
+            TEntity owner, AttributeDefinition<TEntity, TValue> definition,
+            List<AttributeContribution<TValue>> destination) where TEntity : WorldEntity
+        {
+            if (destination == null) throw new ArgumentNullException(nameof(destination));
+            if (!_sharedAttributeContributions.TryGetValue(definition,
+                out List<ISharedAttributeContribution> values))
+                return;
+            foreach (ISharedAttributeContribution value in values)
+                if (value.Matches(owner.Id))
+                    destination.Add((AttributeContribution<TValue>)value.ContributionFor(owner));
+        }
+
+        private void AdvanceSharedAttributeContributionVersion(IAttributeDefinition definition)
+        {
+            _sharedAttributeContributionVersions.TryGetValue(definition, out long version);
+            _sharedAttributeContributionVersions[definition] = version + 1;
+        }
+
         public ModifierInstance ApplyModifier<TSource, TParameters>(
             ModifierDefinition<TSource, TParameters> definition, TSource source, TParameters parameters,
             string stackingKey = null) where TSource : WorldEntity
         {
+            EnsureMutationAllowed();
             using (BeginVersionPublicationScope())
             {
                 if (definition == null) throw new ArgumentNullException(nameof(definition));
@@ -964,10 +1479,13 @@ namespace LegendaryTools.ModifierSystem
                 foreach (IModifierBinding binding in ((IModifierDefinition)definition).Bindings)
                     binding.Validate(this, instance);
 
-                instance.IsActive = ((IModifierDefinition)definition).SourceCondition(this, source, parameters);
+                ConditionEvaluationState sourceCondition =
+                    ((IModifierDefinition)definition).EvaluateSourceCondition(this, source, parameters);
+                instance.SourceConditionEvaluation = sourceCondition;
+                instance.IsActive = sourceCondition == ConditionEvaluationState.Satisfied;
                 instance.Conditions = string.IsNullOrEmpty(definition.ConditionDescription)
                     ? Array.Empty<ConditionState>()
-                    : new[] { new ConditionState(definition.ConditionDescription, instance.IsActive) };
+                    : new[] { new ConditionState(definition.ConditionDescription, sourceCondition) };
                 _modifierInstances.Add(instance);
                 try
                 {
@@ -991,6 +1509,7 @@ namespace LegendaryTools.ModifierSystem
 
         public bool RemoveModifier(ModifierInstance instance)
         {
+            EnsureMutationAllowed();
             using (BeginVersionPublicationScope())
             {
                 if (instance == null || instance.Removed || !_modifierInstances.Remove(instance)) return false;
@@ -1007,6 +1526,7 @@ namespace LegendaryTools.ModifierSystem
 
         public void AdvanceTo(long tick)
         {
+            EnsureMutationAllowed();
             using (BeginVersionPublicationScope())
             {
                 if (tick < CurrentTick)
@@ -1116,7 +1636,8 @@ namespace LegendaryTools.ModifierSystem
                          item.Source.Id == entityId ||
                          item.AffectedAttributes.Any(target => target.EntityId == entityId) ||
                          item.AffectedCapabilities.Any(target => target.EntityId == entityId) ||
-                         item.AffectedCapacities.Any(target => target.EntityId == entityId)).ToArray())
+                         item.AffectedCapacities.Any(target => target.EntityId == entityId) ||
+                         item.AffectedCollections.Any(target => target.EntityId == entityId)).ToArray())
                 RemoveModifier(instance);
         }
 
@@ -1124,6 +1645,7 @@ namespace LegendaryTools.ModifierSystem
             ModifierDefinition<TSource, TParameters> definition, TSource source, TParameters parameters,
             string stackingKey) where TSource : WorldEntity
         {
+            if (definition.Stacking.Mode == StackingMode.Stack) return null;
             IEnumerable<ModifierInstance> matching = _modifierInstances.Where(item =>
                 item.DefinitionId == definition.Id &&
                 (!definition.Stacking.GroupBySource || item.Source.Id == source.Id) &&
@@ -1131,8 +1653,6 @@ namespace LegendaryTools.ModifierSystem
             ModifierInstance[] instances = matching.ToArray();
             switch (definition.Stacking.Mode)
             {
-                case StackingMode.Stack:
-                    return null;
                 case StackingMode.GroupBySource:
                     foreach (ModifierInstance item in instances) RemoveModifier(item);
                     return null;
@@ -1152,7 +1672,7 @@ namespace LegendaryTools.ModifierSystem
                     AdvanceVersion();
                     return refresh;
                 case StackingMode.KeepStrongest:
-                    double strength = ((IModifierDefinition)definition).GetStrength(source, parameters);
+                    DetS64 strength = ((IModifierDefinition)definition).GetStrength(source, parameters);
                     ModifierInstance strongest = instances.OrderByDescending(item => item.Strength).FirstOrDefault();
                     if (strongest != null && strongest.Strength >= strength) return strongest;
                     foreach (ModifierInstance item in instances) RemoveModifier(item);
@@ -1172,13 +1692,15 @@ namespace LegendaryTools.ModifierSystem
         private void ReevaluateModifier(ModifierInstance instance, bool reconcileTargets)
         {
             if (instance == null || instance.Removed) return;
-            bool active = instance.DefinitionInternal.SourceCondition(this, instance.SourceInternal,
-                instance.ParametersInternal);
-            instance.IsActive = active;
+            ConditionEvaluationState sourceCondition =
+                instance.DefinitionInternal.EvaluateSourceCondition(this, instance.SourceInternal,
+                    instance.ParametersInternal);
+            instance.SourceConditionEvaluation = sourceCondition;
+            instance.IsActive = sourceCondition == ConditionEvaluationState.Satisfied;
             if (!string.IsNullOrEmpty(instance.DefinitionInternal.ConditionDescription))
                 instance.Conditions = new[]
                 {
-                    new ConditionState(instance.DefinitionInternal.ConditionDescription, active)
+                    new ConditionState(instance.DefinitionInternal.ConditionDescription, sourceCondition)
                 };
             if (reconcileTargets)
                 foreach (IModifierBinding binding in instance.DefinitionInternal.Bindings)
@@ -1201,7 +1723,8 @@ namespace LegendaryTools.ModifierSystem
         {
             var states = new List<ConditionState>();
             if (!string.IsNullOrEmpty(instance.DefinitionInternal.ConditionDescription))
-                states.Add(new ConditionState(instance.DefinitionInternal.ConditionDescription, instance.IsActive));
+                states.Add(new ConditionState(instance.DefinitionInternal.ConditionDescription,
+                    instance.SourceConditionEvaluation));
             foreach (IModifierBinding binding in instance.DefinitionInternal.Bindings)
                 states.AddRange(binding.EvaluateConditions(this, instance));
             instance.Conditions = states.AsReadOnly();
