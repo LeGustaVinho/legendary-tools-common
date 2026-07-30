@@ -137,11 +137,15 @@ namespace LegendaryTools.ViewBinding
         public bool SetSourceInstance(int bindingIndex, int sourceIndex, object instance)
         {
             if (!TryGetLocalBinding(bindingIndex, out ViewDataBinding binding, out _) ||
-                !TrySetSourceInstance(binding, sourceIndex, instance))
+                !TrySetSourceInstance(binding, sourceIndex, instance, out bool changed))
             {
                 return false;
             }
 
+            if (!changed)
+            {
+                return true;
+            }
             return InvalidateBinding(bindingIndex);
         }
 
@@ -153,11 +157,15 @@ namespace LegendaryTools.ViewBinding
                     out _,
                     out ViewDataBindingProfileReference profileReference) ||
                 profileReference != null ||
-                !TrySetSourceInstance(binding, sourceIndex, instance))
+                !TrySetSourceInstance(binding, sourceIndex, instance, out bool changed))
             {
                 return false;
             }
 
+            if (!changed)
+            {
+                return true;
+            }
             return InvalidateBinding(bindingIdOrName);
         }
 
@@ -1016,6 +1024,7 @@ namespace LegendaryTools.ViewBinding
 
             executionBucketsBuilt = false;
             RebuildExecutionBuckets();
+            RefreshScheduledRegistration();
         }
 
         public void ReleaseRuntimeResources()
@@ -1041,6 +1050,7 @@ namespace LegendaryTools.ViewBinding
         private void RebuildExecutionBuckets()
         {
             EnsureBindingIds();
+            var activeStateKeys = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < executionBuckets.Length; i++)
             {
                 if (executionBuckets[i] == null)
@@ -1062,6 +1072,7 @@ namespace LegendaryTools.ViewBinding
                 }
 
                 string stateKey = GetLocalStateKey(binding);
+                activeStateKeys.Add(stateKey);
                 executionBuckets[(int)binding.UpdateTiming].Add(
                     new BindingExecutionEntry(binding, stateKey, null, GetOrCreateState(stateKey)));
             }
@@ -1084,12 +1095,30 @@ namespace LegendaryTools.ViewBinding
                     }
 
                     string stateKey = GetProfileStateKey(profileReference, binding);
+                    activeStateKeys.Add(stateKey);
                     executionBuckets[(int)binding.UpdateTiming].Add(
                         new BindingExecutionEntry(
                             binding,
                             stateKey,
                             profileReference,
                             GetOrCreateState(stateKey)));
+                }
+            }
+
+            if (runtimeStates.Count > activeStateKeys.Count)
+            {
+                var staleStateKeys = new List<string>();
+                foreach (KeyValuePair<string, BindingRuntimeState> pair in runtimeStates)
+                {
+                    if (!activeStateKeys.Contains(pair.Key))
+                    {
+                        pair.Value.ReleaseResources();
+                        staleStateKeys.Add(pair.Key);
+                    }
+                }
+                for (int i = 0; i < staleStateKeys.Count; i++)
+                {
+                    runtimeStates.Remove(staleStateKeys[i]);
                 }
             }
 
@@ -3575,7 +3604,6 @@ namespace LegendaryTools.ViewBinding
                 return result;
             }
 
-            string message = $"Binding '{binding.Name}' failed with {result.Status}: {result.Message}";
             switch (binding.ErrorPolicy)
             {
                 case BindingErrorPolicy.ReportOnly:
@@ -3585,6 +3613,8 @@ namespace LegendaryTools.ViewBinding
                     if (state.LastLoggedStatus != result.Status ||
                         !string.Equals(state.LastLoggedMessage, result.Message, StringComparison.Ordinal))
                     {
+                        string message =
+                            $"Binding '{binding.Name}' failed with {result.Status}: {result.Message}";
                         Debug.LogWarning(message, this);
                         state.LastLoggedStatus = result.Status;
                         state.LastLoggedMessage = result.Message;
@@ -3592,16 +3622,28 @@ namespace LegendaryTools.ViewBinding
                     break;
 
                 case BindingErrorPolicy.LogEveryTime:
+                {
+                    string message =
+                        $"Binding '{binding.Name}' failed with {result.Status}: {result.Message}";
                     Debug.LogWarning(message, this);
                     break;
+                }
 
                 case BindingErrorPolicy.DisableUntilReset:
+                {
+                    string message =
+                        $"Binding '{binding.Name}' failed with {result.Status}: {result.Message}";
                     state.RuntimeDisabled = true;
                     Debug.LogWarning(message + " The binding was disabled until reset.", this);
                     break;
+                }
 
                 case BindingErrorPolicy.ThrowException:
+                {
+                    string message =
+                        $"Binding '{binding.Name}' failed with {result.Status}: {result.Message}";
                     throw new InvalidOperationException(message);
+                }
 
                 default:
                     throw new ArgumentOutOfRangeException();
@@ -3653,8 +3695,10 @@ namespace LegendaryTools.ViewBinding
         private static bool TrySetSourceInstance(
             ViewDataBinding binding,
             int sourceIndex,
-            object instance)
+            object instance,
+            out bool changed)
         {
+            changed = false;
             if (binding?.Sources == null ||
                 sourceIndex < 0 ||
                 sourceIndex >= binding.Sources.Count)
@@ -3664,7 +3708,17 @@ namespace LegendaryTools.ViewBinding
 
             BindingInstanceReference reference =
                 binding.Sources[sourceIndex]?.Endpoint?.Instance;
-            return reference != null && reference.SetRuntimeInstance(instance);
+            if (reference == null)
+            {
+                return false;
+            }
+            if (reference.RuntimeInstanceEquals(instance))
+            {
+                return true;
+            }
+
+            changed = reference.SetRuntimeInstance(instance);
+            return changed;
         }
 
         protected override void ResetRuntimeState()

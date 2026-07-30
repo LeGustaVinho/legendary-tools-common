@@ -105,11 +105,22 @@ namespace LegendaryTools.ViewBinding
             new HashSet<GameObject>();
         private readonly Dictionary<GameObject, TemplateState> templates =
             new Dictionary<GameObject, TemplateState>();
+        private readonly Dictionary<GameObject, ItemHierarchyCache> itemHierarchyCaches =
+            new Dictionary<GameObject, ItemHierarchyCache>();
         private readonly List<ProjectedItem> projection = new List<ProjectedItem>();
         private readonly List<ProjectedItem> projectionBuffer = new List<ProjectedItem>();
+        private readonly List<ProjectedItem> nextProjection = new List<ProjectedItem>();
+        private readonly List<object> sortValuesBuffer = new List<object>();
         private readonly List<object> projectedItems = new List<object>();
         private readonly List<ViewDataListItemContext> activeItems =
             new List<ViewDataListItemContext>();
+        private readonly Dictionary<object, int> keyOccurrences =
+            new Dictionary<object, int>();
+        private readonly HashSet<EffectiveKey> desiredKeys = new HashSet<EffectiveKey>();
+        private readonly List<EffectiveKey> removeKeys = new List<EffectiveKey>();
+        private readonly List<GameObject> reservedPoolBuffer = new List<GameObject>();
+        private readonly Dictionary<int, PredicateBuffers> predicateBuffersByCount =
+            new Dictionary<int, PredicateBuffers>();
         private readonly ViewDataListStatistics statistics = new ViewDataListStatistics();
         private IEnumerable itemsOverride;
         private bool hasItemsOverride;
@@ -121,6 +132,7 @@ namespace LegendaryTools.ViewBinding
         private string lastLoggedError;
         private bool projectionChanged;
         private int lastSourceCount;
+        private object projectionParentItem;
 
         public event Action RefreshStarted;
         public event Action<ViewDataListBindResult> RefreshCompleted;
@@ -260,6 +272,7 @@ namespace LegendaryTools.ViewBinding
             contextResolver.Invalidate();
             EnsureInfrastructure();
             ConfigureScrollListener();
+            RefreshScheduledRegistration();
         }
 
         protected override void PrepareRuntime()
@@ -356,7 +369,7 @@ namespace LegendaryTools.ViewBinding
             int token = ++generation;
             if (immediate || !isActiveAndEnabled)
             {
-                Reconcile(token, false);
+                Reconcile(token, false, forceRebind);
                 return Complete(ViewDataListBindStatus.Success, string.Empty, sourceCount);
             }
 
@@ -366,7 +379,8 @@ namespace LegendaryTools.ViewBinding
                 sourceCount,
                 projection.Count,
                 active.Count);
-            batchRoutine = StartCoroutine(ReconcileBatched(token, sourceCount, true));
+            batchRoutine = StartCoroutine(
+                ReconcileBatched(token, sourceCount, true, forceRebind));
             return lastResult;
         }
 
@@ -423,6 +437,8 @@ namespace LegendaryTools.ViewBinding
         private bool TryBuildProjection(IEnumerable items, out int sourceCount, out string error)
         {
             projectionBuffer.Clear();
+            sortValuesBuffer.Clear();
+            projectionParentItem = FindItemContext(targetParent);
             sourceCount = 0;
             error = string.Empty;
             if (items == null)
@@ -433,7 +449,7 @@ namespace LegendaryTools.ViewBinding
                 return true;
             }
 
-            var keyOccurrences = new Dictionary<object, int>();
+            keyOccurrences.Clear();
             try
             {
                 foreach (object item in items)
@@ -472,7 +488,7 @@ namespace LegendaryTools.ViewBinding
                         statistics.Filtered++;
                         continue;
                     }
-                    if (!TryResolveSortValues(item, out object[] sortValues, out error))
+                    if (!TryResolveSortValues(item, out int sortValuesOffset, out error))
                     {
                         return false;
                     }
@@ -483,7 +499,7 @@ namespace LegendaryTools.ViewBinding
                         SourceIndex = sourceIndex,
                         Key = new EffectiveKey(baseKey, occurrence),
                         StableOrder = sourceIndex,
-                        SortValues = sortValues
+                        SortValuesOffset = sortValuesOffset
                     };
                     projectionBuffer.Add(projected);
                 }
@@ -518,7 +534,11 @@ namespace LegendaryTools.ViewBinding
                     count = Mathf.Min(count, MaxItems);
                 }
 
-                var nextProjection = new List<ProjectedItem>(count);
+                nextProjection.Clear();
+                if (nextProjection.Capacity < count)
+                {
+                    nextProjection.Capacity = count;
+                }
                 for (int i = 0; i < count; i++)
                 {
                     ProjectedItem projected = projectionBuffer[start + i];
@@ -573,6 +593,16 @@ namespace LegendaryTools.ViewBinding
             return true;
         }
 
+        private PredicateBuffers GetPredicateBuffers(int count)
+        {
+            if (!predicateBuffersByCount.TryGetValue(count, out PredicateBuffers buffers))
+            {
+                buffers = new PredicateBuffers(count);
+                predicateBuffersByCount.Add(count, buffers);
+            }
+            return buffers;
+        }
+
         private bool TryFilter(object item, out bool accepted, out string error)
         {
             if (Filter != null)
@@ -604,28 +634,37 @@ namespace LegendaryTools.ViewBinding
                 return true;
             }
 
-            var values = new object[count];
-            var metadata = new BindingMemberMetadata[count];
-            using (BindingResolutionScope.Push(this, contextResolver, null))
+            PredicateBuffers buffers = GetPredicateBuffers(count);
+            object[] values = buffers.Values;
+            BindingMemberMetadata[] metadata = buffers.Metadata;
+            try
             {
-                for (int i = 0; i < count; i++)
+                using (BindingResolutionScope.Push(this, contextResolver, null))
                 {
-                    BindingEndpoint endpoint = predicate.Sources[i]?.Endpoint;
-                    PrepareItemEndpoint(endpoint, item);
-                    if (!BindingBackendRegistry.MemberBackend.TryGetMetadata(endpoint, out metadata[i], out error) ||
-                        !BindingBackendRegistry.MemberBackend.TryRead(endpoint, out values[i], out error))
+                    for (int i = 0; i < count; i++)
                     {
-                        return false;
+                        BindingEndpoint endpoint = predicate.Sources[i]?.Endpoint;
+                        PrepareItemEndpoint(endpoint, item);
+                        if (!BindingBackendRegistry.MemberBackend.TryGetMetadata(endpoint, out metadata[i], out error) ||
+                            !BindingBackendRegistry.MemberBackend.TryRead(endpoint, out values[i], out error))
+                        {
+                            return false;
+                        }
                     }
                 }
-            }
 
-            return EventBindingConditionEvaluator.TryEvaluate(
-                predicate.Condition,
-                values,
-                metadata,
-                out accepted,
-                out error);
+                return EventBindingConditionEvaluator.TryEvaluate(
+                    predicate.Condition,
+                    values,
+                    metadata,
+                    out accepted,
+                    out error);
+            }
+            finally
+            {
+                Array.Clear(values, 0, count);
+                Array.Clear(metadata, 0, count);
+            }
         }
 
         private bool TryResolveKey(
@@ -659,16 +698,15 @@ namespace LegendaryTools.ViewBinding
 
         private bool TryResolveSortValues(
             object item,
-            out object[] values,
+            out int valuesOffset,
             out string error)
         {
             error = string.Empty;
+            valuesOffset = sortValuesBuffer.Count;
             if (sorting.Count == 0)
             {
-                values = Array.Empty<object>();
                 return true;
             }
-            values = new object[sorting.Count];
             using (BindingResolutionScope.Push(this, contextResolver, null))
             {
                 for (int i = 0; i < sorting.Count; i++)
@@ -678,12 +716,13 @@ namespace LegendaryTools.ViewBinding
                     if (endpoint == null ||
                         !BindingBackendRegistry.MemberBackend.TryRead(
                             endpoint,
-                            out values[i],
+                            out object value,
                             out error))
                     {
                         error = $"Sort {i + 1}: {error}";
                         return false;
                     }
+                    sortValuesBuffer.Add(value);
                 }
             }
             return true;
@@ -694,8 +733,8 @@ namespace LegendaryTools.ViewBinding
             for (int i = 0; i < sorting.Count; i++)
             {
                 ViewDataListSortDescriptor descriptor = sorting[i];
-                object a = left.SortValues[i];
-                object b = right.SortValues[i];
+                object a = sortValuesBuffer[left.SortValuesOffset + i];
+                object b = sortValuesBuffer[right.SortValuesOffset + i];
                 int result;
                 bool comparedNull = IsNull(a) || IsNull(b);
                 if (comparedNull)
@@ -735,9 +774,9 @@ namespace LegendaryTools.ViewBinding
             out string error)
         {
             error = string.Empty;
-            var previewContext = CreateContext(projected, count, null);
             if (PrefabResolver != null)
             {
+                ViewDataListItemContext previewContext = CreateContext(projected, count, null);
                 prefab = PrefabResolver(previewContext) ?? defaultPrefab;
                 return true;
             }
@@ -768,27 +807,27 @@ namespace LegendaryTools.ViewBinding
             return true;
         }
 
-        private void Reconcile(int token, bool fromScroll)
+        private void Reconcile(int token, bool fromScroll, bool forceRebind)
         {
             if (token != generation)
             {
                 return;
             }
             GetRequiredRange(out int first, out int last);
-            var desired = new HashSet<EffectiveKey>();
+            desiredKeys.Clear();
             for (int i = first; i <= last; i++)
             {
                 if (i >= 0 && i < projection.Count && projection[i].Prefab != null)
                 {
-                    desired.Add(projection[i].Key);
+                    desiredKeys.Add(projection[i].Key);
                 }
             }
-            RemoveUndesired(desired);
+            RemoveUndesired(desiredKeys);
             for (int i = first; i <= last; i++)
             {
                 if (i >= 0 && i < projection.Count)
                 {
-                    EnsureItem(projection[i]);
+                    EnsureItem(projection[i], forceRebind);
                 }
             }
             if (virtualization.Enabled)
@@ -805,7 +844,8 @@ namespace LegendaryTools.ViewBinding
         private IEnumerator ReconcileBatched(
             int token,
             int sourceCount,
-            bool completeRefresh)
+            bool completeRefresh,
+            bool forceRebind = false)
         {
             yield return null;
             if (token != generation)
@@ -813,15 +853,15 @@ namespace LegendaryTools.ViewBinding
                 yield break;
             }
             GetRequiredRange(out int first, out int last);
-            var desired = new HashSet<EffectiveKey>();
+            desiredKeys.Clear();
             for (int i = first; i <= last; i++)
             {
                 if (i >= 0 && i < projection.Count && projection[i].Prefab != null)
                 {
-                    desired.Add(projection[i].Key);
+                    desiredKeys.Add(projection[i].Key);
                 }
             }
-            RemoveUndesired(desired);
+            RemoveUndesired(desiredKeys);
 
             int frameCount = 0;
             var stopwatch = Stopwatch.StartNew();
@@ -833,7 +873,7 @@ namespace LegendaryTools.ViewBinding
                 }
                 if (i >= 0 && i < projection.Count)
                 {
-                    EnsureItem(projection[i]);
+                    EnsureItem(projection[i], forceRebind);
                 }
                 frameCount++;
                 if (frameCount >= ItemsPerFrame ||
@@ -865,7 +905,7 @@ namespace LegendaryTools.ViewBinding
             }
         }
 
-        private void EnsureItem(ProjectedItem projected)
+        private void EnsureItem(ProjectedItem projected, bool forceRebind)
         {
             if (projected.Prefab == null)
             {
@@ -876,8 +916,12 @@ namespace LegendaryTools.ViewBinding
             {
                 if (existing.Prefab == projected.Prefab)
                 {
-                    BindInstance(existing, projected);
                     statistics.Reused++;
+                    if (!forceRebind && !NeedsRebind(existing.Context, projected))
+                    {
+                        return;
+                    }
+                    BindInstance(existing, projected);
                     return;
                 }
                 ReleaseInstance(existing, false);
@@ -897,12 +941,31 @@ namespace LegendaryTools.ViewBinding
                 Context = CreateContext(projected, projection.Count, gameObject)
             };
             active[projected.Key] = instance;
+            EnsureItemHierarchyCache(gameObject);
             BindInstance(instance, projected, created);
+        }
+
+        private bool NeedsRebind(ViewDataListItemContext context, ProjectedItem projected)
+        {
+            if (context == null ||
+                context.Index != projected.Index ||
+                context.SourceIndex != projected.SourceIndex ||
+                context.Count != projection.Count)
+            {
+                return true;
+            }
+
+            object currentItem = context.Item;
+            object nextItem = projected.Item;
+            return nextItem.GetType().IsValueType
+                ? !Equals(currentItem, nextItem)
+                : !ReferenceEquals(currentItem, nextItem);
         }
 
         private void BindInstance(ItemInstance instance, ProjectedItem projected, bool created = false)
         {
             ViewDataListItemContext context = instance.Context;
+            ItemHierarchyCache hierarchy = EnsureItemHierarchyCache(instance.GameObject);
             context.Item = projected.Item;
             context.Key = GetPublishedKey(projected.Key);
             context.Index = projected.Index;
@@ -910,29 +973,33 @@ namespace LegendaryTools.ViewBinding
             context.Count = projection.Count;
             context.GameObject = instance.GameObject;
 
-            instance.GameObject.transform.SetParent(targetParent, false);
-            context.ParentItem = FindParentItem(instance.GameObject.transform);
-            PublishContexts(instance.GameObject, context);
-            InjectChildBinderInstances(instance.GameObject, context.Item);
+            if (instance.GameObject.transform.parent != targetParent)
+            {
+                instance.GameObject.transform.SetParent(targetParent, false);
+            }
+            context.ParentItem = projectionParentItem;
+            PublishContexts(hierarchy, context);
+            InjectChildBinderInstances(hierarchy, context.Item);
             if (created)
             {
-                InvokeContracts(instance.GameObject, contract => contract.OnListItemCreated(context));
+                InvokeCreated(hierarchy, context);
                 itemCreated.Invoke(context);
                 ItemCreated?.Invoke(context);
                 statistics.Created++;
             }
-            instance.GameObject.SetActive(true);
-            SynchronizeChildBinders(instance.GameObject);
-            InvokeContracts(instance.GameObject, contract => contract.OnListItemBound(context));
+            if (!instance.GameObject.activeSelf)
+            {
+                instance.GameObject.SetActive(true);
+            }
+            SynchronizeChildBinders(hierarchy);
+            InvokeBound(hierarchy, context);
             itemBound.Invoke(context);
             ItemBound?.Invoke(context);
             statistics.Bound++;
             if (!instance.Visible)
             {
                 instance.Visible = true;
-                InvokeContracts(
-                    instance.GameObject,
-                    contract => contract.OnListItemVisibilityChanged(context, true));
+                InvokeVisibilityChanged(hierarchy, context, true);
                 itemVisibilityChanged.Invoke(context, true);
                 ItemVisibilityChanged?.Invoke(context, true);
             }
@@ -960,9 +1027,7 @@ namespace LegendaryTools.ViewBinding
             }
             if (inactiveByPrefab.TryGetValue(prefab, out Stack<GameObject> pool))
             {
-                List<GameObject> reserved = virtualization.Enabled
-                    ? null
-                    : new List<GameObject>();
+                reservedPoolBuffer.Clear();
                 GameObject selected = null;
                 while (pool.Count > 0)
                 {
@@ -972,7 +1037,7 @@ namespace LegendaryTools.ViewBinding
                     {
                         if (!virtualization.Enabled && inactiveKeys.ContainsKey(pooled))
                         {
-                            reserved.Add(pooled);
+                            reservedPoolBuffer.Add(pooled);
                             continue;
                         }
                         if (inactiveKeys.TryGetValue(pooled, out EffectiveKey oldKey))
@@ -983,12 +1048,9 @@ namespace LegendaryTools.ViewBinding
                         break;
                     }
                 }
-                if (reserved != null)
+                for (int i = reservedPoolBuffer.Count - 1; i >= 0; i--)
                 {
-                    for (int i = reserved.Count - 1; i >= 0; i--)
-                    {
-                        pool.Push(reserved[i]);
-                    }
+                    pool.Push(reservedPoolBuffer[i]);
                 }
                 if (selected != null)
                 {
@@ -1046,45 +1108,45 @@ namespace LegendaryTools.ViewBinding
 
         private void RemoveUndesired(HashSet<EffectiveKey> desired)
         {
-            var remove = new List<EffectiveKey>();
+            removeKeys.Clear();
             foreach (KeyValuePair<EffectiveKey, ItemInstance> pair in active)
             {
                 if (!desired.Contains(pair.Key))
                 {
                     ReleaseInstance(pair.Value, false);
-                    remove.Add(pair.Key);
+                    removeKeys.Add(pair.Key);
                 }
             }
-            for (int i = 0; i < remove.Count; i++)
+            for (int i = 0; i < removeKeys.Count; i++)
             {
-                active.Remove(remove[i]);
+                active.Remove(removeKeys[i]);
             }
         }
 
         private void ReleaseInstance(ItemInstance instance, bool destroying)
         {
             ViewDataListItemContext context = instance.Context;
+            ItemHierarchyCache hierarchy = EnsureItemHierarchyCache(instance.GameObject);
             if (instance.Visible)
             {
                 instance.Visible = false;
-                InvokeContracts(
-                    instance.GameObject,
-                    contract => contract.OnListItemVisibilityChanged(context, false));
+                InvokeVisibilityChanged(hierarchy, context, false);
                 itemVisibilityChanged.Invoke(context, false);
                 ItemVisibilityChanged?.Invoke(context, false);
             }
-            InvokeContracts(instance.GameObject, contract => contract.OnListItemUnbound(context));
+            InvokeUnbound(hierarchy, context);
             itemUnbound.Invoke(context);
             ItemUnbound?.Invoke(context);
             statistics.Unbound++;
 
             if (destroying || surplusPolicy == ViewDataListSurplusPolicy.Destroy)
             {
-                InvokeContracts(instance.GameObject, contract => contract.OnListItemDestroyed(context));
+                InvokeDestroyed(hierarchy, context);
                 itemDestroyed.Invoke(context);
                 ItemDestroyed?.Invoke(context);
                 statistics.Destroyed++;
                 PreserveTemplateBeforeDestroy(instance);
+                itemHierarchyCaches.Remove(instance.GameObject);
                 DestroySafely(instance.GameObject);
                 return;
             }
@@ -1133,12 +1195,13 @@ namespace LegendaryTools.ViewBinding
             }
         }
 
-        private void PublishContexts(GameObject target, ViewDataListItemContext context)
+        private void PublishContexts(ItemHierarchyCache hierarchy, ViewDataListItemContext context)
         {
-            BindingDataContext dataContext = target.GetComponent<BindingDataContext>();
+            BindingDataContext dataContext = hierarchy.DataContext;
             if (dataContext == null)
             {
-                dataContext = target.AddComponent<BindingDataContext>();
+                dataContext = hierarchy.GameObject.AddComponent<BindingDataContext>();
+                hierarchy.DataContext = dataContext;
             }
             dataContext.SetContext("$Item", context.Item);
             if (context.ParentItem != null) dataContext.SetContext("$ParentItem", context.ParentItem);
@@ -1151,12 +1214,16 @@ namespace LegendaryTools.ViewBinding
             dataContext.SetContext("$IsLast", context.IsLast);
         }
 
-        private void InjectChildBinderInstances(GameObject target, object item)
+        private static void InjectChildBinderInstances(ItemHierarchyCache hierarchy, object item)
         {
-            ViewDataBinder[] binders = target.GetComponentsInChildren<ViewDataBinder>(true);
+            ViewDataBinder[] binders = hierarchy.DataBinders;
             for (int b = 0; b < binders.Length; b++)
             {
                 ViewDataBinder binder = binders[b];
+                if (binder == null)
+                {
+                    continue;
+                }
                 for (int i = 0; i < binder.Bindings.Count; i++)
                 {
                     ViewDataBinding binding = binder.Bindings[i];
@@ -1174,10 +1241,14 @@ namespace LegendaryTools.ViewBinding
                 }
             }
 
-            ViewDataEventBinder[] eventBinders = target.GetComponentsInChildren<ViewDataEventBinder>(true);
+            ViewDataEventBinder[] eventBinders = hierarchy.EventBinders;
             for (int b = 0; b < eventBinders.Length; b++)
             {
                 ViewDataEventBinder binder = eventBinders[b];
+                if (binder == null)
+                {
+                    continue;
+                }
                 for (int i = 0; i < binder.EventBindings.Count; i++)
                 {
                     ViewDataEventBinding binding = binder.EventBindings[i];
@@ -1192,44 +1263,139 @@ namespace LegendaryTools.ViewBinding
             }
         }
 
-        private void SynchronizeChildBinders(GameObject target)
+        private void SynchronizeChildBinders(ItemHierarchyCache hierarchy)
         {
-            ViewDataBinder[] binders = target.GetComponentsInChildren<ViewDataBinder>(true);
+            ViewDataBinder[] binders = hierarchy.DataBinders;
             for (int i = 0; i < binders.Length; i++)
             {
-                binders[i].SynchronizeAll();
+                if (binders[i] != null)
+                {
+                    binders[i].SynchronizeAll();
+                }
             }
-            ViewDataEventBinder[] eventBinders =
-                target.GetComponentsInChildren<ViewDataEventBinder>(true);
+            ViewDataEventBinder[] eventBinders = hierarchy.EventBinders;
             for (int i = 0; i < eventBinders.Length; i++)
             {
-                eventBinders[i].ProcessAll();
+                if (eventBinders[i] != null)
+                {
+                    eventBinders[i].ProcessAll();
+                }
             }
-            ViewDataListBinder[] nested = target.GetComponentsInChildren<ViewDataListBinder>(true);
+            ViewDataListBinder[] nested = hierarchy.ListBinders;
             for (int i = 0; i < nested.Length; i++)
             {
-                if (nested[i] != this)
+                if (nested[i] != null && nested[i] != this)
                 {
                     nested[i].Refresh();
                 }
             }
         }
 
-        private static void InvokeContracts(GameObject target, Action<IViewDataListItem> invoke)
+        private ItemHierarchyCache EnsureItemHierarchyCache(GameObject target)
         {
+            if (itemHierarchyCaches.TryGetValue(target, out ItemHierarchyCache cached))
+            {
+                return cached;
+            }
+
             MonoBehaviour[] behaviours = target.GetComponentsInChildren<MonoBehaviour>(true);
+            var contracts = new List<IViewDataListItem>();
             for (int i = 0; i < behaviours.Length; i++)
             {
                 if (behaviours[i] is IViewDataListItem contract)
                 {
-                    invoke(contract);
+                    contracts.Add(contract);
+                }
+            }
+
+            cached = new ItemHierarchyCache
+            {
+                GameObject = target,
+                DataContext = target.GetComponent<BindingDataContext>(),
+                DataBinders = target.GetComponentsInChildren<ViewDataBinder>(true),
+                EventBinders = target.GetComponentsInChildren<ViewDataEventBinder>(true),
+                ListBinders = target.GetComponentsInChildren<ViewDataListBinder>(true),
+                Contracts = contracts.ToArray()
+            };
+            itemHierarchyCaches[target] = cached;
+            return cached;
+        }
+
+        private static void InvokeCreated(
+            ItemHierarchyCache hierarchy,
+            ViewDataListItemContext context)
+        {
+            for (int i = 0; i < hierarchy.Contracts.Length; i++)
+            {
+                IViewDataListItem contract = hierarchy.Contracts[i];
+                if (!IsDestroyedContract(contract))
+                {
+                    contract.OnListItemCreated(context);
                 }
             }
         }
 
-        private object FindParentItem(Transform itemTransform)
+        private static void InvokeBound(
+            ItemHierarchyCache hierarchy,
+            ViewDataListItemContext context)
         {
-            return FindItemContext(itemTransform != null ? itemTransform.parent : null);
+            for (int i = 0; i < hierarchy.Contracts.Length; i++)
+            {
+                IViewDataListItem contract = hierarchy.Contracts[i];
+                if (!IsDestroyedContract(contract))
+                {
+                    contract.OnListItemBound(context);
+                }
+            }
+        }
+
+        private static void InvokeUnbound(
+            ItemHierarchyCache hierarchy,
+            ViewDataListItemContext context)
+        {
+            for (int i = 0; i < hierarchy.Contracts.Length; i++)
+            {
+                IViewDataListItem contract = hierarchy.Contracts[i];
+                if (!IsDestroyedContract(contract))
+                {
+                    contract.OnListItemUnbound(context);
+                }
+            }
+        }
+
+        private static void InvokeVisibilityChanged(
+            ItemHierarchyCache hierarchy,
+            ViewDataListItemContext context,
+            bool visible)
+        {
+            for (int i = 0; i < hierarchy.Contracts.Length; i++)
+            {
+                IViewDataListItem contract = hierarchy.Contracts[i];
+                if (!IsDestroyedContract(contract))
+                {
+                    contract.OnListItemVisibilityChanged(context, visible);
+                }
+            }
+        }
+
+        private static void InvokeDestroyed(
+            ItemHierarchyCache hierarchy,
+            ViewDataListItemContext context)
+        {
+            for (int i = 0; i < hierarchy.Contracts.Length; i++)
+            {
+                IViewDataListItem contract = hierarchy.Contracts[i];
+                if (!IsDestroyedContract(contract))
+                {
+                    contract.OnListItemDestroyed(context);
+                }
+            }
+        }
+
+        private static bool IsDestroyedContract(IViewDataListItem contract)
+        {
+            return contract == null ||
+                   (contract is UnityEngine.Object unityObject && unityObject == null);
         }
 
         private static object FindItemContext(Transform current)
@@ -1323,8 +1489,14 @@ namespace LegendaryTools.ViewBinding
             float height = virtualization.Padding.vertical +
                            rows * virtualization.ItemSize.y +
                            Mathf.Max(0, rows - 1) * virtualization.Spacing.y;
-            content.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, width);
-            content.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, height);
+            if (!Mathf.Approximately(content.rect.width, width))
+            {
+                content.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, width);
+            }
+            if (!Mathf.Approximately(content.rect.height, height))
+            {
+                content.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, height);
+            }
         }
 
         private void ReorderNonVirtualized()
@@ -1337,7 +1509,11 @@ namespace LegendaryTools.ViewBinding
             {
                 if (active.TryGetValue(projection[i].Key, out ItemInstance instance))
                 {
-                    instance.GameObject.transform.SetSiblingIndex(i);
+                    Transform itemTransform = instance.GameObject.transform;
+                    if (itemTransform.GetSiblingIndex() != i)
+                    {
+                        itemTransform.SetSiblingIndex(i);
+                    }
                 }
             }
         }
@@ -1383,7 +1559,7 @@ namespace LegendaryTools.ViewBinding
             }
             else
             {
-                Reconcile(token, true);
+                Reconcile(token, true, false);
                 lastResult = new ViewDataListBindResult(
                     ViewDataListBindStatus.Success,
                     string.Empty,
@@ -1503,11 +1679,17 @@ namespace LegendaryTools.ViewBinding
         private void RefreshActiveItemsView()
         {
             activeItems.Clear();
-            foreach (ItemInstance instance in active.Values)
+            if (activeItems.Capacity < active.Count)
             {
-                activeItems.Add(instance.Context);
+                activeItems.Capacity = active.Count;
             }
-            activeItems.Sort((left, right) => left.Index.CompareTo(right.Index));
+            for (int i = 0; i < projection.Count; i++)
+            {
+                if (active.TryGetValue(projection[i].Key, out ItemInstance instance))
+                {
+                    activeItems.Add(instance.Context);
+                }
+            }
         }
 
         private void DestroyAllInstances()
@@ -1526,11 +1708,12 @@ namespace LegendaryTools.ViewBinding
                     if (value == null) continue;
                     if (inactiveContexts.TryGetValue(value, out ViewDataListItemContext context))
                     {
-                        InvokeContracts(value, contract => contract.OnListItemDestroyed(context));
+                        InvokeDestroyed(EnsureItemHierarchyCache(value), context);
                         itemDestroyed.Invoke(context);
                         ItemDestroyed?.Invoke(context);
                         statistics.Destroyed++;
                     }
+                    itemHierarchyCaches.Remove(value);
                     DestroySafely(value);
                 }
             }
@@ -1549,6 +1732,7 @@ namespace LegendaryTools.ViewBinding
                 }
             }
             templates.Clear();
+            itemHierarchyCaches.Clear();
             projectedItems.Clear();
         }
 
@@ -1629,7 +1813,7 @@ namespace LegendaryTools.ViewBinding
             {
                 Binder = this,
                 Item = projected.Item,
-                ParentItem = FindItemContext(targetParent),
+                ParentItem = projectionParentItem,
                 Key = GetPublishedKey(projected.Key),
                 Index = projected.Index,
                 SourceIndex = projected.SourceIndex,
@@ -1665,14 +1849,14 @@ namespace LegendaryTools.ViewBinding
             else DestroyImmediate(value);
         }
 
-        private sealed class ProjectedItem
+        private struct ProjectedItem
         {
             public object Item;
             public int SourceIndex;
             public int Index;
             public int StableOrder;
             public EffectiveKey Key;
-            public object[] SortValues;
+            public int SortValuesOffset;
             public GameObject Prefab;
         }
 
@@ -1690,6 +1874,28 @@ namespace LegendaryTools.ViewBinding
             public GameObject Original;
             public GameObject CloneSource;
             public bool OriginalAvailable;
+        }
+
+        private sealed class PredicateBuffers
+        {
+            public PredicateBuffers(int count)
+            {
+                Values = new object[count];
+                Metadata = new BindingMemberMetadata[count];
+            }
+
+            public object[] Values { get; }
+            public BindingMemberMetadata[] Metadata { get; }
+        }
+
+        private sealed class ItemHierarchyCache
+        {
+            public GameObject GameObject;
+            public BindingDataContext DataContext;
+            public ViewDataBinder[] DataBinders;
+            public ViewDataEventBinder[] EventBinders;
+            public ViewDataListBinder[] ListBinders;
+            public IViewDataListItem[] Contracts;
         }
 
         private readonly struct EffectiveKey : IEquatable<EffectiveKey>

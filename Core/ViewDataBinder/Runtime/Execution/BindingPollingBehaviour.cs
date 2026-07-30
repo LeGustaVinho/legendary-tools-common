@@ -4,10 +4,13 @@ namespace LegendaryTools.ViewBinding
 {
     public abstract class BindingPollingBehaviour : MonoBehaviour
     {
+        private bool schedulerRegistrationActive;
+
         protected virtual void OnEnable()
         {
             PrepareRuntime();
-            BindingUpdateScheduler.Register(this);
+            schedulerRegistrationActive = true;
+            BindingUpdateScheduler.Refresh(this);
         }
 
         protected virtual void Awake()
@@ -22,6 +25,7 @@ namespace LegendaryTools.ViewBinding
 
         protected virtual void OnDisable()
         {
+            schedulerRegistrationActive = false;
             BindingUpdateScheduler.Unregister(this);
             ResetRuntimeState();
         }
@@ -70,6 +74,19 @@ namespace LegendaryTools.ViewBinding
             }
 
             AfterScheduledTiming(timing);
+        }
+
+        internal bool WantsScheduledTiming(BindingUpdateTiming timing)
+        {
+            return HasBindingsForTiming(timing) || HasAdditionalScheduledWork(timing);
+        }
+
+        protected void RefreshScheduledRegistration()
+        {
+            if (schedulerRegistrationActive)
+            {
+                BindingUpdateScheduler.Refresh(this);
+            }
         }
 
         private void ProcessIfRequired(BindingUpdateTiming timing)

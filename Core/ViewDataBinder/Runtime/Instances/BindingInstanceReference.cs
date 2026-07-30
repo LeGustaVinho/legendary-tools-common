@@ -106,6 +106,24 @@ namespace LegendaryTools.ViewBinding
             return true;
         }
 
+        internal bool RuntimeInstanceEquals(object instance)
+        {
+            if (kind != BindingInstanceKind.Runtime)
+            {
+                return false;
+            }
+
+            if (ReferenceEquals(runtimeInstance, instance))
+            {
+                return true;
+            }
+
+            return runtimeInstance != null &&
+                   instance != null &&
+                   runtimeInstance.GetType().IsValueType &&
+                   Equals(runtimeInstance, instance);
+        }
+
         public void ClearRuntimeInstance()
         {
             runtimeInstance = null;

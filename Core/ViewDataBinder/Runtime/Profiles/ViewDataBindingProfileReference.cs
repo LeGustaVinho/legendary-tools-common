@@ -179,6 +179,14 @@ namespace LegendaryTools.ViewBinding
                 runtimeContexts = new Dictionary<string, BindingInstanceHandle>(StringComparer.Ordinal);
             }
 
+            if (runtimeContexts.TryGetValue(normalizedName, out BindingInstanceHandle current) &&
+                current.Type == resolvedType &&
+                (ReferenceEquals(current.Instance, instance) ||
+                 (resolvedType.IsValueType && Equals(current.Instance, instance))))
+            {
+                return false;
+            }
+
             runtimeContexts[normalizedName] = new BindingInstanceHandle(instance, resolvedType, false);
             return true;
         }

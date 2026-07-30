@@ -208,7 +208,10 @@ namespace LegendaryTools.ViewBinding
             InvalidateBindingCaches(binding);
             if (executionEntriesById.TryGetValue(binding.Id, out EventBindingExecutionEntry entry))
             {
-                activeTaskBindings.Remove(entry);
+                if (activeTaskBindings.Remove(entry))
+                {
+                    RefreshScheduledRegistration();
+                }
             }
             return true;
         }
@@ -322,13 +325,18 @@ namespace LegendaryTools.ViewBinding
                         state.ClearMissingEndpoint();
                     }
 
+                    bool taskRegistrationChanged;
                     if (state.HasRunningTasks)
                     {
-                        activeTaskBindings.Add(entry);
+                        taskRegistrationChanged = activeTaskBindings.Add(entry);
                     }
                     else
                     {
-                        activeTaskBindings.Remove(entry);
+                        taskRegistrationChanged = activeTaskBindings.Remove(entry);
+                    }
+                    if (taskRegistrationChanged)
+                    {
+                        RefreshScheduledRegistration();
                     }
 
                     statistics.Record(result);
@@ -429,6 +437,7 @@ namespace LegendaryTools.ViewBinding
 
             executionBucketsBuilt = false;
             RebuildExecutionBuckets();
+            RefreshScheduledRegistration();
         }
 
         public void ReleaseRuntimeResources()
@@ -928,6 +937,10 @@ namespace LegendaryTools.ViewBinding
                 for (int i = 0; i < completedTaskBindings.Count; i++)
                 {
                     activeTaskBindings.Remove(completedTaskBindings[i]);
+                }
+                if (completedTaskBindings.Count > 0)
+                {
+                    RefreshScheduledRegistration();
                 }
             }
         }
