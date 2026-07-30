@@ -17,13 +17,29 @@ namespace LegendaryTools.ViewBinding
         [NonSerialized] private string cachedComparisonError;
         [NonSerialized] private bool comparisonValueCached;
 
-        public int SourceIndex => sourceIndex;
+        public int SourceIndex
+        {
+            get => sourceIndex;
+            set => sourceIndex = Math.Max(0, value);
+        }
 
-        public EventBindingLogicalOperator LogicalOperator => logicalOperator;
+        public EventBindingLogicalOperator LogicalOperator
+        {
+            get => logicalOperator;
+            set => logicalOperator = value;
+        }
 
-        public bool Negate => negate;
+        public bool Negate
+        {
+            get => negate;
+            set => negate = value;
+        }
 
-        public EventBindingComparisonOperator ComparisonOperator => comparisonOperator;
+        public EventBindingComparisonOperator ComparisonOperator
+        {
+            get => comparisonOperator;
+            set => comparisonOperator = value;
+        }
 
         public BindingFallbackValue ComparisonValue => comparisonValue;
 

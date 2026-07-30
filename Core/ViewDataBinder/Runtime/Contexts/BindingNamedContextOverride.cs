@@ -9,8 +9,16 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private string name = BindingContextConstants.Default;
         [SerializeField] private BindingContextValue value = new BindingContextValue();
 
-        public string Name => name;
+        public string Name
+        {
+            get => name;
+            set => name = BindingDataContext.NormalizeName(value);
+        }
 
-        public BindingContextValue Value => value;
+        public BindingContextValue Value
+        {
+            get => value;
+            set => this.value = value ?? new BindingContextValue();
+        }
     }
 }

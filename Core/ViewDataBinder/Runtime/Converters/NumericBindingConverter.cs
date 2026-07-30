@@ -12,6 +12,18 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private BindingNumericType sourceType = BindingNumericType.Single;
         [SerializeField] private BindingNumericType targetType = BindingNumericType.Int32;
 
+        public BindingNumericType SourceNumericType
+        {
+            get => sourceType;
+            set => sourceType = value;
+        }
+
+        public BindingNumericType TargetNumericType
+        {
+            get => targetType;
+            set => targetType = value;
+        }
+
         public override Type SourceType => ResolveType(sourceType);
 
         public override Type TargetType => ResolveType(targetType);

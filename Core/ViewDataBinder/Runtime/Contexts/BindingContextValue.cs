@@ -22,6 +22,43 @@ namespace LegendaryTools.ViewBinding
 
         public string DeclaredTypeName => declaredTypeName;
 
+        public BindingContextValue ConfigureUnityObject(
+            UnityEngine.Object instance,
+            Type declaredType = null)
+        {
+            Reset();
+            kind = BindingContextValueKind.UnityObject;
+            objectReference = instance;
+            declaredTypeName = declaredType?.AssemblyQualifiedName ?? string.Empty;
+            return this;
+        }
+
+        public BindingContextValue ConfigureProvider(
+            UnityEngine.Object provider,
+            Type declaredType = null)
+        {
+            if (provider != null && !(provider is IBindingInstanceProvider))
+            {
+                throw new ArgumentException(
+                    "The Provider must implement IBindingInstanceProvider.",
+                    nameof(provider));
+            }
+
+            Reset();
+            kind = BindingContextValueKind.Provider;
+            providerReference = provider;
+            declaredTypeName = declaredType?.AssemblyQualifiedName ?? string.Empty;
+            return this;
+        }
+
+        public BindingContextValue ConfigureStaticType(Type type)
+        {
+            Reset();
+            kind = BindingContextValueKind.StaticType;
+            staticTypeName = type?.AssemblyQualifiedName ?? string.Empty;
+            return this;
+        }
+
         public bool TryResolve(out BindingInstanceHandle handle, out string error)
         {
             switch (kind)
@@ -134,6 +171,14 @@ namespace LegendaryTools.ViewBinding
                 error = $"Context Provider resolution failed: {exception.Message}";
                 return false;
             }
+        }
+
+        private void Reset()
+        {
+            objectReference = null;
+            providerReference = null;
+            staticTypeName = string.Empty;
+            declaredTypeName = string.Empty;
         }
     }
 }

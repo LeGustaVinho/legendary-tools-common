@@ -367,6 +367,10 @@ namespace LegendaryTools.ViewBinding.Editor
                     type = DefaultBindingInstanceResolver.FindType(reference.ContextTypeName);
                     return type != null;
 
+                case BindingInstanceKind.Runtime:
+                    type = DefaultBindingInstanceResolver.FindType(reference.RuntimeTypeName);
+                    return type != null;
+
                 default:
                     type = null;
                     return false;

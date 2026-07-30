@@ -167,6 +167,9 @@ namespace LegendaryTools.ViewBinding.Editor
             string staticTypeName = instance
                 .FindPropertyRelative("staticTypeName")
                 .stringValue;
+            string runtimeTypeName = instance
+                .FindPropertyRelative("runtimeTypeName")
+                .stringValue;
 
             string declaredTypeName;
             switch (kind)
@@ -222,6 +225,17 @@ namespace LegendaryTools.ViewBinding.Editor
                     }
                     break;
 
+                case BindingInstanceKind.Runtime:
+                    if (string.IsNullOrWhiteSpace(runtimeTypeName))
+                    {
+                        snapshot = default;
+                        error = "Every local Runtime root must have a declared type before creating a parameterized profile.";
+                        return false;
+                    }
+
+                    declaredTypeName = runtimeTypeName;
+                    break;
+
                 default:
                     snapshot = default;
                     error = $"Unsupported root kind: {kind}.";
@@ -233,6 +247,7 @@ namespace LegendaryTools.ViewBinding.Editor
                 objectReference,
                 providerReference,
                 staticTypeName,
+                runtimeTypeName,
                 declaredTypeName);
             error = string.Empty;
             return true;
@@ -249,6 +264,7 @@ namespace LegendaryTools.ViewBinding.Editor
             instance.FindPropertyRelative("providerReference").objectReferenceValue = null;
             instance.FindPropertyRelative("contextName").stringValue = contextName;
             instance.FindPropertyRelative("contextTypeName").stringValue = contextTypeName ?? string.Empty;
+            instance.FindPropertyRelative("runtimeTypeName").stringValue = string.Empty;
         }
 
         private static void ApplyContextValue(
@@ -283,6 +299,11 @@ namespace LegendaryTools.ViewBinding.Editor
                     contextValue.FindPropertyRelative("staticTypeName").stringValue =
                         snapshot.StaticTypeName;
                     break;
+
+                case BindingInstanceKind.Runtime:
+                    contextValue.FindPropertyRelative("kind").enumValueIndex =
+                        (int)BindingContextValueKind.UnityObject;
+                    break;
             }
         }
 
@@ -293,12 +314,14 @@ namespace LegendaryTools.ViewBinding.Editor
                 UnityEngine.Object objectReference,
                 UnityEngine.Object providerReference,
                 string staticTypeName,
+                string runtimeTypeName,
                 string declaredTypeName)
             {
                 Kind = kind;
                 ObjectReference = objectReference;
                 ProviderReference = providerReference;
                 StaticTypeName = staticTypeName;
+                RuntimeTypeName = runtimeTypeName;
                 DeclaredTypeName = declaredTypeName;
             }
 
@@ -310,6 +333,8 @@ namespace LegendaryTools.ViewBinding.Editor
 
             public string StaticTypeName { get; }
 
+            public string RuntimeTypeName { get; }
+
             public string DeclaredTypeName { get; }
 
             public bool Equals(RootSnapshot other)
@@ -317,7 +342,8 @@ namespace LegendaryTools.ViewBinding.Editor
                 return Kind == other.Kind &&
                        ObjectReference == other.ObjectReference &&
                        ProviderReference == other.ProviderReference &&
-                       string.Equals(StaticTypeName, other.StaticTypeName, StringComparison.Ordinal);
+                       string.Equals(StaticTypeName, other.StaticTypeName, StringComparison.Ordinal) &&
+                       string.Equals(RuntimeTypeName, other.RuntimeTypeName, StringComparison.Ordinal);
             }
 
             public override bool Equals(object obj)
@@ -333,6 +359,7 @@ namespace LegendaryTools.ViewBinding.Editor
                     hashCode = (hashCode * 397) ^ (ObjectReference != null ? ObjectReference.GetHashCode() : 0);
                     hashCode = (hashCode * 397) ^ (ProviderReference != null ? ProviderReference.GetHashCode() : 0);
                     hashCode = (hashCode * 397) ^ (StaticTypeName != null ? StaticTypeName.GetHashCode() : 0);
+                    hashCode = (hashCode * 397) ^ (RuntimeTypeName != null ? RuntimeTypeName.GetHashCode() : 0);
                     return hashCode;
                 }
             }

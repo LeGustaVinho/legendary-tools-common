@@ -10,6 +10,12 @@ namespace LegendaryTools.ViewBinding
     {
         [SerializeField] private string format = "G";
 
+        public string Format
+        {
+            get => format;
+            set => format = value ?? "G";
+        }
+
         public override Type SourceType => typeof(Enum);
 
         public override Type TargetType => typeof(string);

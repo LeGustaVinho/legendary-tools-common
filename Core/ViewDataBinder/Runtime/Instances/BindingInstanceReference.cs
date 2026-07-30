@@ -12,6 +12,9 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private UnityEngine.Object providerReference;
         [SerializeField] private string contextName = BindingContextConstants.Default;
         [SerializeField] private string contextTypeName;
+        [SerializeField] private string runtimeTypeName;
+
+        [NonSerialized] private object runtimeInstance;
 
         public BindingInstanceKind Kind => kind;
 
@@ -24,6 +27,100 @@ namespace LegendaryTools.ViewBinding
         public string ContextName => contextName;
 
         public string ContextTypeName => contextTypeName;
+
+        public string RuntimeTypeName => runtimeTypeName;
+
+        public object RuntimeInstance => runtimeInstance;
+
+        public BindingInstanceReference ConfigureUnityObject(UnityEngine.Object instance)
+        {
+            ResetConfiguration();
+            kind = BindingInstanceKind.UnityObject;
+            objectReference = instance;
+            return this;
+        }
+
+        public BindingInstanceReference ConfigureStaticType(Type type)
+        {
+            ResetConfiguration();
+            kind = BindingInstanceKind.StaticType;
+            staticTypeName = type?.AssemblyQualifiedName ?? string.Empty;
+            return this;
+        }
+
+        public BindingInstanceReference ConfigureProvider(UnityEngine.Object provider)
+        {
+            if (provider != null && !(provider is IBindingInstanceProvider))
+            {
+                throw new ArgumentException(
+                    "The Provider must implement IBindingInstanceProvider.",
+                    nameof(provider));
+            }
+
+            ResetConfiguration();
+            kind = BindingInstanceKind.Provider;
+            providerReference = provider;
+            return this;
+        }
+
+        public BindingInstanceReference ConfigureContext(string name, Type declaredType = null)
+        {
+            ResetConfiguration();
+            kind = BindingInstanceKind.Context;
+            contextName = BindingDataContext.NormalizeName(name);
+            contextTypeName = declaredType?.AssemblyQualifiedName ?? string.Empty;
+            return this;
+        }
+
+        public BindingInstanceReference ConfigureRuntime(Type declaredType = null, object instance = null)
+        {
+            ResetConfiguration();
+            kind = BindingInstanceKind.Runtime;
+            runtimeTypeName = declaredType?.AssemblyQualifiedName ?? string.Empty;
+            if (!SetRuntimeInstance(instance))
+            {
+                throw new ArgumentException(
+                    $"The Runtime instance is not assignable to '{declaredType?.FullName}'.",
+                    nameof(instance));
+            }
+
+            return this;
+        }
+
+        public bool SetRuntimeInstance(object instance)
+        {
+            if (kind != BindingInstanceKind.Runtime)
+            {
+                return false;
+            }
+
+            Type declaredType = DefaultBindingInstanceResolver.FindType(runtimeTypeName);
+            if (instance != null &&
+                declaredType != null &&
+                !declaredType.IsInstanceOfType(instance))
+            {
+                return false;
+            }
+
+            runtimeInstance = instance;
+            return true;
+        }
+
+        public void ClearRuntimeInstance()
+        {
+            runtimeInstance = null;
+        }
+
+        private void ResetConfiguration()
+        {
+            objectReference = null;
+            staticTypeName = string.Empty;
+            providerReference = null;
+            contextName = BindingContextConstants.Default;
+            contextTypeName = string.Empty;
+            runtimeTypeName = string.Empty;
+            runtimeInstance = null;
+        }
 
         internal bool ReferencesObject(UnityEngine.Object candidate)
         {
@@ -56,6 +153,28 @@ namespace LegendaryTools.ViewBinding
                 {
                     return resolvedGameObject == candidateComponent.gameObject;
                 }
+            }
+
+            if (kind == BindingInstanceKind.Runtime)
+            {
+                if (ReferenceEquals(runtimeInstance, candidate))
+                {
+                    return true;
+                }
+
+                if (runtimeInstance is Component runtimeComponent &&
+                    candidate is GameObject runtimeGameObject)
+                {
+                    return runtimeComponent.gameObject == runtimeGameObject;
+                }
+
+                if (runtimeInstance is GameObject resolvedRuntimeGameObject &&
+                    candidate is Component runtimeCandidateComponent)
+                {
+                    return resolvedRuntimeGameObject == runtimeCandidateComponent.gameObject;
+                }
+
+                return false;
             }
 
             if (kind != BindingInstanceKind.UnityObject || objectReference == null)
@@ -123,6 +242,11 @@ namespace LegendaryTools.ViewBinding
                         contextName,
                         contextTypeName,
                         out type);
+
+                case BindingInstanceKind.Runtime:
+                    type = DefaultBindingInstanceResolver.FindType(runtimeTypeName) ??
+                           runtimeInstance?.GetType();
+                    return type != null;
 
                 default:
                     type = null;

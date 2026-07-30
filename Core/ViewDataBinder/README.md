@@ -8,6 +8,88 @@ A declarative Unity data binding framework configured entirely from the Inspecto
 - `StaticType`: any type exposing public static fields or properties. This also supports singleton paths such as `GameState.Instance.Player.Health`.
 - `Provider`: any `UnityEngine.Object` implementing `IBindingInstanceProvider`. The provider can expose any plain C# object at runtime.
 - `Context`: a named root resolved from a binding profile override or the nearest active `BindingDataContext` in the hierarchy. Profile definitions conventionally use `$Source` and `$Target`.
+- `Runtime`: a non-serialized instance assigned by code. A declared type can be selected in the Inspector so member bindings can be authored before the instance exists.
+
+For a prefab whose model only exists at runtime, select `Runtime` on each applicable Source, choose its declared type, and configure the member normally. Then inject the instance by binding index or by binding ID/name:
+
+```csharp
+viewDataBinder.SetSourceInstance(bindingIndex, sourceIndex, player);
+viewDataBinder.SetSourceInstance("PlayerHealth", sourceIndex, player);
+
+viewDataEventBinder.SetSourceInstance(eventBindingIndex, sourceIndex, player);
+viewDataEventBinder.SetSourceInstance("PlayerChanged", sourceIndex, player);
+```
+
+The setter validates the instance against the optional declared type and invalidates the affected execution plan. Passing `null` clears the runtime instance. It returns `false` for an invalid binding/source index, a Source not configured as `Runtime`, or an incompatible instance type.
+
+## Programmatic configuration
+
+Every configuration shown by the `ViewDataBinder` and `ViewDataEventBinder` Inspectors can also be authored through the runtime API. Configuration models expose writable properties and explicit collection methods, while binder-level mutations rebuild the cached execution plan automatically.
+
+```csharp
+var playerReference = new BindingInstanceReference()
+    .ConfigureRuntime(typeof(Player));
+var labelReference = new BindingInstanceReference()
+    .ConfigureUnityObject(healthLabel);
+
+var binding = new ViewDataBinding
+{
+    Name = "PlayerHealth",
+    Direction = BindingSyncDirection.SourceToTarget,
+    UpdateTiming = BindingUpdateTiming.Update,
+    Target = new BindingEndpoint(labelReference, "text")
+};
+
+binding.ClearSources();
+binding.AddSource(new BindingSource(
+    new BindingEndpoint(playerReference, "Health")));
+binding.Formatter.Enabled = true;
+binding.Formatter.FormatString = "HP: {0}";
+
+int bindingIndex = viewDataBinder.AddBinding(binding);
+viewDataBinder.SetSourceInstance(bindingIndex, 0, player);
+```
+
+Event bindings expose the same source API plus conditions, clauses and actions:
+
+```csharp
+var clause = new EventBindingConditionClause
+{
+    SourceIndex = 0,
+    ComparisonOperator = EventBindingComparisonOperator.LessThanOrEqual
+};
+clause.ComparisonValue.SetValue(0);
+
+var action = new EventBindingAction
+{
+    ActionKind = EventBindingActionKind.UnityEvent,
+    ParameterMode = EventBindingActionParameterMode.NewValue
+};
+action.NewValueEvent.AddListener(value => Debug.Log($"Health changed to {value}"));
+
+var condition = new EventBindingCondition { Name = "Player defeated" };
+condition.ClearClauses();
+condition.AddClause(clause);
+condition.AddAction(action);
+
+var eventBinding = new ViewDataEventBinding
+{
+    Name = "PlayerHealthChanged",
+    UpdateTiming = BindingUpdateTiming.Update
+};
+eventBinding.ClearSources();
+eventBinding.ClearConditions();
+eventBinding.AddSource(new BindingSource(
+    new BindingEndpoint(
+        new BindingInstanceReference().ConfigureRuntime(typeof(Player)),
+        "Health")));
+eventBinding.AddCondition(condition);
+
+int eventBindingIndex = viewDataEventBinder.AddBinding(eventBinding);
+viewDataEventBinder.SetSourceInstance(eventBindingIndex, 0, player);
+```
+
+Use `ConfigureBinding(index, binding => { ... })` when changing an existing binding so its execution plan is rebuilt automatically. If configuration objects are changed directly through `Bindings` or `EventBindings`, call `RebuildExecutionPlan()` afterward.
 
 ## Binding directions
 

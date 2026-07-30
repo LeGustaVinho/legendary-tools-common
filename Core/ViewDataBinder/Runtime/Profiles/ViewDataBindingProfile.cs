@@ -12,6 +12,29 @@ namespace LegendaryTools.ViewBinding
 
         public IReadOnlyList<ViewDataBinding> Bindings => bindings;
 
+        public int AddBinding(ViewDataBinding binding)
+        {
+            if (binding == null)
+            {
+                throw new System.ArgumentNullException(nameof(binding));
+            }
+
+            binding.EnsureId();
+            bindings.Add(binding);
+            return bindings.Count - 1;
+        }
+
+        public bool RemoveBindingAt(int bindingIndex)
+        {
+            if (bindingIndex < 0 || bindingIndex >= bindings.Count)
+            {
+                return false;
+            }
+
+            bindings.RemoveAt(bindingIndex);
+            return true;
+        }
+
         internal void EnsureBindingIds()
         {
             for (int i = 0; i < bindings.Count; i++)

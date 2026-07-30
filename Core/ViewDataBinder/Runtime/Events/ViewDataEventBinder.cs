@@ -28,6 +28,77 @@ namespace LegendaryTools.ViewBinding
 
         public BindingRuntimeStatistics Statistics => statistics;
 
+        public int AddBinding(ViewDataEventBinding binding)
+        {
+            if (binding == null)
+            {
+                throw new ArgumentNullException(nameof(binding));
+            }
+
+            binding.EnsureId();
+            eventBindings.Add(binding);
+            RebuildExecutionPlan();
+            return eventBindings.Count - 1;
+        }
+
+        public bool ConfigureBinding(int bindingIndex, Action<ViewDataEventBinding> configure)
+        {
+            if (configure == null ||
+                bindingIndex < 0 ||
+                bindingIndex >= eventBindings.Count ||
+                eventBindings[bindingIndex] == null)
+            {
+                return false;
+            }
+
+            configure(eventBindings[bindingIndex]);
+            eventBindings[bindingIndex].EnsureId();
+            RebuildExecutionPlan();
+            return true;
+        }
+
+        public bool RemoveBindingAt(int bindingIndex)
+        {
+            if (bindingIndex < 0 || bindingIndex >= eventBindings.Count)
+            {
+                return false;
+            }
+
+            ReleaseActionRuntimeResources(eventBindings[bindingIndex]);
+            eventBindings.RemoveAt(bindingIndex);
+            RebuildExecutionPlan();
+            return true;
+        }
+
+        public void ClearBindings()
+        {
+            for (int i = 0; i < eventBindings.Count; i++)
+            {
+                ReleaseActionRuntimeResources(eventBindings[i]);
+            }
+
+            eventBindings.Clear();
+            RebuildExecutionPlan();
+        }
+
+        public bool SetSourceInstance(int bindingIndex, int sourceIndex, object instance)
+        {
+            if (bindingIndex < 0 ||
+                bindingIndex >= eventBindings.Count ||
+                !TrySetSourceInstance(eventBindings[bindingIndex], sourceIndex, instance))
+            {
+                return false;
+            }
+
+            return InvalidateEventBinding(bindingIndex);
+        }
+
+        public bool SetSourceInstance(string bindingIdOrName, int sourceIndex, object instance)
+        {
+            return TryGetBindingIndex(bindingIdOrName, out int bindingIndex) &&
+                   SetSourceInstance(bindingIndex, sourceIndex, instance);
+        }
+
         public void ProcessManualBindings()
         {
             ProcessBindingTiming(BindingUpdateTiming.Manual);
@@ -166,6 +237,12 @@ namespace LegendaryTools.ViewBinding
                    state.HasRunningTasks;
         }
 
+        public bool IsTaskRunning(string bindingIdOrName)
+        {
+            return TryGetBindingIndex(bindingIdOrName, out int bindingIndex) &&
+                   IsTaskRunning(bindingIndex);
+        }
+
         public void ProcessAll()
         {
             EnsureBindingIds();
@@ -288,6 +365,13 @@ namespace LegendaryTools.ViewBinding
 
             result = state.LastResult;
             return true;
+        }
+
+        public bool TryGetLastResult(string bindingIdOrName, out BindingSyncResult result)
+        {
+            result = default;
+            return TryGetBindingIndex(bindingIdOrName, out int bindingIndex) &&
+                   TryGetLastResult(bindingIndex, out result);
         }
 
         protected override void PrepareRuntime()
@@ -1165,6 +1249,23 @@ namespace LegendaryTools.ViewBinding
             }
 
             return false;
+        }
+
+        private static bool TrySetSourceInstance(
+            ViewDataEventBinding binding,
+            int sourceIndex,
+            object instance)
+        {
+            if (binding?.Sources == null ||
+                sourceIndex < 0 ||
+                sourceIndex >= binding.Sources.Count)
+            {
+                return false;
+            }
+
+            BindingInstanceReference reference =
+                binding.Sources[sourceIndex]?.Endpoint?.Instance;
+            return reference != null && reference.SetRuntimeInstance(instance);
         }
 
         private static BindingSyncStatus ClassifyEndpointFailure(BindingEndpoint endpoint)

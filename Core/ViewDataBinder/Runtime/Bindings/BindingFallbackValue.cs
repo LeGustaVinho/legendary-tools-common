@@ -21,6 +21,73 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private UnityEngine.Object objectValue;
         [SerializeField] private string serializedValue;
 
+        public void SetValue(object value)
+        {
+            if (value == null)
+            {
+                stringValue = null;
+                objectValue = null;
+                serializedValue = string.Empty;
+                return;
+            }
+
+            switch (value)
+            {
+                case string typed:
+                    stringValue = typed;
+                    return;
+                case bool typed:
+                    boolValue = typed;
+                    return;
+                case int typed:
+                    intValue = typed;
+                    return;
+                case long typed:
+                    longValue = typed;
+                    return;
+                case float typed:
+                    floatValue = typed;
+                    return;
+                case double typed:
+                    doubleValue = typed;
+                    return;
+                case Vector2 typed:
+                    vector2Value = typed;
+                    return;
+                case Vector3 typed:
+                    vector3Value = typed;
+                    return;
+                case Vector4 typed:
+                    vector4Value = typed;
+                    return;
+                case Color typed:
+                    colorValue = typed;
+                    return;
+                case Quaternion typed:
+                    quaternionValue = typed;
+                    return;
+                case UnityEngine.Object typed:
+                    objectValue = typed;
+                    return;
+                case Enum typed:
+                    serializedValue = typed.ToString();
+                    return;
+                case byte _:
+                case sbyte _:
+                case short _:
+                case ushort _:
+                case uint _:
+                case ulong _:
+                case decimal _:
+                case char _:
+                    serializedValue = Convert.ToString(value, CultureInfo.InvariantCulture);
+                    return;
+                default:
+                    serializedValue = JsonUtility.ToJson(value);
+                    return;
+            }
+        }
+
         public bool TryGetValue(Type valueType, out object value, out string error)
         {
             value = null;

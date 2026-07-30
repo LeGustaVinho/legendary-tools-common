@@ -560,6 +560,7 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty objectProperty = instanceProperty.FindPropertyRelative("objectReference");
             SerializedProperty staticTypeProperty = instanceProperty.FindPropertyRelative("staticTypeName");
             SerializedProperty providerProperty = instanceProperty.FindPropertyRelative("providerReference");
+            SerializedProperty runtimeTypeProperty = instanceProperty.FindPropertyRelative("runtimeTypeName");
 
             EditorGUILayout.PropertyField(kindProperty, new GUIContent("Task Target"));
             BindingInstanceKind kind = (BindingInstanceKind)kindProperty.enumValueIndex;
@@ -583,6 +584,13 @@ namespace LegendaryTools.ViewBinding.Editor
                             "The selected object does not implement IBindingInstanceProvider.",
                             MessageType.Error);
                     }
+                    break;
+
+                case BindingInstanceKind.Runtime:
+                    DrawRuntimeTypeSelector(runtimeTypeProperty);
+                    EditorGUILayout.LabelField(
+                        "Assign with BindingInstanceReference.SetRuntimeInstance. Sources can use the binder SetSourceInstance API.",
+                        EditorStyles.wordWrappedMiniLabel);
                     break;
             }
         }
@@ -611,6 +619,36 @@ namespace LegendaryTools.ViewBinding.Editor
                             owner.ApplyModifiedProperties();
                         }
                     }));
+            }
+        }
+
+        private void DrawRuntimeTypeSelector(SerializedProperty runtimeTypeProperty)
+        {
+            Type currentType = DefaultBindingInstanceResolver.FindType(runtimeTypeProperty.stringValue);
+            string label = currentType == null ? "Select Runtime Type" : currentType.FullName;
+
+            Rect buttonRect = EditorGUILayout.GetControlRect();
+            buttonRect = EditorGUI.PrefixLabel(buttonRect, new GUIContent("Declared Type"));
+
+            if (GUI.Button(buttonRect, label, BindingInspectorStyles.PathButtonStyle))
+            {
+                SerializedObject owner = serializedObject;
+                string propertyPath = runtimeTypeProperty.propertyPath;
+                PopupWindow.Show(
+                    buttonRect,
+                    new StaticTypePickerWindow(
+                        type =>
+                        {
+                            owner.Update();
+                            SerializedProperty property = owner.FindProperty(propertyPath);
+                            if (property != null)
+                            {
+                                property.stringValue = type?.AssemblyQualifiedName ?? string.Empty;
+                                owner.ApplyModifiedProperties();
+                            }
+                        },
+                        false,
+                        true));
             }
         }
 

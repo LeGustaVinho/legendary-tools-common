@@ -21,15 +21,68 @@ namespace LegendaryTools.ViewBinding
 
         public string Id => id;
 
-        public bool Enabled => enabled;
+        public bool Enabled
+        {
+            get => enabled;
+            set => enabled = value;
+        }
 
-        public ViewDataBindingProfile Profile => profile;
+        public ViewDataBindingProfile Profile
+        {
+            get => profile;
+            set
+            {
+                profile = value;
+                InvalidateSerializedCaches();
+            }
+        }
 
-        public BindingContextValue SourceRoot => sourceRoot;
+        public BindingContextValue SourceRoot
+        {
+            get => sourceRoot;
+            set
+            {
+                sourceRoot = value ?? new BindingContextValue();
+                InvalidateSerializedCaches();
+            }
+        }
 
-        public BindingContextValue TargetRoot => targetRoot;
+        public BindingContextValue TargetRoot
+        {
+            get => targetRoot;
+            set
+            {
+                targetRoot = value ?? new BindingContextValue();
+                InvalidateSerializedCaches();
+            }
+        }
 
         public IReadOnlyList<BindingNamedContextOverride> NamedContexts => namedContexts;
+
+        public int AddNamedContext(BindingNamedContextOverride context)
+        {
+            namedContexts.Add(context ?? throw new ArgumentNullException(nameof(context)));
+            InvalidateSerializedCaches();
+            return namedContexts.Count - 1;
+        }
+
+        public bool RemoveNamedContextAt(int contextIndex)
+        {
+            if (contextIndex < 0 || contextIndex >= namedContexts.Count)
+            {
+                return false;
+            }
+
+            namedContexts.RemoveAt(contextIndex);
+            InvalidateSerializedCaches();
+            return true;
+        }
+
+        public void ClearNamedContexts()
+        {
+            namedContexts.Clear();
+            InvalidateSerializedCaches();
+        }
 
         internal void EnsureId()
         {

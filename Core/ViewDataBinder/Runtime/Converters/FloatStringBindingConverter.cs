@@ -12,6 +12,18 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private string format = "0.##";
         [SerializeField] private string cultureName;
 
+        public string Format
+        {
+            get => format;
+            set => format = value ?? string.Empty;
+        }
+
+        public string CultureName
+        {
+            get => cultureName;
+            set => cultureName = value ?? string.Empty;
+        }
+
         public override bool SupportsReverseConversion => true;
 
         protected override bool TryConvertValue(float sourceValue, out string targetValue, out string error)

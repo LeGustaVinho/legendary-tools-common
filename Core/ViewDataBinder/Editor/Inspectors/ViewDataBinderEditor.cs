@@ -725,6 +725,7 @@ namespace LegendaryTools.ViewBinding.Editor
             SerializedProperty objectProperty = instanceProperty.FindPropertyRelative("objectReference");
             SerializedProperty staticTypeProperty = instanceProperty.FindPropertyRelative("staticTypeName");
             SerializedProperty providerProperty = instanceProperty.FindPropertyRelative("providerReference");
+            SerializedProperty runtimeTypeProperty = instanceProperty.FindPropertyRelative("runtimeTypeName");
 
             EditorGUILayout.PropertyField(kindProperty, new GUIContent("Instance Kind"));
             BindingInstanceKind kind = (BindingInstanceKind)kindProperty.enumValueIndex;
@@ -748,6 +749,13 @@ namespace LegendaryTools.ViewBinding.Editor
                             "The selected object does not implement IBindingInstanceProvider.",
                             MessageType.Error);
                     }
+                    break;
+
+                case BindingInstanceKind.Runtime:
+                    DrawRuntimeTypeSelector(runtimeTypeProperty);
+                    EditorGUILayout.LabelField(
+                        "Assign with BindingInstanceReference.SetRuntimeInstance. Sources can use the binder SetSourceInstance API.",
+                        EditorStyles.wordWrappedMiniLabel);
                     break;
             }
         }
@@ -779,6 +787,36 @@ namespace LegendaryTools.ViewBinding.Editor
                             owner.ApplyModifiedProperties();
                         }
                     }));
+            }
+        }
+
+        private void DrawRuntimeTypeSelector(SerializedProperty runtimeTypeProperty)
+        {
+            Type currentType = DefaultBindingInstanceResolver.FindType(runtimeTypeProperty.stringValue);
+            string label = currentType == null ? "Select Runtime Type" : currentType.FullName;
+
+            Rect buttonRect = EditorGUILayout.GetControlRect();
+            buttonRect = EditorGUI.PrefixLabel(buttonRect, new GUIContent("Declared Type"));
+
+            if (GUI.Button(buttonRect, label, BindingInspectorStyles.PathButtonStyle))
+            {
+                SerializedObject owner = serializedObject;
+                string propertyPath = runtimeTypeProperty.propertyPath;
+                PopupWindow.Show(
+                    buttonRect,
+                    new StaticTypePickerWindow(
+                        type =>
+                        {
+                            owner.Update();
+                            SerializedProperty property = owner.FindProperty(propertyPath);
+                            if (property != null)
+                            {
+                                property.stringValue = type?.AssemblyQualifiedName ?? string.Empty;
+                                owner.ApplyModifiedProperties();
+                            }
+                        },
+                        false,
+                        true));
             }
         }
 
@@ -1599,6 +1637,7 @@ namespace LegendaryTools.ViewBinding.Editor
             instanceProperty.FindPropertyRelative("providerReference").objectReferenceValue = null;
             instanceProperty.FindPropertyRelative("contextName").stringValue = BindingContextConstants.Default;
             instanceProperty.FindPropertyRelative("contextTypeName").stringValue = string.Empty;
+            instanceProperty.FindPropertyRelative("runtimeTypeName").stringValue = string.Empty;
             endpointProperty.FindPropertyRelative("memberPath").stringValue = string.Empty;
         }
 
@@ -1633,6 +1672,10 @@ namespace LegendaryTools.ViewBinding.Editor
                                instanceProperty.FindPropertyRelative("contextName").stringValue) ||
                            !string.IsNullOrWhiteSpace(
                                instanceProperty.FindPropertyRelative("contextTypeName").stringValue);
+
+                case BindingInstanceKind.Runtime:
+                    return !string.IsNullOrWhiteSpace(
+                        instanceProperty.FindPropertyRelative("runtimeTypeName").stringValue);
 
                 default:
                     return false;

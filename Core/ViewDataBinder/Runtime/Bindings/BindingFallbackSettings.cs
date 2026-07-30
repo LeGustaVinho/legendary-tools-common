@@ -12,13 +12,29 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private bool useOnConverterFailure;
         [SerializeField] private BindingFallbackValue value = new BindingFallbackValue();
 
-        public bool Enabled => enabled;
+        public bool Enabled
+        {
+            get => enabled;
+            set => enabled = value;
+        }
 
-        public bool UseOnReadFailure => useOnReadFailure;
+        public bool UseOnReadFailure
+        {
+            get => useOnReadFailure;
+            set => useOnReadFailure = value;
+        }
 
-        public bool UseOnFormatterFailure => useOnFormatterFailure;
+        public bool UseOnFormatterFailure
+        {
+            get => useOnFormatterFailure;
+            set => useOnFormatterFailure = value;
+        }
 
-        public bool UseOnConverterFailure => useOnConverterFailure;
+        public bool UseOnConverterFailure
+        {
+            get => useOnConverterFailure;
+            set => useOnConverterFailure = value;
+        }
 
         public BindingFallbackValue Value => value;
     }

@@ -5,6 +5,7 @@ namespace LegendaryTools.ViewBinding
         UnityObject = 0,
         StaticType = 1,
         Provider = 2,
-        Context = 3
+        Context = 3,
+        Runtime = 4
     }
 }

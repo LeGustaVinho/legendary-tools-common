@@ -29,9 +29,59 @@ namespace LegendaryTools.ViewBinding
         [NonSerialized] private List<Task> concurrentTasks;
         [NonSerialized] private object[] taskArguments;
 
-        public EventBindingActionKind ActionKind => actionKind;
+        public EventBindingActionKind ActionKind
+        {
+            get => actionKind;
+            set
+            {
+                actionKind = value;
+                ReleaseRuntimeResources();
+            }
+        }
 
-        public EventBindingActionParameterMode ParameterMode => parameterMode;
+        public EventBindingActionParameterMode ParameterMode
+        {
+            get => parameterMode;
+            set
+            {
+                parameterMode = value;
+                ReleaseRuntimeResources();
+            }
+        }
+
+        public UnityEvent EventWithoutParameters => eventWithoutParameters;
+
+        public BindingObjectUnityEvent OldValueEvent => oldValueEvent;
+
+        public BindingObjectUnityEvent NewValueEvent => newValueEvent;
+
+        public BindingObjectPairUnityEvent OldAndNewValuesEvent => oldAndNewValuesEvent;
+
+        public BindingInstanceReference TaskMethodTarget
+        {
+            get => taskMethodTarget;
+            set
+            {
+                taskMethodTarget = value ?? new BindingInstanceReference();
+                ReleaseRuntimeResources();
+            }
+        }
+
+        public string TaskMethodSignature
+        {
+            get => taskMethodSignature;
+            set
+            {
+                taskMethodSignature = value ?? string.Empty;
+                ReleaseRuntimeResources();
+            }
+        }
+
+        public bool PreventConcurrentExecution
+        {
+            get => preventConcurrentExecution;
+            set => preventConcurrentExecution = value;
+        }
 
         public bool IsTaskRunning
         {

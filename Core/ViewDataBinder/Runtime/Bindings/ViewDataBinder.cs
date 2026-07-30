@@ -38,6 +38,129 @@ namespace LegendaryTools.ViewBinding
 
         public IReadOnlyList<ViewDataBindingProfileReference> Profiles => profiles;
 
+        public int AddBinding(ViewDataBinding binding)
+        {
+            if (binding == null)
+            {
+                throw new ArgumentNullException(nameof(binding));
+            }
+
+            binding.EnsureId();
+            bindings.Add(binding);
+            RebuildExecutionPlan();
+            return bindings.Count - 1;
+        }
+
+        public bool ConfigureBinding(int bindingIndex, Action<ViewDataBinding> configure)
+        {
+            if (configure == null ||
+                bindingIndex < 0 ||
+                bindingIndex >= bindings.Count ||
+                bindings[bindingIndex] == null)
+            {
+                return false;
+            }
+
+            configure(bindings[bindingIndex]);
+            bindings[bindingIndex].EnsureId();
+            RebuildExecutionPlan();
+            return true;
+        }
+
+        public bool RemoveBindingAt(int bindingIndex)
+        {
+            if (bindingIndex < 0 || bindingIndex >= bindings.Count)
+            {
+                return false;
+            }
+
+            bindings.RemoveAt(bindingIndex);
+            RebuildExecutionPlan();
+            return true;
+        }
+
+        public void ClearBindings()
+        {
+            bindings.Clear();
+            RebuildExecutionPlan();
+        }
+
+        public int AddProfile(ViewDataBindingProfileReference profileReference)
+        {
+            if (profileReference == null)
+            {
+                throw new ArgumentNullException(nameof(profileReference));
+            }
+
+            profileReference.EnsureId();
+            profiles.Add(profileReference);
+            RebuildExecutionPlan();
+            return profiles.Count - 1;
+        }
+
+        public bool ConfigureProfile(
+            int profileIndex,
+            Action<ViewDataBindingProfileReference> configure)
+        {
+            if (configure == null ||
+                profileIndex < 0 ||
+                profileIndex >= profiles.Count ||
+                profiles[profileIndex] == null)
+            {
+                return false;
+            }
+
+            configure(profiles[profileIndex]);
+            profiles[profileIndex].EnsureId();
+            RebuildExecutionPlan();
+            return true;
+        }
+
+        public bool RemoveProfileAt(int profileIndex)
+        {
+            if (profileIndex < 0 || profileIndex >= profiles.Count)
+            {
+                return false;
+            }
+
+            profiles.RemoveAt(profileIndex);
+            RebuildExecutionPlan();
+            return true;
+        }
+
+        public void ClearProfiles()
+        {
+            profiles.Clear();
+            RebuildExecutionPlan();
+        }
+
+        public bool SetSourceInstance(int bindingIndex, int sourceIndex, object instance)
+        {
+            if (!TryGetLocalBinding(bindingIndex, out ViewDataBinding binding, out _) ||
+                !TrySetSourceInstance(binding, sourceIndex, instance))
+            {
+                return false;
+            }
+
+            return InvalidateBinding(bindingIndex);
+        }
+
+        public bool SetSourceInstance(string bindingIdOrName, int sourceIndex, object instance)
+        {
+            if (!TryFindBinding(
+                    bindingIdOrName,
+                    out ViewDataBinding binding,
+                    out _,
+                    out ViewDataBindingProfileReference profileReference) ||
+                profileReference != null ||
+                !TrySetSourceInstance(binding, sourceIndex, instance))
+            {
+                return false;
+            }
+
+            return InvalidateBinding(bindingIdOrName);
+        }
+
         public bool SetProfileSourceRoot(
             int profileIndex,
             object instance,
@@ -784,6 +907,28 @@ namespace LegendaryTools.ViewBinding
             }
 
             if (!runtimeStates.TryGetValue(GetLocalStateKey(binding), out BindingRuntimeState state) ||
+                !state.HasResult)
+            {
+                return false;
+            }
+
+            result = state.LastResult;
+            return true;
+        }
+
+        public bool TryGetLastResult(string bindingIdOrName, out BindingSyncResult result)
+        {
+            result = default;
+            if (!TryFindBinding(
+                    bindingIdOrName,
+                    out _,
+                    out string stateKey,
+                    out _))
+            {
+                return false;
+            }
+
+            if (!runtimeStates.TryGetValue(stateKey, out BindingRuntimeState state) ||
                 !state.HasResult)
             {
                 return false;
@@ -3503,6 +3648,23 @@ namespace LegendaryTools.ViewBinding
             }
 
             return false;
+        }
+
+        private static bool TrySetSourceInstance(
+            ViewDataBinding binding,
+            int sourceIndex,
+            object instance)
+        {
+            if (binding?.Sources == null ||
+                sourceIndex < 0 ||
+                sourceIndex >= binding.Sources.Count)
+            {
+                return false;
+            }
+
+            BindingInstanceReference reference =
+                binding.Sources[sourceIndex]?.Endpoint?.Instance;
+            return reference != null && reference.SetRuntimeInstance(instance);
         }
 
         protected override void ResetRuntimeState()

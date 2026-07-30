@@ -8,6 +8,19 @@ namespace LegendaryTools.ViewBinding
     {
         [SerializeField] private BindingEndpoint endpoint = new BindingEndpoint();
 
-        public BindingEndpoint Endpoint => endpoint;
+        public BindingSource()
+        {
+        }
+
+        public BindingSource(BindingEndpoint endpoint)
+        {
+            this.endpoint = endpoint ?? new BindingEndpoint();
+        }
+
+        public BindingEndpoint Endpoint
+        {
+            get => endpoint;
+            set => endpoint = value ?? new BindingEndpoint();
+        }
     }
 }

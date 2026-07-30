@@ -11,12 +11,28 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private string formatString = "{0}";
         [SerializeField] private string cultureName;
 
-        public bool Enabled => enabled;
+        public bool Enabled
+        {
+            get => enabled;
+            set => enabled = value;
+        }
 
-        public string FormatterId => formatterId;
+        public string FormatterId
+        {
+            get => formatterId;
+            set => formatterId = value ?? string.Empty;
+        }
 
-        public string FormatString => formatString;
+        public string FormatString
+        {
+            get => formatString;
+            set => formatString = value ?? string.Empty;
+        }
 
-        public string CultureName => cultureName;
+        public string CultureName
+        {
+            get => cultureName;
+            set => cultureName = value ?? string.Empty;
+        }
     }
 }

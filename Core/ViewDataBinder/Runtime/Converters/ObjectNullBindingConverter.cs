@@ -10,6 +10,12 @@ namespace LegendaryTools.ViewBinding
     {
         [SerializeField] private bool trueWhenNotNull = true;
 
+        public bool TrueWhenNotNull
+        {
+            get => trueWhenNotNull;
+            set => trueWhenNotNull = value;
+        }
+
         public override Type SourceType => typeof(object);
 
         public override Type TargetType => typeof(bool);

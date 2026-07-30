@@ -13,6 +13,30 @@ namespace LegendaryTools.ViewBinding
         [SerializeField] private bool ignoreCase = true;
         [SerializeField] private bool trimInput = true;
 
+        public string TrueValue
+        {
+            get => trueValue;
+            set => trueValue = value ?? string.Empty;
+        }
+
+        public string FalseValue
+        {
+            get => falseValue;
+            set => falseValue = value ?? string.Empty;
+        }
+
+        public bool IgnoreCase
+        {
+            get => ignoreCase;
+            set => ignoreCase = value;
+        }
+
+        public bool TrimInput
+        {
+            get => trimInput;
+            set => trimInput = value;
+        }
+
         public override bool SupportsReverseConversion => true;
 
         protected override bool TryConvertValue(string sourceValue, out bool targetValue, out string error)

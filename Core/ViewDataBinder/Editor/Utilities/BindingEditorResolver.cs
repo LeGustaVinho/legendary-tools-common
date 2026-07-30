@@ -131,6 +131,22 @@ namespace LegendaryTools.ViewBinding.Editor
                     return true;
                 }
 
+                case BindingInstanceKind.Runtime:
+                {
+                    string typeName = instanceProperty
+                        .FindPropertyRelative("runtimeTypeName")
+                        .stringValue;
+                    Type type = DefaultBindingInstanceResolver.FindType(typeName);
+                    if (type == null)
+                    {
+                        error = "Select a declared Runtime type to configure members in the Inspector.";
+                        return false;
+                    }
+
+                    handle = new BindingInstanceHandle(null, type, false);
+                    return true;
+                }
+
                 default:
                     error = $"Unsupported instance kind: {kind}.";
                     return false;

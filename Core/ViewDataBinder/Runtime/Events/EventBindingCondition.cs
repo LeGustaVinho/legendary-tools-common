@@ -13,13 +13,71 @@ namespace LegendaryTools.ViewBinding
             new List<EventBindingConditionClause> { new EventBindingConditionClause() };
         [SerializeField] private List<EventBindingAction> actions = new List<EventBindingAction>();
 
-        public string Name => name;
+        public string Name
+        {
+            get => name;
+            set => name = value ?? string.Empty;
+        }
 
-        public bool Enabled => enabled;
+        public bool Enabled
+        {
+            get => enabled;
+            set => enabled = value;
+        }
 
         public IReadOnlyList<EventBindingConditionClause> Clauses => clauses;
 
         public IReadOnlyList<EventBindingAction> Actions => actions;
+
+        public int AddClause(EventBindingConditionClause clause)
+        {
+            clauses.Add(clause ?? throw new ArgumentNullException(nameof(clause)));
+            return clauses.Count - 1;
+        }
+
+        public bool RemoveClauseAt(int clauseIndex)
+        {
+            if (clauseIndex < 0 || clauseIndex >= clauses.Count)
+            {
+                return false;
+            }
+
+            clauses.RemoveAt(clauseIndex);
+            return true;
+        }
+
+        public int AddAction(EventBindingAction action)
+        {
+            actions.Add(action ?? throw new ArgumentNullException(nameof(action)));
+            return actions.Count - 1;
+        }
+
+        public bool RemoveActionAt(int actionIndex)
+        {
+            if (actionIndex < 0 || actionIndex >= actions.Count)
+            {
+                return false;
+            }
+
+            actions[actionIndex]?.ReleaseRuntimeResources();
+            actions.RemoveAt(actionIndex);
+            return true;
+        }
+
+        public void ClearClauses()
+        {
+            clauses.Clear();
+        }
+
+        public void ClearActions()
+        {
+            for (int i = 0; i < actions.Count; i++)
+            {
+                actions[i]?.ReleaseRuntimeResources();
+            }
+
+            actions.Clear();
+        }
 
         public bool ObservesSource(int sourceIndex)
         {

@@ -38,6 +38,9 @@ namespace LegendaryTools.ViewBinding
                         out handle,
                         out error);
 
+                case BindingInstanceKind.Runtime:
+                    return TryResolveRuntime(reference, out handle, out error);
+
                 default:
                     error = $"Unsupported instance kind: {reference.Kind}.";
                     return false;
@@ -169,6 +172,36 @@ namespace LegendaryTools.ViewBinding
                 error = $"Provider resolution failed: {exception.Message}";
                 return false;
             }
+        }
+
+        private static bool TryResolveRuntime(
+            BindingInstanceReference reference,
+            out BindingInstanceHandle handle,
+            out string error)
+        {
+            object instance = reference.RuntimeInstance;
+            Type declaredType = FindType(reference.RuntimeTypeName);
+            if (instance == null ||
+                (instance is UnityEngine.Object unityObject && unityObject == null))
+            {
+                handle = default;
+                error = declaredType == null
+                    ? "No Runtime instance is assigned and no declared type is configured."
+                    : $"No Runtime instance is assigned for type {declaredType.FullName}.";
+                return false;
+            }
+
+            if (declaredType != null && !declaredType.IsInstanceOfType(instance))
+            {
+                handle = default;
+                error =
+                    $"The Runtime instance type {instance.GetType().FullName} is not assignable to the declared type {declaredType.FullName}.";
+                return false;
+            }
+
+            handle = new BindingInstanceHandle(instance, instance.GetType(), false);
+            error = string.Empty;
+            return true;
         }
     }
 }
