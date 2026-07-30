@@ -9,27 +9,6 @@ namespace LegendaryTools.ViewBinding.Editor
     [CustomEditor(typeof(ViewDataEventBinder))]
     public sealed class ViewDataEventBinderEditor : UnityEditor.Editor
     {
-        private static readonly string[] ComparisonOperatorLabels =
-        {
-            "==",
-            "!=",
-            ">",
-            ">=",
-            "<",
-            "<=",
-            "is null",
-            "is not null",
-            "is true",
-            "is false"
-        };
-
-        private static readonly string[] LogicalOperatorLabels =
-        {
-            "AND",
-            "OR",
-            "XOR"
-        };
-
         private readonly Dictionary<string, bool> bindingFoldouts = new Dictionary<string, bool>();
         private readonly Dictionary<string, bool> conditionFoldouts = new Dictionary<string, bool>();
 
@@ -339,117 +318,20 @@ namespace LegendaryTools.ViewBinding.Editor
                 }
 
                 EditorGUILayout.Space(4f);
-                DrawConditionExpression(clausesProperty, sourcesProperty);
+                BindingConditionInspectorUtility.DrawExpression(
+                    clausesProperty,
+                    sourcesProperty);
 
                 EditorGUILayout.Space(5f);
                 DrawSectionTitle("ACTIONS");
                 DrawActions(actionsProperty);
 
-                DrawConditionValidation(clausesProperty, sourcesProperty);
+                BindingConditionInspectorUtility.DrawValidation(
+                    clausesProperty,
+                    sourcesProperty);
             }
 
             return remove;
-        }
-
-        private void DrawConditionExpression(
-            SerializedProperty clausesProperty,
-            SerializedProperty sourcesProperty)
-        {
-            if (clausesProperty.arraySize == 0)
-            {
-                clausesProperty.arraySize = 1;
-                ResetClause(clausesProperty.GetArrayElementAtIndex(0));
-            }
-
-            string[] sourceLabels = BuildSourceLabels(sourcesProperty);
-
-            for (int i = 0; i < clausesProperty.arraySize; i++)
-            {
-                SerializedProperty clauseProperty = clausesProperty.GetArrayElementAtIndex(i);
-                SerializedProperty sourceIndexProperty = clauseProperty.FindPropertyRelative("sourceIndex");
-                SerializedProperty logicalOperatorProperty = clauseProperty.FindPropertyRelative("logicalOperator");
-                SerializedProperty negateProperty = clauseProperty.FindPropertyRelative("negate");
-                SerializedProperty comparisonOperatorProperty = clauseProperty.FindPropertyRelative("comparisonOperator");
-                SerializedProperty comparisonValueProperty = clauseProperty.FindPropertyRelative("comparisonValue");
-
-                sourceIndexProperty.intValue = Mathf.Clamp(
-                    sourceIndexProperty.intValue,
-                    0,
-                    Mathf.Max(0, sourcesProperty.arraySize - 1));
-
-                if (i > 0)
-                {
-                    int logicalIndex = Mathf.Clamp(
-                        logicalOperatorProperty.enumValueIndex,
-                        0,
-                        LogicalOperatorLabels.Length - 1);
-                    logicalOperatorProperty.enumValueIndex = EditorGUILayout.Popup(
-                        "Logical Operator",
-                        logicalIndex,
-                        LogicalOperatorLabels);
-                }
-
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                {
-                    using (new EditorGUILayout.HorizontalScope())
-                    {
-                        GUILayout.Label($"Clause {i + 1}", EditorStyles.miniBoldLabel);
-                        GUILayout.FlexibleSpace();
-
-                        negateProperty.boolValue = GUILayout.Toggle(
-                            negateProperty.boolValue,
-                            "NOT",
-                            EditorStyles.miniButton,
-                            GUILayout.Width(44f));
-
-                        using (new EditorGUI.DisabledScope(clausesProperty.arraySize <= 1))
-                        {
-                            if (GUILayout.Button("×", EditorStyles.miniButton, GUILayout.Width(24f)))
-                            {
-                                clausesProperty.DeleteArrayElementAtIndex(i);
-                                return;
-                            }
-                        }
-                    }
-
-                    sourceIndexProperty.intValue = EditorGUILayout.Popup(
-                        "Observed Source",
-                        sourceIndexProperty.intValue,
-                        sourceLabels);
-
-                    int operatorIndex = Mathf.Clamp(
-                        comparisonOperatorProperty.enumValueIndex,
-                        0,
-                        ComparisonOperatorLabels.Length - 1);
-                    comparisonOperatorProperty.enumValueIndex = EditorGUILayout.Popup(
-                        "Operator",
-                        operatorIndex,
-                        ComparisonOperatorLabels);
-
-                    EventBindingComparisonOperator comparisonOperator =
-                        (EventBindingComparisonOperator)comparisonOperatorProperty.enumValueIndex;
-
-                    if (EventBindingConditionEvaluator.RequiresComparisonValue(comparisonOperator))
-                    {
-                        Type sourceType = GetSourceType(sourcesProperty, sourceIndexProperty.intValue);
-                        BindingSerializedValueDrawer.Draw(
-                            comparisonValueProperty,
-                            sourceType,
-                            "Compare With");
-                    }
-                }
-            }
-
-            if (GUILayout.Button("+ Add Clause", EditorStyles.miniButton))
-            {
-                int index = clausesProperty.arraySize;
-                clausesProperty.arraySize++;
-                ResetClause(clausesProperty.GetArrayElementAtIndex(index));
-            }
-
-            EditorGUILayout.LabelField(
-                BuildExpressionPreview(clausesProperty, sourceLabels),
-                EditorStyles.wordWrappedMiniLabel);
         }
 
         private void DrawActions(SerializedProperty actionsProperty)
@@ -996,66 +878,6 @@ namespace LegendaryTools.ViewBinding.Editor
             }
         }
 
-        private static void DrawConditionValidation(
-            SerializedProperty clausesProperty,
-            SerializedProperty sourcesProperty)
-        {
-            if (clausesProperty.arraySize == 0)
-            {
-                EditorGUILayout.HelpBox("A Condition requires at least one Clause.", MessageType.Error);
-                return;
-            }
-
-            for (int i = 0; i < clausesProperty.arraySize; i++)
-            {
-                SerializedProperty clause = clausesProperty.GetArrayElementAtIndex(i);
-                int sourceIndex = clause.FindPropertyRelative("sourceIndex").intValue;
-                if (sourceIndex < 0 || sourceIndex >= sourcesProperty.arraySize)
-                {
-                    EditorGUILayout.HelpBox(
-                        $"Clause {i + 1} references a Source that does not exist.",
-                        MessageType.Error);
-                    return;
-                }
-
-                SerializedProperty endpoint = sourcesProperty
-                    .GetArrayElementAtIndex(sourceIndex)
-                    .FindPropertyRelative("endpoint");
-
-                if (!BindingEditorResolver.TryGetMemberMetadata(
-                        endpoint,
-                        out BindingMemberMetadata metadata,
-                        out string error))
-                {
-                    EditorGUILayout.HelpBox($"Clause {i + 1}: {error}", MessageType.Warning);
-                    return;
-                }
-
-                if (!metadata.CanRead)
-                {
-                    EditorGUILayout.HelpBox(
-                        $"Clause {i + 1}: Source {sourceIndex + 1} is not readable.",
-                        MessageType.Error);
-                    return;
-                }
-
-                EventBindingComparisonOperator comparisonOperator =
-                    (EventBindingComparisonOperator)clause
-                        .FindPropertyRelative("comparisonOperator")
-                        .enumValueIndex;
-
-                if (!EventBindingConditionEvaluator.IsOperatorSupported(
-                        metadata.ValueType,
-                        comparisonOperator))
-                {
-                    EditorGUILayout.HelpBox(
-                        $"Clause {i + 1}: Type '{metadata.ValueType.Name}' does not support C# operator '{GetComparisonOperatorLabel(comparisonOperator)}'.",
-                        MessageType.Error);
-                    return;
-                }
-            }
-        }
-
         private void AddEventBinding()
         {
             int index = eventBindingsProperty.arraySize;
@@ -1187,96 +1009,6 @@ namespace LegendaryTools.ViewBinding.Editor
                     sourceIndex.intValue = Mathf.Clamp(sourceIndex.intValue, 0, maxIndex);
                 }
             }
-        }
-
-        private static string[] BuildSourceLabels(SerializedProperty sourcesProperty)
-        {
-            var labels = new string[Mathf.Max(1, sourcesProperty.arraySize)];
-
-            if (sourcesProperty.arraySize == 0)
-            {
-                labels[0] = "No Sources";
-                return labels;
-            }
-
-            for (int i = 0; i < sourcesProperty.arraySize; i++)
-            {
-                SerializedProperty endpoint = sourcesProperty
-                    .GetArrayElementAtIndex(i)
-                    .FindPropertyRelative("endpoint");
-                string memberPath = endpoint.FindPropertyRelative("memberPath").stringValue;
-                string memberLabel = string.IsNullOrWhiteSpace(memberPath)
-                    ? "Unselected"
-                    : ComponentBindingPath.GetDisplayPath(memberPath);
-
-                labels[i] = $"Source {i + 1}: {memberLabel}";
-            }
-
-            return labels;
-        }
-
-        private static Type GetSourceType(SerializedProperty sourcesProperty, int sourceIndex)
-        {
-            if (sourceIndex < 0 || sourceIndex >= sourcesProperty.arraySize)
-            {
-                return null;
-            }
-
-            SerializedProperty endpoint = sourcesProperty
-                .GetArrayElementAtIndex(sourceIndex)
-                .FindPropertyRelative("endpoint");
-
-            return BindingEditorResolver.TryGetMemberMetadata(
-                    endpoint,
-                    out BindingMemberMetadata metadata,
-                    out _)
-                ? metadata.ValueType
-                : null;
-        }
-
-        private static string BuildExpressionPreview(
-            SerializedProperty clausesProperty,
-            IReadOnlyList<string> sourceLabels)
-        {
-            if (clausesProperty.arraySize == 0)
-            {
-                return "Expression: <empty>";
-            }
-
-            var parts = new List<string>();
-
-            for (int i = 0; i < clausesProperty.arraySize; i++)
-            {
-                SerializedProperty clause = clausesProperty.GetArrayElementAtIndex(i);
-                int sourceIndex = clause.FindPropertyRelative("sourceIndex").intValue;
-                int comparisonIndex = clause.FindPropertyRelative("comparisonOperator").enumValueIndex;
-                bool negate = clause.FindPropertyRelative("negate").boolValue;
-
-                if (i > 0)
-                {
-                    int logicalIndex = clause.FindPropertyRelative("logicalOperator").enumValueIndex;
-                    logicalIndex = Mathf.Clamp(logicalIndex, 0, LogicalOperatorLabels.Length - 1);
-                    parts.Add(LogicalOperatorLabels[logicalIndex]);
-                }
-
-                string source = sourceIndex >= 0 && sourceIndex < sourceLabels.Count
-                    ? sourceLabels[sourceIndex]
-                    : $"Source {sourceIndex + 1}";
-                comparisonIndex = Mathf.Clamp(comparisonIndex, 0, ComparisonOperatorLabels.Length - 1);
-                string expression = $"{source} {ComparisonOperatorLabels[comparisonIndex]}";
-                parts.Add(negate ? $"NOT ({expression})" : expression);
-            }
-
-            return $"Expression: {string.Join(" ", parts)}";
-        }
-
-        private static string GetComparisonOperatorLabel(
-            EventBindingComparisonOperator comparisonOperator)
-        {
-            int index = (int)comparisonOperator;
-            return index >= 0 && index < ComparisonOperatorLabels.Length
-                ? ComparisonOperatorLabels[index]
-                : comparisonOperator.ToString();
         }
 
         private static void EnsureBindingId(SerializedProperty idProperty)

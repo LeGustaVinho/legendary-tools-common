@@ -615,3 +615,56 @@ Generated accessors remove reflective getter/setter invocation for supported pub
 Unsupported or dynamically created bindings automatically use the cached reflection backend. Expression-compiled direct member access is used in Mono builds when generated code is unavailable; IL2CPP uses generated accessors or the reflection fallback.
 
 The build preprocessor regenerates the file. When its contents change, the first build stops so Unity can compile the generated source; start the build again after compilation completes.
+
+## ViewDataListBinder
+
+`ViewDataListBinder` materializes any non-string `IEnumerable` into item GameObjects. Configure
+the collection with the regular binding endpoint picker, assign a required `TargetParent` and
+a default prefab, then optionally add filtering conditions, stable sorting, pagination, key
+selection and ordered prefab rules.
+
+The projection order is: null removal, key calculation, filtering, sorting, offset/range and
+maximum item count. `RangeCount == 0` means the entire remaining range and `MaxItems == 0`
+means unlimited. Reference items use reference identity as their default key; value items use
+their source index. A selected key member or `KeySelector` is recommended when objects are
+recreated between refreshes.
+
+Duplicate keys expose `ViewDataListDuplicateKey` through the item context and `$Key`, preserving
+the original key in `BaseKey` and the deterministic duplicate number in `Occurrence`. Default
+reference and index keys are represented by `ViewDataListReferenceKey` and
+`ViewDataListIndexKey`.
+
+With `SurplusPolicy.Deactivate`, `ReservedKeyCapacity` controls how many recently deactivated
+items retain an exclusive key-to-GameObject reservation. Older reservations remain in the
+per-prefab pool and may be reused by another key, preventing unbounded growth while preserving
+recent pagination history. Virtualized lists release reservations immediately so their object
+count remains bounded by the visible window.
+
+Manual binding is available without configuring a Source:
+
+```csharp
+listBinder.TargetParent = content;
+listBinder.DefaultPrefab = playerRowPrefab;
+listBinder.KeySelector = value => ((Player)value).Id;
+listBinder.Filter = value => ((Player)value).IsOnline;
+listBinder.BindImmediate(players);
+```
+
+Use `Bind` for the configured immediate/batched creation mode, `BindImmediate` for a synchronous
+reconciliation, and `Refresh`/`RefreshImmediate` to resolve the configured Source. An override
+can be installed with `SetItemsOverride` and removed with `ClearItemsOverride`.
+
+Every generated root receives a `BindingDataContext` containing `$Item`, `$ParentItem`, `$List`,
+`$Index`, `$SourceIndex`, `$Key`, `$IsFirst` and `$IsLast`. Runtime Sources on child
+`ViewDataBinder` and `ViewDataEventBinder` components are injected automatically before the item
+is activated and synchronized. Components may additionally implement `IViewDataListItem` for
+created, bound, unbound, visibility and destroyed lifecycle callbacks.
+
+With virtualization enabled, `TargetParent` must be the `RectTransform` content of a configured
+`ScrollRect`. Vertical, horizontal and uniform grid layouts are supported with a buffer around
+the visible range. Disable any `LayoutGroup` on the content because virtualized positions and
+content size are controlled by the binder.
+
+Runtime inspection is available through `ProjectedItems`, `ActiveItems`, `LastResult`,
+`LastError` and `Statistics`. C# lifecycle events mirror the UnityEvents shown by the Inspector.
+`ItemVisibilityChanged` receives both the item context and the new visibility state.
