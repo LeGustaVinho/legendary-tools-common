@@ -666,33 +666,11 @@ namespace LegendaryTools.UI
         /// </summary>
         private void UpdateViewportBoundsWithBuffer()
         {
-            // A "Bounds" that covers the viewport in the coordinate system of the ScrollRect.content.
-            // This accounts for potential movement of the content transform.
-            Bounds viewportBounds = RectTransformUtility.CalculateRelativeRectTransformBounds(
+            extendedViewportBounds = ScrollRectViewportUtility.CalculateExpandedBounds(
                 ScrollRect.content,
-                ScrollRect.viewport
-            );
-
-            // Expand the bounds by the buffer. We use the size of the first slot
-            // (or a default guess if no slots exist) as a reference for how big "1 buffer unit" is.
-            var extents = viewportBounds.extents; // half-size
-
-            if (slots.Count > 0)
-            {
-                // Estimate slot size from the first slot
-                Bounds slotBounds = RectTransformUtility.CalculateRelativeRectTransformBounds(
-                    ScrollRect.content,
-                    slots[0]
-                );
-                Vector3 slotSize = slotBounds.size;
-
-                // Expand extents by buffer factor
-                extents.x += slotSize.x * ItemBufferCount.x;
-                extents.y += slotSize.y * ItemBufferCount.y;
-            }
-
-            viewportBounds.extents = extents;
-            extendedViewportBounds = viewportBounds;
+                ScrollRect.viewport,
+                slots.Count > 0 ? slots[0] : null,
+                ItemBufferCount);
         }
 
         /// <summary>
