@@ -5,7 +5,7 @@ namespace LegendaryTools.ViewBinding
 {
     [CreateAssetMenu(
         fileName = "StringBooleanBindingConverter",
-        menuName = "Legendary Tools/View Binding/Converters/String - Boolean")]
+        menuName = "Legendary Tools/View Data Binder/Converters/String to Boolean")]
     public sealed class StringBooleanBindingConverter : BindingConverter<string, bool>
     {
         [SerializeField] private string trueValue = "true";

@@ -5,7 +5,7 @@ namespace LegendaryTools.ViewBinding
 {
     [CreateAssetMenu(
         fileName = "ViewDataBindingProfile",
-        menuName = "Legendary Tools/View Binding/Binding Profile")]
+        menuName = "Legendary Tools/View Data Binder/Profiles/Binding Profile")]
     public sealed class ViewDataBindingProfile : ScriptableObject
     {
         [SerializeField] private List<ViewDataBinding> bindings = new List<ViewDataBinding>();

@@ -6,7 +6,7 @@ namespace LegendaryTools.ViewBinding
 {
     [CreateAssetMenu(
         fileName = "FloatStringBindingConverter",
-        menuName = "Legendary Tools/View Binding/Converters/Float - String")]
+        menuName = "Legendary Tools/View Data Binder/Converters/Float to String")]
     public sealed class FloatStringBindingConverter : BindingConverter<float, string>
     {
         [SerializeField] private string format = "0.##";

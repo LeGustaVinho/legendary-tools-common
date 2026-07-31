@@ -100,7 +100,7 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Adds a menu item to show the Spreadsheet Importer window.
         /// </summary>
-        [MenuItem("Tools/LegendaryTools/ScriptableObjects/Spreadsheet Importer")]
+        [MenuItem("Tools/Legendary Tools/Scriptable Objects/Import/Spreadsheet Importer")]
         public static void ShowWindow()
         {
             GetWindow<SpreadsheetImporterWindow>("Spreadsheet Importer");

@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Persistence
 {
-    [CreateAssetMenu(menuName = "Tools/Persistence/JsonProvider", fileName = "JsonProvider", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Persistence/Serialization/Built-in/JSON", fileName = "JsonProvider", order = 0)]
     public class JsonProvider : ScriptableObject, IStringSerializationProvider
     {
         public Formatting FormatType;

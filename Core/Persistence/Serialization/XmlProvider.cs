@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Persistence
 {
-    [CreateAssetMenu(menuName = "Tools/Persistence/XmlProvider", fileName = "XmlProvider", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Persistence/Serialization/Built-in/XML", fileName = "XmlProvider", order = 0)]
     public class XmlProvider : ScriptableObject, IStringSerializationProvider
     {
         public string Extension => "xml";

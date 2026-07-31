@@ -10,7 +10,7 @@ namespace LegendaryTools.Editor
         private List<string> selectedFolders = new();
         private const int CHUNKS = 10;
 
-        [MenuItem("Tools/LegendaryTools/Code/Aggregate Code from Folders")]
+        [MenuItem("Tools/Legendary Tools/Code/Aggregation/Aggregate Code from Folders")]
         public static void ShowWindow()
         {
             GetWindow<AggregateCodeFiles>("Aggregate Code");

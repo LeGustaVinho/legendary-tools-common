@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Chronos
 {
-    [CreateAssetMenu(fileName = "TimeMachineProvider", menuName = "Tools/Chronos/TimeMachineProvider")]
+    [CreateAssetMenu(fileName = "TimeMachineProvider", menuName = "Legendary Tools/Chronos/Providers/Time Machine")]
     public class TimeMachineProvider : DateTimeProvider
     {
         public SerializedDateTime TimeMachineTime;

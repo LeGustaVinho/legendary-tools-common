@@ -5,7 +5,7 @@ namespace LegendaryTools.ViewBinding
 {
     [CreateAssetMenu(
         fileName = "EnumToStringBindingConverter",
-        menuName = "Legendary Tools/View Binding/Converters/Enum To String")]
+        menuName = "Legendary Tools/View Data Binder/Converters/Enum to String")]
     public sealed class EnumToStringBindingConverter : BindingConverter
     {
         [SerializeField] private string format = "G";

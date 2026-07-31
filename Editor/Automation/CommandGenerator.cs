@@ -22,7 +22,7 @@ namespace LegendaryTools.Editor
         private string searchFilter = "";
         private int selectedClassIndex = 0;
 
-        [MenuItem("Tools/LegendaryTools/Automation/Command Generator")]
+        [MenuItem("Tools/Legendary Tools/Automation/Code Generation/Command Generator")]
         public static void ShowWindow()
         {
             GetWindow<CommandGenerator>("Command Generator");

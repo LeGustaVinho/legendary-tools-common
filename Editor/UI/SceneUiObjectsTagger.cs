@@ -68,7 +68,7 @@ namespace LegendaryTools.UI.Editor
         // Matches: "[Anything] " at the very beginning of the name.
         private static readonly Regex TagPrefixRegex = new(@"^\[[^\]]+\]\s", RegexOptions.Compiled);
 
-        [MenuItem("Tools/LegendaryTools/UI/Tag All UI Objects in Scene")]
+        [MenuItem("Tools/Legendary Tools/UI/Scene/Tag All UI Objects")]
         public static void TagGameObjects()
         {
             int undoGroup = Undo.GetCurrentGroup();

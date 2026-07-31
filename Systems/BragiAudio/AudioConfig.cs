@@ -58,7 +58,7 @@ namespace LegendaryTools.Bragi
         }
     }
     
-    [CreateAssetMenu(menuName = "Tools/Bragi/AudioConfig")]
+    [CreateAssetMenu(menuName = "Legendary Tools/Bragi/Configuration/Audio")]
     public class AudioConfig : AudioConfigBase
     {
         public AudioSettings AudioSettings;

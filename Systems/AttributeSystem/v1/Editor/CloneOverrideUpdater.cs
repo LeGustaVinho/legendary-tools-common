@@ -12,7 +12,7 @@ namespace LegendaryTools.AttributeSystem.Editor
 {
     public static class CloneOverrideUpdater
     {
-        [MenuItem("Tools/LegendaryTools/AttributeSystem/Update Clone Overrides")]
+        [MenuItem("Tools/Legendary Tools/Attribute System/V1/Update Clone Overrides")]
         public static void UpdateCloneOverrides()
         {
             // Get the base type (EntityConfig).

@@ -21,7 +21,7 @@ namespace LegendaryTools.Actor
         public AssetLoaderConfig AssetLoaderConfig;
     }
 
-    [CreateAssetMenu(menuName = "Tools/ActorSystem/ActorSystemAssetLoadableConfig",
+    [CreateAssetMenu(menuName = "Legendary Tools/Actor System/Asset Loading/Actor System Config",
         fileName = "ActorSystemAssetLoadableConfig", order = 0)]
     public class ActorSystemAssetLoadableConfig :
 #if ODIN_INSPECTOR

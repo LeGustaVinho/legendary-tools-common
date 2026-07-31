@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace LegendaryTools.AttributeSystem
 {
-    [CreateAssetMenu(fileName = "EntityConfig", menuName = "Tools/AttributeSystem/EntityConfig")]
+    [CreateAssetMenu(fileName = "EntityConfig", menuName = "Legendary Tools/Attribute System/V1/Entity Config")]
     public class EntityConfig : 
 #if ODIN_INSPECTOR
         Sirenix.OdinInspector.SerializedScriptableObject

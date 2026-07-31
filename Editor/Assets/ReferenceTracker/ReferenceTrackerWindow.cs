@@ -13,11 +13,11 @@ namespace LegendaryTools.Editor
     public sealed class ReferenceTrackerWindow : EditorWindow
     {
         private const string WindowTitle = "Reference Tracker";
-        private const string MainMenuPath = "Tools/LegendaryTools/Assets/Reference Tracker";
-        private const string GameObjectMenuPath = "GameObject/Reference Tracker/Find References In Current Scope";
-        private const string TransformContextPath = "CONTEXT/Transform/Reference Tracker/Find References In Current Scope";
-        private const string ComponentContextPath = "CONTEXT/Component/Reference Tracker/Find References In Current Scope";
-        private const string AssetContextPath = "Assets/Reference Tracker/Find References";
+        private const string MainMenuPath = "Tools/Legendary Tools/Assets/References/Reference Tracker";
+        private const string GameObjectMenuPath = "GameObject/Legendary Tools/References/Find in Current Scope";
+        private const string TransformContextPath = "CONTEXT/Transform/Legendary Tools/References/Find in Current Scope";
+        private const string ComponentContextPath = "CONTEXT/Component/Legendary Tools/References/Find in Current Scope";
+        private const string AssetContextPath = "Assets/Legendary Tools/References/Find References";
 
         private const float TableHeaderHeight = 28f;
         private const float TableGroupHeight = 28f;

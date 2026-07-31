@@ -12,7 +12,7 @@ namespace LegendaryTools.Editor
 {
     public static class PrefabIconGenerator
     {
-        private const string GenerateMenuPath = "Assets/Generate Thumbnail";
+        private const string GenerateMenuPath = "Assets/Legendary Tools/Thumbnails/Generate";
 
         private const int ThumbnailWidth = 512;
         private const int ThumbnailHeight = 512;

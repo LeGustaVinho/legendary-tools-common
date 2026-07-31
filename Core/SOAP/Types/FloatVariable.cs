@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools.SOAP
 {
-    [CreateAssetMenu(menuName = "Tools/SOAP/Variables/Float", fileName = "FloatVariable")]
+    [CreateAssetMenu(menuName = "Legendary Tools/SOAP/Variables/Float", fileName = "FloatVariable")]
     public class FloatVariable : SOVariable<float>
     {
         protected override IEqualityComparer<float> Comparer => new FloatComparer();

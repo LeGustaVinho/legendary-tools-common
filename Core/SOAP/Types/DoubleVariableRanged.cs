@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools.SOAP
 {
-    [CreateAssetMenu(menuName = "Tools/SOAP/Variables/Double (Ranged)", fileName = "DoubleVariableRanged")]
+    [CreateAssetMenu(menuName = "Legendary Tools/SOAP/Variables/Double (Ranged)", fileName = "DoubleVariableRanged")]
     public class DoubleVariableRanged : SORangedNumber<double>
     {
         protected override double Clamp(double value, double min, double max)

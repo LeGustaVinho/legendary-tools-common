@@ -43,7 +43,7 @@ namespace LegendaryTools
         All = Trace | Info | Warning | Error | Exception
     }
     
-    [CreateAssetMenu(menuName = "Tools/LegendaryTools/DebugFilterConfig", fileName = "DebugFilterConfig", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Diagnostics/Debug Filter Config", fileName = "DebugFilterConfig", order = 0)]
     public class DebugFilterConfig : UnityObject
     {
         public DebugLogLevel DefaultLogLevel = DebugLogLevel.All;

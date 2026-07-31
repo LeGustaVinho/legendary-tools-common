@@ -20,7 +20,7 @@ namespace LegendaryTools.Bragi
         Simultaneous,
     }
 
-    [CreateAssetMenu(menuName = "Tools/Bragi/AudioGroup")]
+    [CreateAssetMenu(menuName = "Legendary Tools/Bragi/Audio Groups/Audio Group")]
     public class AudioGroup : AudioConfigBase
     {
         public AudioGroupPlayMode PlayMode = AudioGroupPlayMode.Random;

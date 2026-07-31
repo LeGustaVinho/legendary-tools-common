@@ -6,7 +6,7 @@ namespace LegendaryTools.Editor
 {
     public class ListCSFilesEditor : UnityEditor.Editor
     {
-        [MenuItem("Tools/LegendaryTools/Automation/List All CS Files")]
+        [MenuItem("Tools/Legendary Tools/Code/Inventory/List All C# Files")]
         public static void ListAllCSFiles()
         {
             string assetsPath = Application.dataPath;

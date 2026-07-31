@@ -6,7 +6,7 @@ using UnityEngine.Networking;
 
 namespace LegendaryTools.Chronos
 {
-    [CreateAssetMenu(fileName = "TimeApiIoProvider", menuName = "Tools/Chronos/TimeApiIoProvider")]
+    [CreateAssetMenu(fileName = "TimeApiIoProvider", menuName = "Legendary Tools/Chronos/Providers/TimeAPI.io")]
     public class TimeApiIoProvider : DateTimeProvider
     {
         private const string TimeApiUtcUrl = "https://timeapi.io/api/Time/current/zone?timeZone=UTC";

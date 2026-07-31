@@ -2,7 +2,7 @@
 
 namespace LegendaryTools.SOAP
 {
-    [CreateAssetMenu(menuName = "Tools/SOAP/Variables/Short", fileName = "ShortVariable")]
+    [CreateAssetMenu(menuName = "Legendary Tools/SOAP/Variables/Short", fileName = "ShortVariable")]
     public class ShortVariable : SOVariable<short>
     {
     }

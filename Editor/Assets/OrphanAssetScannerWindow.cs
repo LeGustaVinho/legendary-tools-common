@@ -211,7 +211,7 @@ namespace LegendaryTools.Editor
         private bool _isSummaryCacheDirty = true;
         private SummaryStats _summaryStats;
 
-        [MenuItem("Tools/LegendaryTools/Assets/Orphan Asset Scanner")]
+        [MenuItem("Tools/Legendary Tools/Assets/Analysis/Orphan Asset Scanner")]
         private static void OpenWindow()
         {
             OrphanAssetScannerWindow window = GetWindow<OrphanAssetScannerWindow>("Orphan Assets");

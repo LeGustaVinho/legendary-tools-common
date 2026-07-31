@@ -9,7 +9,7 @@ namespace LegendaryTools.Editor
         private UIPaletteWindowController _controller;
         private Vector2 _scroll;
 
-        [MenuItem("Tools/LegendaryTools/UI/UI Palette")]
+        [MenuItem("Tools/Legendary Tools/UI/Styling/UI Palette")]
         public static void Open()
         {
             UIPaletteWindow window = GetWindow<UIPaletteWindow>();

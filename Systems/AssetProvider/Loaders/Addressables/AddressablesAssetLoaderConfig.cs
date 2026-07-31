@@ -7,7 +7,7 @@ using UnityEngine.ResourceManagement.AsyncOperations;
 
 namespace LegendaryTools.Systems.AssetProvider
 {
-    [CreateAssetMenu(menuName = "Tools/AssetProvider/AddressablesAssetLoaderConfig", fileName = "AddressablesAssetLoaderConfig", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Asset Provider/Loaders/Addressables", fileName = "AddressablesAssetLoaderConfig", order = 0)]
     public class AddressablesAssetLoaderConfig : AssetLoaderConfig
     {
         [SerializeField] protected AssetReference assetReference;

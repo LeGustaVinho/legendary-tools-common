@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools
 {
-    [CreateAssetMenu(menuName = "Tools/LegendaryTools/InternetProviderChecker/UnityInternetProviderChecker", fileName = "UnityInternetProviderChecker", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Internet/Provider Checkers/Unity", fileName = "UnityInternetProviderChecker", order = 0)]
     public class UnityInternetProviderChecker : InternetProviderChecker
     {
         public override async Task<bool> HasInternetConnection()

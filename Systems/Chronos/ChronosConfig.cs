@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Chronos
 {
-    [CreateAssetMenu(fileName = "ChronosConfig", menuName = "Tools/Chronos/ChronosConfig")]
+    [CreateAssetMenu(fileName = "ChronosConfig", menuName = "Legendary Tools/Chronos/Configuration/Chronos Config")]
     public class ChronosConfig : ScriptableObject
     {
         public ChronosSecurityPolicy SecurityPolicy;

@@ -6,7 +6,7 @@ namespace LegendaryTools.MiniCSharp
     /// <summary>
     /// Stores script source in a Unity asset and caches the compiled script at runtime.
     /// </summary>
-    [CreateAssetMenu(menuName = "Runtime Scripting/Runtime Script Asset")]
+    [CreateAssetMenu(menuName = "Legendary Tools/Mini C#/Runtime Script")]
     public sealed class RuntimeScriptAsset : ScriptableObject
     {
         [SerializeField]

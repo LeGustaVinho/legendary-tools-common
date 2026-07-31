@@ -5,7 +5,7 @@ namespace LegendaryTools.ViewBinding
 {
     [CreateAssetMenu(
         fileName = "ObjectNullBindingConverter",
-        menuName = "Legendary Tools/View Binding/Converters/Object Null To Boolean")]
+        menuName = "Legendary Tools/View Data Binder/Converters/Object Null to Boolean")]
     public sealed class ObjectNullBindingConverter : BindingConverter
     {
         [SerializeField] private bool trueWhenNotNull = true;

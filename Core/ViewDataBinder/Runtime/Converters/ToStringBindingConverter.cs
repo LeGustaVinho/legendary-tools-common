@@ -5,7 +5,7 @@ namespace LegendaryTools.ViewBinding
 {
     [CreateAssetMenu(
         fileName = "ToStringBindingConverter",
-        menuName = "Legendary Tools/View Binding/Converters/To String")]
+        menuName = "Legendary Tools/View Data Binder/Converters/To String")]
     public sealed class ToStringBindingConverter : BindingConverter
     {
         public override Type SourceType => typeof(object);

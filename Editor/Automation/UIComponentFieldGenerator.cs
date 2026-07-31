@@ -105,13 +105,13 @@ namespace LegendaryTools.Editor
             public HashSet<string> usedFieldNames;
         }
 
-        [MenuItem("Tools/LegendaryTools/Automation/UI Component Field Generator")]
+        [MenuItem("Tools/Legendary Tools/Automation/UI/UI Component Field Generator")]
         public static void ShowWindow()
         {
             GetWindow<UIComponentFieldGenerator>("UI Field Generator");
         }
 
-        [MenuItem("Component/UI Component Field Generator", false, 1000)]
+        [MenuItem("Component/Legendary Tools/UI/UI Component Field Generator", false, 1000)]
         private static void OpenFromContextMenu()
         {
             GameObject selected = Selection.activeGameObject;
@@ -128,7 +128,7 @@ namespace LegendaryTools.Editor
             }
         }
 
-        [MenuItem("Component/UI Component Field Generator", true)]
+        [MenuItem("Component/Legendary Tools/UI/UI Component Field Generator", true)]
         private static bool ValidateOpenFromContextMenu()
         {
             return Selection.activeGameObject != null &&

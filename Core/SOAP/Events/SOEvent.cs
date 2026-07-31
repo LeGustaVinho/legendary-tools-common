@@ -7,7 +7,7 @@ namespace LegendaryTools.SOAP
     /// <summary>
     /// Parameterless ScriptableObject event.
     /// </summary>
-    [CreateAssetMenu(fileName = "SOEvent", menuName = "Tools/SOAP/Events/Event (0)")]
+    [CreateAssetMenu(fileName = "SOEvent", menuName = "Legendary Tools/SOAP/Events/Event (No Arguments)")]
     public class SOEvent : SOEventBase
     {
         private readonly List<Action> _listeners = new();

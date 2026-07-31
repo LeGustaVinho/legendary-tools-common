@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Persistence
 {
-    [CreateAssetMenu(menuName = "Tools/Persistence/BinaryProvider", fileName = "BinaryProvider", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Persistence/Serialization/Built-in/Binary", fileName = "BinaryProvider", order = 0)]
     public class BinaryProvider : ScriptableObject, IBinarySerializationProvider
     {
         public string Extension => "bin";

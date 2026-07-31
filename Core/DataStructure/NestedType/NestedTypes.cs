@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace LegendaryTools
 {
-    [CreateAssetMenu(menuName = "Tools/LegendaryTools/Create NestedTypes", fileName = "NestedTypes", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Data Structures/Nested Types", fileName = "NestedTypes", order = 0)]
     public class NestedTypes : ScriptableObject, ISerializationCallbackReceiver
     {
         [SerializeField] private List<NestedType> nestedTypes = new();

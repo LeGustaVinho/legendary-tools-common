@@ -127,7 +127,7 @@ namespace LegendaryTools.Editor
         private string[] availableSourceComponentOptions = Array.Empty<string>();
         private bool isAvailableSourceComponentsCacheDirty = true;
 
-        [MenuItem("Tools/LegendaryTools/Automation/Reference Transfer Tool")]
+        [MenuItem("Tools/Legendary Tools/Automation/References/Reference Transfer")]
         public static void Open()
         {
             GetWindow<ReferenceTransferToolWindow>("Reference Transfer");

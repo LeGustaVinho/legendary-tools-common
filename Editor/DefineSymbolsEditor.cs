@@ -26,7 +26,7 @@ namespace LegendaryTools.Mothership.Editor
         private BuildTargetGroup targetGroup = BuildTargetGroup.Standalone;
         private string newSymbolsName;
 
-        [MenuItem("Tools/LegendaryTools/Define Symbols Editor")]
+        [MenuItem("Tools/Legendary Tools/Project/Define Symbols Editor")]
         public static void ShowWindow()
         {
             GetWindow<DefineSymbolsEditor>("Define Symbols Editor");

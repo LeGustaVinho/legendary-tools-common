@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Persistence
 {
-    [CreateAssetMenu(menuName = "Tools/Persistence/OdinBinaryProvider", fileName = "OdinBinaryProvider", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Persistence/Serialization/Odin Inspector/Binary", fileName = "OdinBinaryProvider", order = 0)]
     public class OdinBinaryProvider : ScriptableObject, IBinarySerializationProvider
     {
         public string Extension => "odin.bin";

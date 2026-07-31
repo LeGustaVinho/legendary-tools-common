@@ -41,7 +41,7 @@ namespace LegendaryTools.Editor
         private UniversalRenderPipelineAsset _urpAsset;
 #endif
 
-        [MenuItem("Tools/LegendaryTools/Rendering/Rendering Performance Hub")]
+        [MenuItem("Tools/Legendary Tools/Analysis/Rendering/Performance Hub")]
         public static void Open()
         {
             RenderingPerformanceHubWindow wnd = GetWindow<RenderingPerformanceHubWindow>();

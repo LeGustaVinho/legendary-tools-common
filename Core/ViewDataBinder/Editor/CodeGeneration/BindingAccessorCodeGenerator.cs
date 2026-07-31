@@ -21,7 +21,7 @@ namespace LegendaryTools.ViewBinding.Editor
 
         public int callbackOrder => -1000;
 
-        [MenuItem("Tools/Legendary Tools/View Data Binder/Generate Runtime Accessors")]
+        [MenuItem("Tools/Legendary Tools/View Data Binder/Code Generation/Generate Runtime Accessors")]
         public static void GenerateFromMenu()
         {
             bool changed = Generate();

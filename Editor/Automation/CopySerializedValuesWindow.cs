@@ -9,7 +9,7 @@ namespace LegendaryTools.Editor
         private Component sourceComponent;
         private Component destinationComponent;
 
-        [MenuItem("Tools/LegendaryTools/Automation/Copy Serialized Values")]
+        [MenuItem("Tools/Legendary Tools/Automation/Serialization/Copy Serialized Values")]
         public static void ShowWindow()
         {
             GetWindow<CopySerializedValuesWindow>("Copiar Valores Serializados");

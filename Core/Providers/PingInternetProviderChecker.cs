@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools
 {
-    [CreateAssetMenu(menuName = "Tools/LegendaryTools/InternetProviderChecker/PingInternetProviderChecker", fileName = "PingInternetProviderChecker", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Internet/Provider Checkers/Ping", fileName = "PingInternetProviderChecker", order = 0)]
     public class PingInternetProviderChecker : InternetProviderChecker
     {
         public string Ip = "8.8.8.8"; //Google DNS

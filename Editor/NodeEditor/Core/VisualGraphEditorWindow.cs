@@ -46,7 +46,7 @@ namespace LegendaryTools.NodeEditor
         /// <summary>
         /// Opens the editor window.
         /// </summary>
-        [MenuItem("Tools/LegendaryTools/Graphs/NodeEditor")]
+        [MenuItem("Tools/Legendary Tools/Graphs/Node Editor")]
         public static void Open()
         {
             VisualGraphEditorWindow win = GetWindow<VisualGraphEditorWindow>("Node Editor");

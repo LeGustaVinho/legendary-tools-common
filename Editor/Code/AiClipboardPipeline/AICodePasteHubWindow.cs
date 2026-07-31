@@ -18,7 +18,7 @@ namespace AiClipboardPipeline.Editor
         private GUIStyle _monoWrapStyle;
         private Texture2D _selectedBgTexture;
 
-        [MenuItem("Tools/LegendaryTools/Code/AI Clipboard Pipeline")]
+        [MenuItem("Tools/Legendary Tools/Code/AI/Clipboard Pipeline")]
         public static void Open()
         {
             AICodePasteHubWindow w = GetWindow<AICodePasteHubWindow>("AI Clipboard Pipeline");

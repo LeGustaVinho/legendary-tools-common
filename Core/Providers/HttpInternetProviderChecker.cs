@@ -4,7 +4,7 @@ using UnityEngine.Networking;
 
 namespace LegendaryTools
 {
-    [CreateAssetMenu(menuName = "Tools/LegendaryTools/InternetProviderChecker/HttpInternetProviderChecker", fileName = "HttpInternetProviderChecker", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Internet/Provider Checkers/HTTP", fileName = "HttpInternetProviderChecker", order = 0)]
     public class HttpInternetProviderChecker : InternetProviderChecker
     {
         public string Url = "https://www.google.com";

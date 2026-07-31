@@ -15,7 +15,7 @@ namespace LegendaryTools.Bragi
         Fade
     }
     
-    [CreateAssetMenu(menuName = "Tools/Bragi/JukeboxConfig")]
+    [CreateAssetMenu(menuName = "Legendary Tools/Bragi/Configuration/Jukebox")]
     public class JukeboxConfig : ScriptableObject
     {
         public bool AutoStart;

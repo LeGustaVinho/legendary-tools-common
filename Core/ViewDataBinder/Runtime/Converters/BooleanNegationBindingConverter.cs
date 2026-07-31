@@ -4,7 +4,7 @@ namespace LegendaryTools.ViewBinding
 {
     [CreateAssetMenu(
         fileName = "BooleanNegationBindingConverter",
-        menuName = "Legendary Tools/View Binding/Converters/Boolean Negation")]
+        menuName = "Legendary Tools/View Data Binder/Converters/Boolean Negation")]
     public sealed class BooleanNegationBindingConverter : BindingConverter<bool, bool>
     {
         public override bool SupportsReverseConversion => true;

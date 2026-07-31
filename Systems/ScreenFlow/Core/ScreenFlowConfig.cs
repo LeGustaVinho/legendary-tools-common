@@ -13,7 +13,7 @@ namespace LegendaryTools.Systems.ScreenFlow
         public bool Enabled;
     }
 
-    [CreateAssetMenu(menuName = "Tools/ScreenFlow/ScreenFlowConfig")]
+    [CreateAssetMenu(menuName = "Legendary Tools/Screen Flow/Configuration/Screen Flow")]
     public class ScreenFlowConfig : ScriptableObject, IWeaveExec
     {
 #if ODIN_INSPECTOR

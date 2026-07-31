@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools.SOAP
 {
-    [CreateAssetMenu(menuName = "Tools/SOAP/Variables/Float (Ranged)", fileName = "FloatVariableRanged")]
+    [CreateAssetMenu(menuName = "Legendary Tools/SOAP/Variables/Float (Ranged)", fileName = "FloatVariableRanged")]
     public class FloatVariableRanged : SORangedNumber<float>
     {
         protected override float Clamp(float value, float min, float max)

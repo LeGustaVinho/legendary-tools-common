@@ -10,7 +10,7 @@ namespace LegendaryTools.Editor
     public static class PlayModeStarterFromScene0
     {
         // Menu item path and keys to save preferences
-        private const string MENU_ITEM_PATH = "Tools/LegendaryTools/Start From Scene 0";
+        private const string MENU_ITEM_PATH = "Tools/Legendary Tools/Play Mode/Start from Scene 0";
         private const string EDITOR_PREF_KEY = "PlayModeStartFromScene0";
         private const string PREVIOUS_SCENES_KEY = "PreviousScenesPaths";
         private const string ACTIVE_SCENE_KEY = "ActiveScenePath";

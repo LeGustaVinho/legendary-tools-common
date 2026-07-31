@@ -16,7 +16,7 @@ namespace LegendaryTools.Editor
         private Vector2 scrollPos;
         private string reportOutput = "";
 
-        [MenuItem("Tools/LegendaryTools/Code/Code Analyzer")]
+        [MenuItem("Tools/Legendary Tools/Code/Analysis/Code Analyzer")]
         public static void ShowWindow()
         {
             GetWindow<CodeAnalyzerWindow>("Code Analyzer");

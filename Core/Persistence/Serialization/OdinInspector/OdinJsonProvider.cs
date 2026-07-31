@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Persistence
 {
-    [CreateAssetMenu(menuName = "Tools/Persistence/OdinJsonProvider", fileName = "OdinJsonProvider", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Persistence/Serialization/Odin Inspector/JSON", fileName = "OdinJsonProvider", order = 0)]
     public class OdinJsonProvider : ScriptableObject, IStringSerializationProvider
     {
         public string Extension => "odin.json";

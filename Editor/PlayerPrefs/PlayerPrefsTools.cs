@@ -5,7 +5,7 @@ namespace LegendaryTools.Editor
 {
     public static class PlayerPrefsTools
     {
-        [MenuItem("Tools/LegendaryTools/PlayerPrefs/Clear")]
+        [MenuItem("Tools/Legendary Tools/PlayerPrefs/Maintenance/Clear")]
         private static void ClearPlayerPrefs()
         {
             PlayerPrefs.DeleteAll();

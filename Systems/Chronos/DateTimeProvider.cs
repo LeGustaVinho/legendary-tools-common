@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Chronos
 {
-    [CreateAssetMenu(fileName = "DateTimeProvider", menuName = "Tools/Chronos/DateTimeProvider")]
+    [CreateAssetMenu(fileName = "DateTimeProvider", menuName = "Legendary Tools/Chronos/Providers/System Date Time")]
     public class DateTimeProvider : ScriptableObject
     {
         [Tooltip("Request timeout in seconds (used by providers that perform web requests).")]

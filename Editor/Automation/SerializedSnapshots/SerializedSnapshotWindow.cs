@@ -45,7 +45,7 @@ namespace LegendaryTools.Editor
         private static readonly Color RowAltColor = new(1f, 1f, 1f, 0.045f);
         private static readonly Color AccentTextColor = new(0.45f, 0.75f, 1f, 1f);
 
-        [MenuItem("Tools/LegendaryTools/Automation/Serialized Snapshot Library")]
+        [MenuItem("Tools/Legendary Tools/Automation/Serialization/Serialized Snapshot Library")]
         private static void Open()
         {
             SerializedSnapshotWindow window = GetWindow<SerializedSnapshotWindow>(WindowTitle);
@@ -53,7 +53,7 @@ namespace LegendaryTools.Editor
             window.Show();
         }
 
-        [MenuItem("CONTEXT/Component/Capture Serialized Snapshot")]
+        [MenuItem("CONTEXT/Component/Legendary Tools/Serialization/Capture Serialized Snapshot")]
         private static void CaptureComponentSnapshot(MenuCommand command)
         {
             if (command.context is not Component component)
@@ -64,7 +64,7 @@ namespace LegendaryTools.Editor
             Open();
         }
 
-        [MenuItem("GameObject/Capture Serialized Snapshot", false, 0)]
+        [MenuItem("GameObject/Legendary Tools/Serialization/Capture Serialized Snapshot", false, 0)]
         private static void CaptureGameObjectSnapshot(MenuCommand command)
         {
             GameObject gameObject = command.context as GameObject;

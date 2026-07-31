@@ -10,7 +10,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
     /// </summary>
     public static class TypeIndexMenu
     {
-        [MenuItem("Tools/LegendaryTools/Code/Type Index/Rebuild (Assets)")]
+        [MenuItem("Tools/Legendary Tools/Code/Type Index/Rebuild from Assets")]
         private static void Rebuild()
         {
             TypeIndex index = TypeIndexService.RebuildAndSave();
@@ -22,7 +22,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             AssetDatabase.Refresh();
         }
 
-        [MenuItem("Tools/LegendaryTools/Code/Type Index/Open Index Folder")]
+        [MenuItem("Tools/Legendary Tools/Code/Type Index/Open Index Folder")]
         private static void OpenIndexFolder()
         {
             string file = TypeIndexService.GetIndexFileAbsolutePath();
@@ -38,7 +38,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex
             EditorUtility.RevealInFinder(folder);
         }
 
-        [MenuItem("Tools/LegendaryTools/Code/Type Index/Settings")]
+        [MenuItem("Tools/Legendary Tools/Code/Type Index/Settings")]
         private static void SelectSettings()
         {
             Selection.activeObject = TypeIndexSettings.instance;

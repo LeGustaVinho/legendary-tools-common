@@ -2,7 +2,7 @@
 
 namespace LegendaryTools.SOAP
 {
-    [CreateAssetMenu(menuName = "Tools/SOAP/Variables/Int", fileName = "IntVariable")]
+    [CreateAssetMenu(menuName = "Legendary Tools/SOAP/Variables/Int", fileName = "IntVariable")]
     public class IntVariable : SOVariable<int>
     {
     }

@@ -6,7 +6,7 @@ namespace LegendaryTools.ViewBinding
 {
     [CreateAssetMenu(
         fileName = "NumericBindingConverter",
-        menuName = "Legendary Tools/View Binding/Converters/Numeric Type")]
+        menuName = "Legendary Tools/View Data Binder/Converters/Numeric Type")]
     public sealed class NumericBindingConverter : BindingConverter
     {
         [SerializeField] private BindingNumericType sourceType = BindingNumericType.Single;

@@ -7,7 +7,7 @@ namespace LegendaryTools.SOAP.Editor
     /// <summary>Creates a ScriptableObject Variant for the currently selected ScriptableObject.</summary>
     public static class VariantCreationMenu
     {
-        [MenuItem("Tools/LegendaryTools/Variants/ScriptableObject Variant", priority = 201)]
+        [MenuItem("Assets/Create/Legendary Tools/SOAP/Variants/ScriptableObject Variant", priority = 201)]
         private static void CreateVariant()
         {
             ScriptableObject obj = Selection.activeObject as ScriptableObject;
@@ -38,7 +38,7 @@ namespace LegendaryTools.SOAP.Editor
             Selection.activeObject = variant;
         }
 
-        [MenuItem("Tools/LegendaryTools/Variants/ScriptableObject Variant", true)]
+        [MenuItem("Assets/Create/Legendary Tools/SOAP/Variants/ScriptableObject Variant", true)]
         private static bool CreateVariantValidation()
         {
             return Selection.activeObject is ScriptableObject

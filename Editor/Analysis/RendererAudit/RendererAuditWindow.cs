@@ -103,7 +103,7 @@ namespace LegendaryTools.Editor
         // ------------------------------
         // Menu
         // ------------------------------
-        [MenuItem("Tools/LegendaryTools/Analysis/Renderer Audit")]
+        [MenuItem("Tools/Legendary Tools/Analysis/Rendering/Renderer Audit")]
         private static void Open()
         {
             RendererAuditWindow win = GetWindow<RendererAuditWindow>("Renderer Audit");

@@ -36,7 +36,7 @@ namespace LegendaryTools.Editor
         private readonly List<Entry> _entries = new();
         private bool _initialized;
 
-        [MenuItem("Tools/LegendaryTools/Editor/Unity GUIStyle Browser")]
+        [MenuItem("Tools/Legendary Tools/Editor/UI/GUIStyle Browser")]
         private static void Open()
         {
             GUIStyleBrowser wnd = GetWindow<GUIStyleBrowser>("GUIStyle Browser");

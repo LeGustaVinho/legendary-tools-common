@@ -19,7 +19,7 @@ public sealed class CsFileTreeWindow : EditorWindow
     private int _minCoveragePercent;
     private int _maxCoveragePercent = 100;
 
-    [MenuItem("Tools/LegendaryTools/Code/Metrics")]
+    [MenuItem("Tools/Legendary Tools/Code/Analysis/Metrics")]
     public static void Open()
     {
         CsFileTreeWindow window = GetWindow<CsFileTreeWindow>();

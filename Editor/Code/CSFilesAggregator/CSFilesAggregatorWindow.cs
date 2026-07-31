@@ -31,7 +31,7 @@ namespace LegendaryTools.Editor.Code.CSFilesAggregator
         private AggregationPlan _cachedPlan;
         private bool _filesPlanDirty = true;
 
-        [MenuItem("Tools/LegendaryTools/Code/C# File Aggregator")]
+        [MenuItem("Tools/Legendary Tools/Code/Aggregation/C# File Aggregator")]
         public static void ShowWindow()
         {
             GetWindow<CSFilesAggregatorWindow>("C# File Aggregator");

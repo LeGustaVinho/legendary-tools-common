@@ -54,7 +54,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
             ("System.Buffers", "4.5.1")
         };
 
-        [MenuItem("Tools/LegendaryTools/Installers/Roslyn/Install (NuGet)")]
+        [MenuItem("Tools/Legendary Tools/Installers/Roslyn/Install (NuGet)")]
         private static void Install()
         {
             try
@@ -106,7 +106,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
             }
         }
 
-        [MenuItem("Tools/LegendaryTools/Installers/Roslyn/Uninstall")]
+        [MenuItem("Tools/Legendary Tools/Installers/Roslyn/Uninstall")]
         private static void Uninstall()
         {
             try

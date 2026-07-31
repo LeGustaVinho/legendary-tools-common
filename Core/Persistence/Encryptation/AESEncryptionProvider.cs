@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Persistence
 {
-    [CreateAssetMenu(menuName = "Tools/Persistence/AESEncryptionProvider", fileName = "AESEncryptionProvider",
+    [CreateAssetMenu(menuName = "Legendary Tools/Persistence/Encryption/AES", fileName = "AESEncryptionProvider",
         order = 0)]
     public class AesEncryptionProvider : ScriptableObject, IEncryptionProvider
     {

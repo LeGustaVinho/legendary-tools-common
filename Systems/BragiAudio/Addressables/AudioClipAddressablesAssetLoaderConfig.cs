@@ -4,7 +4,7 @@ using UnityEngine;
 namespace LegendaryTools.Bragi
 {
     
-    [CreateAssetMenu(menuName = "Tools/Bragi/Create AudioClipAddressablesAssetLoaderConfig", fileName = "AudioClipAddressablesAssetLoaderConfig", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Bragi/Asset Loaders/Addressables Audio Clip", fileName = "AudioClipAddressablesAssetLoaderConfig", order = 0)]
     public class AudioClipAddressablesAssetLoaderConfig : AddressablesAssetLoaderConfig<AudioClip>
     {
         

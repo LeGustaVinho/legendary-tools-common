@@ -22,7 +22,7 @@ namespace LegendaryTools.Editor
         private string ignoredClassNames = "";
         private List<GameObject> ignoredGameObjects = new();
 
-        [MenuItem("Tools/LegendaryTools/Code/Script In Scene Analyzer")]
+        [MenuItem("Tools/Legendary Tools/Code/Analysis/Scripts in Scene")]
         public static void ShowWindow()
         {
             GetWindow<ScriptInSceneAnalyzer>("Script In Scene Analyzer");

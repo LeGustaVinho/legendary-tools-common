@@ -83,7 +83,7 @@ namespace LegendaryTools.Editor
         private SortColumn _sortColumn = SortColumn.Index;
         private bool _sortAscending = true;
 
-        [MenuItem("Tools/LegendaryTools/Assets/Missing Reference Scanner")]
+        [MenuItem("Tools/Legendary Tools/Assets/Analysis/Missing Reference Scanner")]
         private static void OpenWindow()
         {
             GetWindow<MissingReferenceScannerWindow>("Missing References");

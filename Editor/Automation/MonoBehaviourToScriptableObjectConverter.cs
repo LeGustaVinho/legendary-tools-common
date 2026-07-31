@@ -30,7 +30,7 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Displays the MonoBehaviour to ScriptableObject Converter window in the Unity Editor.
         /// </summary>
-        [MenuItem("Tools/LegendaryTools/Automation/MonoBehaviour to ScriptableObject Converter")]
+        [MenuItem("Tools/Legendary Tools/Automation/Conversion/MonoBehaviour to ScriptableObject")]
         public static void ShowWindow()
         {
             GetWindow<MonoBehaviourToScriptableObjectConverter>("MB to SO Converter");
@@ -295,7 +295,7 @@ namespace LegendaryTools.Editor
                 writer.WriteLine("using System.Collections.Generic;");
                 writer.WriteLine($"namespace {_namespaceName}");
                 writer.WriteLine("{");
-                writer.WriteLine($"    [CreateAssetMenu(fileName = \"{baseName}\", menuName = \"{_namespaceName}/{baseName}\")]");
+                writer.WriteLine($"    [CreateAssetMenu(fileName = \"{baseName}\", menuName = \"Legendary Tools/Generated/{_namespaceName}/{baseName}\")]");
                 writer.WriteLine($"    public class {baseName} : ScriptableObject");
                 writer.WriteLine("    {");
 

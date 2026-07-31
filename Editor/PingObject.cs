@@ -5,7 +5,7 @@ namespace LegendaryTools.Editor
 {
     public class PingObject : MonoBehaviour
     {
-        [MenuItem("GameObject/Ping Selected")]
+        [MenuItem("GameObject/Legendary Tools/Diagnostics/Ping Selected")]
         public static void Ping()
         {
             if (!Selection.activeObject)

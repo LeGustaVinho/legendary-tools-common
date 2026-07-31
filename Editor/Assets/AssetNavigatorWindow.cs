@@ -30,7 +30,7 @@ namespace LegendaryTools.Editor
         private Vector2 scrollPos; // Maintains a single scroll view for the whole GUI
 
         // Create a menu item to open the window (Window > Asset History)
-        [MenuItem("Tools/LegendaryTools/Assets/Asset Navigator Window")]
+        [MenuItem("Tools/Legendary Tools/Assets/Navigation/Asset Navigator")]
         public static void ShowWindow()
         {
             AssetNavigatorWindow window = GetWindow<AssetNavigatorWindow>("Asset History");

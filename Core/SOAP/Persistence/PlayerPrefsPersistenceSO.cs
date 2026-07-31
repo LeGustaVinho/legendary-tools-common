@@ -13,7 +13,7 @@ namespace LegendaryTools.SOAP
     /// - Keys are human-readable and namespaced by Application.productName.
     /// Note: Unsupported types fall back to string WriteOnly (no recoverable read). See comments below.
     /// </summary>
-    [CreateAssetMenu(fileName = "PlayerPrefsPersistence", menuName = "Tools/SOAP/Persistence/PlayerPrefs Provider")]
+    [CreateAssetMenu(fileName = "PlayerPrefsPersistence", menuName = "Legendary Tools/SOAP/Persistence/PlayerPrefs Provider")]
     public class PlayerPrefsPersistenceSO : PersistenceProviderSO
     {
         private readonly List<Delegate> _listeners = new();

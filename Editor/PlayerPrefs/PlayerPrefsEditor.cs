@@ -75,7 +75,7 @@ namespace LegendaryTools.Editor
             Unknown
         }
 
-        [MenuItem("Tools/LegendaryTools/PlayerPrefs/Viewer")]
+        [MenuItem("Tools/Legendary Tools/PlayerPrefs/Viewer")]
         public static void ShowWindow()
         {
             PlayerPrefsEditor window = GetWindow<PlayerPrefsEditor>("PlayerPrefs Viewer");

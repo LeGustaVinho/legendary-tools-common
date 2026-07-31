@@ -32,7 +32,7 @@ namespace LegendaryTools.Systems.AssetProvider
         }
     }
     
-    [CreateAssetMenu(menuName = "Tools/AssetProvider/HardRefAssetLoaderConfig", fileName = "HardRefAssetLoaderConfig", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Asset Provider/Loaders/Hard Reference", fileName = "HardRefAssetLoaderConfig", order = 0)]
     public class HardRefAssetLoaderConfig : AssetLoaderConfig
     {
         [SerializeField] protected Object HardReference;

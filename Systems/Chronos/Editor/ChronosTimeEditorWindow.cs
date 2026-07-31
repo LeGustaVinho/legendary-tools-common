@@ -23,7 +23,7 @@ namespace LegendaryTools.Chronos.Editor
 
         private Vector2 scroll;
 
-        [MenuItem("Tools/Chronos/Time Control")]
+        [MenuItem("Tools/Legendary Tools/Chronos/Time Control")]
         public static void Open()
         {
             GetWindow<ChronosTimeEditorWindow>("Chronos Time Control");

@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Chronos
 {
-    [CreateAssetMenu(fileName = "ChronosSecurityPolicy", menuName = "Tools/Chronos/ChronosSecurityPolicy")]
+    [CreateAssetMenu(fileName = "ChronosSecurityPolicy", menuName = "Legendary Tools/Chronos/Security/Security Policy")]
     public class ChronosSecurityPolicy : ScriptableObject
     {
         public ChronosSecurityMode Mode = ChronosSecurityMode.StrictRemoteOnly;

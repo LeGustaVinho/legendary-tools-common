@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools.TagSystem
 {
-    [CreateAssetMenu(menuName = "Tools/Tag System/Tag")]
+    [CreateAssetMenu(menuName = "Legendary Tools/Tags/Tag")]
     public class Tag : ScriptableObject
     {
         public string Name;

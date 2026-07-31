@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Persistence
 {
-    [CreateAssetMenu(menuName = "Tools/Persistence/DiskStorage", fileName = "DiskStorage", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Persistence/Storage/Disk", fileName = "DiskStorage", order = 0)]
     public class DiskStorage : ScriptableObject, IStringStorable, IBinaryStorable
     {
         public UnityFilePath FilePath;

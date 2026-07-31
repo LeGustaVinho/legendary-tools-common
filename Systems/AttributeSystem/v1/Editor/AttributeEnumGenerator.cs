@@ -12,7 +12,7 @@ namespace LegendaryTools.AttributeSystem.Editor
         /// <summary>
         ///     Scans all AttributeConfig assets and creates/updates an enum for each one that defines options.
         /// </summary>
-        [MenuItem("Tools/LegendaryTools/AttributeSystem/Generate AttributeConfig Enums")]
+        [MenuItem("Tools/Legendary Tools/Attribute System/V1/Generate Attribute Config Enums")]
         public static void GenerateAttributeConfigEnums()
         {
             // Find all AttributeConfig assets.

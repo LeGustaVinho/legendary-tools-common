@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Systems.AssetProvider
 {
-    [CreateAssetMenu(menuName = "Tools/AssetProvider/ResourcesAssetLoadableConfig", fileName = "ResourcesAssetLoadableConfig", order = 0)]
+    [CreateAssetMenu(menuName = "Legendary Tools/Asset Provider/Loaders/Resources", fileName = "ResourcesAssetLoadableConfig", order = 0)]
     public class ResourcesAssetLoaderConfig : AssetLoaderConfig
     {
         [SerializeField] protected ResourcePathReference ResourcePathReference;

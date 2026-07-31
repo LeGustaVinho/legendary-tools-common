@@ -6,7 +6,7 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
 {
     public static class ScreenFlowCanvasCreator
     {
-        [MenuItem("Tools/LegendaryTools/ScreenFlow/Setup ScreenFlow", false, 10)]
+        [MenuItem("Tools/Legendary Tools/Screen Flow/Setup/Screen Flow Canvas", false, 10)]
         private static void CreateScreenFlowCanvas()
         {
             // Create Canvas
@@ -69,7 +69,7 @@ namespace LegendaryTools.Systems.ScreenFlow.Editor
             return config;
         }
 
-        [MenuItem("GameObject/UI/ScreenFlow Canvas", true)]
+        [MenuItem("GameObject/UI/Legendary Tools/Screen Flow Canvas", true)]
         private static bool CreateScreenFlowCanvasValidation()
         {
             // Always allow creation of ScreenFlow Canvas

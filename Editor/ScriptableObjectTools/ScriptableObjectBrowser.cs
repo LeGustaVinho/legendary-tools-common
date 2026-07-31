@@ -34,7 +34,7 @@ namespace LegendaryTools.Editor
         /// <summary>
         /// Opens the ScriptableObject Browser window from the Unity Editor menu.
         /// </summary>
-        [MenuItem("Tools/LegendaryTools/ScriptableObjects/ScriptableObject Browser")]
+        [MenuItem("Tools/Legendary Tools/Scriptable Objects/Browse/Scriptable Object Browser")]
         public static void ShowWindow()
         {
             GetWindow<ScriptableObjectBrowser>("ScriptableObject Browser");

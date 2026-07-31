@@ -59,7 +59,7 @@ namespace LegendaryTools.TagSystem
         }
     }
 
-    [CreateAssetMenu(menuName = "Tools/Tag System/TagFilter")]
+    [CreateAssetMenu(menuName = "Legendary Tools/Tags/Filters/Tag Filter")]
     public class TagFilter : ScriptableObject
     {
         public string Name;
