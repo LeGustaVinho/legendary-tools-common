@@ -2,16 +2,31 @@ using UnityEngine;
 using UnityEditor;
 using UnityEngine.Video;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace LegendaryTools.Editor
 {
     public class AssetNavigatorWindow : EditorWindow
     {
+        [System.Serializable]
+        private class AssetPaletteEntry
+        {
+            public string guid;
+            public string lastKnownName;
+
+            [System.NonSerialized]
+            public Object asset;
+        }
+
+        [System.Serializable]
+        private class AssetPaletteData
+        {
+            public List<AssetPaletteEntry> entries = new();
+        }
+
         // Lists to store selection history (index 0 is the most recent user selection)
         private List<Object> assetHistory = new(); // For non-GameObject assets
         private List<GameObject> gameObjectHistory = new(); // For GameObjects
-        private List<Object> assetPalette = new(); // For persistent Asset Palette
+        private List<AssetPaletteEntry> assetPalette = new(); // For persistent Asset Palette
 
         // Variable to track the last selected object
         private Object lastSelected = null;
@@ -57,10 +72,13 @@ namespace LegendaryTools.Editor
 
             // Load Asset Palette from EditorPrefs
             LoadAssetPalette();
+            EditorApplication.projectChanged += RefreshAssetPalette;
         }
 
         private void OnDisable()
         {
+            EditorApplication.projectChanged -= RefreshAssetPalette;
+
             // Save Asset Palette to EditorPrefs
             SaveAssetPalette();
         }
@@ -120,32 +138,80 @@ namespace LegendaryTools.Editor
         private void LoadAssetPalette()
         {
             assetPalette.Clear();
-            string guidString = EditorPrefs.GetString(PALETTE_PREFS_KEY, "");
-            if (!string.IsNullOrEmpty(guidString))
+            string serializedPalette = EditorPrefs.GetString(PALETTE_PREFS_KEY, "");
+            if (string.IsNullOrEmpty(serializedPalette))
+                return;
+
+            // Migrate the previous semicolon-separated GUID format.
+            if (!serializedPalette.TrimStart().StartsWith("{"))
             {
-                string[] guids = guidString.Split(';');
+                string[] guids = serializedPalette.Split(';');
                 foreach (string guid in guids)
                 {
-                    if (!string.IsNullOrEmpty(guid))
+                    if (string.IsNullOrEmpty(guid))
+                        continue;
+
+                    AssetPaletteEntry entry = new()
                     {
-                        string path = AssetDatabase.GUIDToAssetPath(guid);
-                        Object asset = AssetDatabase.LoadAssetAtPath<Object>(path);
-                        if (asset != null && (!(asset is GameObject) || PrefabUtility.IsPartOfPrefabAsset(asset)))
-                            assetPalette.Add(asset);
-                    }
+                        guid = guid,
+                        lastKnownName = $"Unknown Asset ({guid})"
+                    };
+                    ResolveAssetPaletteEntry(entry);
+                    assetPalette.Add(entry);
                 }
+
+                SaveAssetPalette();
+                return;
             }
+
+            AssetPaletteData data = JsonUtility.FromJson<AssetPaletteData>(serializedPalette);
+            if (data?.entries == null)
+                return;
+
+            assetPalette = data.entries;
+            RefreshAssetPalette();
         }
 
         // Save Asset Palette to EditorPrefs
         private void SaveAssetPalette()
         {
-            string[] guids = assetPalette
-                .Where(asset => asset != null)
-                .Select(asset => AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(asset)))
-                .Distinct()
-                .ToArray();
-            EditorPrefs.SetString(PALETTE_PREFS_KEY, string.Join(";", guids));
+            HashSet<string> savedGuids = new();
+            AssetPaletteData data = new();
+            foreach (AssetPaletteEntry entry in assetPalette)
+            {
+                if (entry == null || string.IsNullOrEmpty(entry.guid) || !savedGuids.Add(entry.guid))
+                    continue;
+
+                if (entry.asset != null)
+                    entry.lastKnownName = entry.asset.name;
+
+                data.entries.Add(entry);
+            }
+
+            EditorPrefs.SetString(PALETTE_PREFS_KEY, JsonUtility.ToJson(data));
+        }
+
+        private void RefreshAssetPalette()
+        {
+            foreach (AssetPaletteEntry entry in assetPalette)
+                ResolveAssetPaletteEntry(entry);
+
+            SaveAssetPalette();
+            Repaint();
+        }
+
+        private static void ResolveAssetPaletteEntry(AssetPaletteEntry entry)
+        {
+            if (entry == null || string.IsNullOrEmpty(entry.guid))
+                return;
+
+            string path = AssetDatabase.GUIDToAssetPath(entry.guid);
+            entry.asset = string.IsNullOrEmpty(path)
+                ? null
+                : AssetDatabase.LoadAssetAtPath<Object>(path);
+
+            if (entry.asset != null)
+                entry.lastKnownName = entry.asset.name;
         }
 
         // Returns a color associated with the asset type
@@ -378,9 +444,17 @@ namespace LegendaryTools.Editor
                         if (draggedObject != null && (!(draggedObject is GameObject) ||
                                                       PrefabUtility.IsPartOfPrefabAsset(draggedObject)))
                         {
-                            if (!assetPalette.Contains(draggedObject))
+                            string assetPath = AssetDatabase.GetAssetPath(draggedObject);
+                            string guid = AssetDatabase.AssetPathToGUID(assetPath);
+                            if (!string.IsNullOrEmpty(guid) &&
+                                !assetPalette.Exists(entry => entry.guid == guid))
                             {
-                                assetPalette.Add(draggedObject);
+                                assetPalette.Add(new AssetPaletteEntry
+                                {
+                                    guid = guid,
+                                    lastKnownName = draggedObject.name,
+                                    asset = draggedObject
+                                });
                                 SaveAssetPalette();
                             }
                         }
@@ -393,17 +467,33 @@ namespace LegendaryTools.Editor
             // Display buttons for each asset in the Asset Palette
             for (int i = 0; i < assetPalette.Count; i++)
             {
-                Object asset = assetPalette[i];
-                if (asset == null)
+                AssetPaletteEntry entry = assetPalette[i];
+                if (entry == null)
                     continue;
 
                 GUILayout.BeginHorizontal();
-                GUI.backgroundColor = GetColorForAsset(asset);
-                if (GUILayout.Button($"[{GetTagForAsset(asset)}] {asset.name}"))
+                if (entry.asset != null)
                 {
-                    ignoreNextSelectionChange = true;
-                    Selection.activeObject = asset;
-                    EditorGUIUtility.PingObject(asset); // Highlight in Project window
+                    GUI.backgroundColor = GetColorForAsset(entry.asset);
+                    if (GUILayout.Button($"[{GetTagForAsset(entry.asset)}] {entry.asset.name}"))
+                    {
+                        ignoreNextSelectionChange = true;
+                        Selection.activeObject = entry.asset;
+                        EditorGUIUtility.PingObject(entry.asset); // Highlight in Project window
+                    }
+                }
+                else
+                {
+                    GUI.backgroundColor = new Color(1f, 0.45f, 0.45f);
+                    string lastKnownName = string.IsNullOrEmpty(entry.lastKnownName)
+                        ? $"Unknown Asset ({entry.guid})"
+                        : entry.lastKnownName;
+                    GUIContent brokenReference = new(
+                        $"[Missing] {lastKnownName}",
+                        $"The asset with GUID {entry.guid} no longer exists in the project.");
+                    EditorGUI.BeginDisabledGroup(true);
+                    GUILayout.Button(brokenReference);
+                    EditorGUI.EndDisabledGroup();
                 }
 
                 GUI.backgroundColor = Color.white;
