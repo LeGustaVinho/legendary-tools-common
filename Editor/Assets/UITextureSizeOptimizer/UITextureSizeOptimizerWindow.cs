@@ -11,14 +11,19 @@ namespace LegendaryTools.Editor
 {
     internal sealed class UITextureSizeOptimizerWindow : EditorWindow
     {
-        private enum ResultFilter
+        private enum ChangeFilter
+        {
+            NeedsChange,
+            NoOp
+        }
+
+        private enum ConfidenceFilter
         {
             All,
-            Actionable,
+            Safe,
             Estimated,
             Risky,
-            Unsupported,
-            NoReduction
+            Unsupported
         }
 
         private enum ResultSort
@@ -33,10 +38,23 @@ namespace LegendaryTools.Editor
         private const string HeightPreference = "LegendaryTools.UITextureOptimizer.ScreenHeight";
         private const string RoundingPreference = "LegendaryTools.UITextureOptimizer.RoundingMode";
         private const string CachePreference = "LegendaryTools.UITextureOptimizer.UseIncrementalCache";
+        private const int ResultsPerPage = 75;
+
+        private struct SummaryStats
+        {
+            public int NeedsChange;
+            public int Safe;
+            public int Estimated;
+            public int Risky;
+            public int Unsupported;
+            public int NoOp;
+            public long EstimatedSaving;
+        }
 
         private readonly HashSet<string> _selectedPaths = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, bool> _usageFoldouts = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<UITextureOptimizationResult> _results = new();
+        private readonly List<UITextureOptimizationResult> _visibleResults = new();
         private readonly List<string> _scanErrors = new();
         private UITextureSizeScanService _scanService;
         private Vector2 _scroll;
@@ -44,12 +62,17 @@ namespace LegendaryTools.Editor
         private int _screenHeight;
         private string _search = string.Empty;
         private string _status = "No scan has been executed.";
-        private ResultFilter _filter;
+        private ChangeFilter _changeFilter;
+        private ConfidenceFilter _confidenceFilter;
         private ResultSort _sort;
         private bool _sortDescending;
         private bool _showScanErrors;
         private UITextureRoundingMode _roundingMode;
         private bool _useIncrementalCache;
+        private bool _visibleResultsDirty = true;
+        private bool _summaryDirty = true;
+        private SummaryStats _summary;
+        private int _currentPage;
 
         [MenuItem("Tools/Legendary Tools/Assets/Analysis/UI Texture Size Optimizer")]
         private static void OpenWindow()
@@ -179,6 +202,7 @@ namespace LegendaryTools.Editor
                         _results.Clear();
                         _scanErrors.Clear();
                         _selectedPaths.Clear();
+                        InvalidateResultCaches();
                         _status = "Results cleared.";
                     }
 
@@ -201,20 +225,18 @@ namespace LegendaryTools.Editor
 
         private void DrawSummary()
         {
-            int candidates = _results.Count(result => result.IsCandidate);
-            int estimated = _results.Count(result => result.Confidence == UITextureConfidence.Estimated);
-            int risky = _results.Count(result => result.Confidence == UITextureConfidence.Risky);
-            int unsupported = _results.Count(result => result.Confidence == UITextureConfidence.Unsupported);
-            long estimatedSaving = _results.Where(result => result.CanApply).Sum(result => result.EstimatedMemorySaving);
+            EnsureSummary();
 
             using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
             {
                 EditorGUILayout.LabelField($"Textures: {_results.Count}", GUILayout.Width(120f));
-                EditorGUILayout.LabelField($"Actionable: {candidates}", GUILayout.Width(120f));
-                EditorGUILayout.LabelField($"Estimated: {estimated}", GUILayout.Width(110f));
-                EditorGUILayout.LabelField($"Risky: {risky}", GUILayout.Width(90f));
-                EditorGUILayout.LabelField($"Unsupported: {unsupported}", GUILayout.Width(120f));
-                EditorGUILayout.LabelField($"Estimated saving: {EditorUtility.FormatBytes(estimatedSaving)}");
+                EditorGUILayout.LabelField($"Needs change: {_summary.NeedsChange}", GUILayout.Width(135f));
+                EditorGUILayout.LabelField($"Safe: {_summary.Safe}", GUILayout.Width(80f));
+                EditorGUILayout.LabelField($"Estimated: {_summary.Estimated}", GUILayout.Width(105f));
+                EditorGUILayout.LabelField($"Risky: {_summary.Risky}", GUILayout.Width(80f));
+                EditorGUILayout.LabelField($"Unsupported: {_summary.Unsupported}", GUILayout.Width(115f));
+                EditorGUILayout.LabelField($"No-op: {_summary.NoOp}", GUILayout.Width(85f));
+                EditorGUILayout.LabelField($"Saving: {EditorUtility.FormatBytes(_summary.EstimatedSaving)}");
             }
         }
 
@@ -246,20 +268,32 @@ namespace LegendaryTools.Editor
 
         private void DrawResultToolbar()
         {
+            EditorGUI.BeginChangeCheck();
             using (new EditorGUILayout.HorizontalScope())
             {
                 _search = EditorGUILayout.TextField("Search", _search);
-                _filter = (ResultFilter)EditorGUILayout.EnumPopup(_filter, GUILayout.Width(110f));
+                _changeFilter = (ChangeFilter)EditorGUILayout.EnumPopup(
+                    new GUIContent("Change"),
+                    _changeFilter,
+                    GUILayout.Width(190f));
+                _confidenceFilter = (ConfidenceFilter)EditorGUILayout.EnumPopup(
+                    new GUIContent("Confidence"),
+                    _confidenceFilter,
+                    GUILayout.Width(210f));
                 _sort = (ResultSort)EditorGUILayout.EnumPopup(_sort, GUILayout.Width(130f));
                 _sortDescending = GUILayout.Toggle(_sortDescending, "Descending", GUILayout.Width(90f));
+            }
+            if (EditorGUI.EndChangeCheck())
+            {
+                InvalidateVisibleResults();
             }
 
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.LabelField($"Selected: {_selectedPaths.Count}", GUILayout.Width(100f));
-                if (GUILayout.Button("Select Reducible", GUILayout.Width(120f)))
+                if (GUILayout.Button("Select All Filtered", GUILayout.Width(130f)))
                 {
-                    foreach (UITextureOptimizationResult result in GetVisibleResults().Where(result => result.CanApply))
+                    foreach (UITextureOptimizationResult result in GetVisibleResults())
                     {
                         _selectedPaths.Add(result.AssetPath);
                     }
@@ -270,8 +304,7 @@ namespace LegendaryTools.Editor
                     _selectedPaths.Clear();
                 }
 
-                using (new EditorGUI.DisabledScope(IsScanning || !_results.Any(result =>
-                           _selectedPaths.Contains(result.AssetPath) && result.CanApply)))
+                using (new EditorGUI.DisabledScope(IsScanning || !HasSelectedApplicableResult()))
                 {
                     if (GUILayout.Button("Apply Selected", GUILayout.Width(110f)))
                     {
@@ -293,10 +326,39 @@ namespace LegendaryTools.Editor
         private void DrawResults()
         {
             IReadOnlyList<UITextureOptimizationResult> visible = GetVisibleResults();
-            _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            foreach (UITextureOptimizationResult result in visible)
+            int pageCount = Mathf.Max(1, Mathf.CeilToInt(visible.Count / (float)ResultsPerPage));
+            _currentPage = Mathf.Clamp(_currentPage, 0, pageCount - 1);
+            int startIndex = _currentPage * ResultsPerPage;
+            int endIndex = Mathf.Min(startIndex + ResultsPerPage, visible.Count);
+
+            using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                DrawResult(result);
+                GUILayout.Label($"{visible.Count} result(s)", EditorStyles.miniLabel);
+                GUILayout.FlexibleSpace();
+                using (new EditorGUI.DisabledScope(_currentPage == 0))
+                {
+                    if (GUILayout.Button("Previous", EditorStyles.toolbarButton, GUILayout.Width(70f)))
+                    {
+                        _currentPage--;
+                        _scroll = Vector2.zero;
+                    }
+                }
+
+                GUILayout.Label($"Page {_currentPage + 1}/{pageCount}", EditorStyles.miniLabel, GUILayout.Width(80f));
+                using (new EditorGUI.DisabledScope(_currentPage >= pageCount - 1))
+                {
+                    if (GUILayout.Button("Next", EditorStyles.toolbarButton, GUILayout.Width(50f)))
+                    {
+                        _currentPage++;
+                        _scroll = Vector2.zero;
+                    }
+                }
+            }
+
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+            for (int i = startIndex; i < endIndex; i++)
+            {
+                DrawResult(visible[i]);
             }
 
             if (visible.Count == 0)
@@ -387,9 +449,7 @@ namespace LegendaryTools.Editor
         private static void DrawUsages(UITextureOptimizationResult result)
         {
             EditorGUI.indentLevel++;
-            foreach (UITextureUsageRecord usage in result.Usages
-                         .OrderByDescending(item => item.RequiredMaxSize)
-                         .ThenBy(item => item.ContainerPath, StringComparer.OrdinalIgnoreCase))
+            foreach (UITextureUsageRecord usage in result.GetSortedUsages())
             {
                 string line =
                     $"{usage.Confidence} | {usage.ComponentType} | {usage.RenderedPixels.x:0.#}x{usage.RenderedPixels.y:0.#} px | " +
@@ -412,38 +472,148 @@ namespace LegendaryTools.Editor
 
         private IReadOnlyList<UITextureOptimizationResult> GetVisibleResults()
         {
-            IEnumerable<UITextureOptimizationResult> query = _results;
-            if (!string.IsNullOrWhiteSpace(_search))
+            if (!_visibleResultsDirty)
             {
-                query = query.Where(result =>
-                    result.AssetPath.IndexOf(_search, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    result.Usages.Any(usage => usage.ContainerPath.IndexOf(_search, StringComparison.OrdinalIgnoreCase) >= 0));
+                return _visibleResults;
             }
 
-            query = _filter switch
+            _visibleResults.Clear();
+            foreach (UITextureOptimizationResult result in _results)
             {
-                ResultFilter.Actionable => query.Where(result => result.IsCandidate),
-                ResultFilter.Estimated => query.Where(result => result.Confidence == UITextureConfidence.Estimated),
-                ResultFilter.Risky => query.Where(result => result.Confidence == UITextureConfidence.Risky),
-                ResultFilter.Unsupported => query.Where(result => result.Confidence == UITextureConfidence.Unsupported),
-                ResultFilter.NoReduction => query.Where(result => !result.CanApply),
-                _ => query
-            };
+                if (MatchesSearch(result) && MatchesFilter(result))
+                {
+                    _visibleResults.Add(result);
+                }
+            }
 
-            query = _sort switch
+            _visibleResults.Sort((left, right) => _sort switch
             {
-                ResultSort.RecommendedSize => query.OrderBy(result => result.RecommendedMaxSize),
-                ResultSort.EstimatedSaving => query.OrderBy(result => result.EstimatedMemorySaving),
-                ResultSort.UsageCount => query.OrderBy(result => result.Usages.Count),
-                _ => query.OrderBy(result => result.AssetPath, StringComparer.OrdinalIgnoreCase)
-            };
+                ResultSort.RecommendedSize => left.RecommendedMaxSize.CompareTo(right.RecommendedMaxSize),
+                ResultSort.EstimatedSaving => left.EstimatedMemorySaving.CompareTo(right.EstimatedMemorySaving),
+                ResultSort.UsageCount => left.Usages.Count.CompareTo(right.Usages.Count),
+                _ => StringComparer.OrdinalIgnoreCase.Compare(left.AssetPath, right.AssetPath)
+            });
 
             if (_sortDescending)
             {
-                query = query.Reverse();
+                _visibleResults.Reverse();
             }
 
-            return query.ToList();
+            _visibleResultsDirty = false;
+            return _visibleResults;
+        }
+
+        private bool MatchesSearch(UITextureOptimizationResult result)
+        {
+            if (string.IsNullOrWhiteSpace(_search))
+            {
+                return true;
+            }
+
+            if (result.AssetPath.IndexOf(_search, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            foreach (UITextureUsageRecord usage in result.Usages)
+            {
+                if ((usage.ContainerPath?.IndexOf(_search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ||
+                    (usage.HierarchyPath?.IndexOf(_search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ||
+                    (usage.SpriteName?.IndexOf(_search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool MatchesFilter(UITextureOptimizationResult result)
+        {
+            bool matchesChange = _changeFilter switch
+            {
+                ChangeFilter.NeedsChange => result.CanApply,
+                ChangeFilter.NoOp => !result.CanApply,
+                _ => false
+            };
+
+            if (!matchesChange || _confidenceFilter == ConfidenceFilter.All)
+            {
+                return matchesChange;
+            }
+
+            return _confidenceFilter switch
+            {
+                ConfidenceFilter.Safe => result.Confidence == UITextureConfidence.Safe,
+                ConfidenceFilter.Estimated => result.Confidence == UITextureConfidence.Estimated,
+                ConfidenceFilter.Risky => result.Confidence == UITextureConfidence.Risky,
+                ConfidenceFilter.Unsupported => result.Confidence == UITextureConfidence.Unsupported,
+                _ => true
+            };
+        }
+
+        private bool HasSelectedApplicableResult()
+        {
+            foreach (UITextureOptimizationResult result in _results)
+            {
+                if (result.CanApply && _selectedPaths.Contains(result.AssetPath))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void EnsureSummary()
+        {
+            if (!_summaryDirty)
+            {
+                return;
+            }
+
+            _summary = default;
+            foreach (UITextureOptimizationResult result in _results)
+            {
+                if (!result.CanApply)
+                {
+                    _summary.NoOp++;
+                    continue;
+                }
+
+                _summary.NeedsChange++;
+                _summary.EstimatedSaving += result.EstimatedMemorySaving;
+                switch (result.Confidence)
+                {
+                    case UITextureConfidence.Safe:
+                        _summary.Safe++;
+                        break;
+                    case UITextureConfidence.Estimated:
+                        _summary.Estimated++;
+                        break;
+                    case UITextureConfidence.Risky:
+                        _summary.Risky++;
+                        break;
+                    case UITextureConfidence.Unsupported:
+                        _summary.Unsupported++;
+                        break;
+                }
+            }
+
+            _summaryDirty = false;
+        }
+
+        private void InvalidateVisibleResults()
+        {
+            _visibleResultsDirty = true;
+            _currentPage = 0;
+            _scroll = Vector2.zero;
+        }
+
+        private void InvalidateResultCaches()
+        {
+            _summaryDirty = true;
+            InvalidateVisibleResults();
         }
 
         private void StartScan(bool forceRescan)
@@ -453,6 +623,7 @@ namespace LegendaryTools.Editor
             _scanErrors.Clear();
             _selectedPaths.Clear();
             _usageFoldouts.Clear();
+            InvalidateResultCaches();
             EditorPrefs.SetInt(WidthPreference, _screenWidth);
             EditorPrefs.SetInt(HeightPreference, _screenHeight);
             EditorPrefs.SetInt(RoundingPreference, (int)_roundingMode);
@@ -489,6 +660,7 @@ namespace LegendaryTools.Editor
             _results.AddRange(_scanService.Results);
             _scanErrors.Clear();
             _scanErrors.AddRange(_scanService.Errors);
+            InvalidateResultCaches();
             StopScan(false);
             _status = cancelled
                 ? $"Cancelled after {processed} assets. Partial report contains {_results.Count} textures."
@@ -533,6 +705,7 @@ namespace LegendaryTools.Editor
 
             if (UITextureImporterApplier.Apply(result, out string error))
             {
+                InvalidateResultCaches();
                 _status = $"Applied Max Size {result.RecommendedMaxSize} to {result.AssetName}.";
             }
             else
@@ -591,6 +764,11 @@ namespace LegendaryTools.Editor
             finally
             {
                 EditorUtility.ClearProgressBar();
+            }
+
+            if (applied > 0)
+            {
+                InvalidateResultCaches();
             }
 
             _status = cancelled

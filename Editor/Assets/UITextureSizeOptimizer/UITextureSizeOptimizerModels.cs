@@ -67,10 +67,13 @@ namespace LegendaryTools.Editor
         public bool IsEditable;
         public string ImporterWarning;
         public readonly List<UITextureUsageRecord> Usages = new();
+        private Vector2 _largestRenderedUse;
+        private float _largestRenderedArea = -1f;
+        private UITextureConfidence _confidence;
+        private string _reasonSummaryCache;
+        private List<UITextureUsageRecord> _sortedUsagesCache;
 
-        public UITextureConfidence Confidence => Usages.Count == 0
-            ? UITextureConfidence.Safe
-            : Usages.Max(usage => usage.Confidence);
+        public UITextureConfidence Confidence => _confidence;
 
         public bool HasBlockingUsage => Confidence != UITextureConfidence.Safe;
 
@@ -95,42 +98,56 @@ namespace LegendaryTools.Editor
         public long EstimatedMemorySaving =>
             RecommendedMaxSize <= 0 ? 0L : (long)(CurrentMemoryBytes * EstimatedAreaReduction);
 
-        public Vector2 LargestRenderedUse
-        {
-            get
-            {
-                Vector2 largest = Vector2.zero;
-                float largestArea = -1f;
-                foreach (UITextureUsageRecord usage in Usages)
-                {
-                    float area = usage.RenderedPixels.x * usage.RenderedPixels.y;
-                    if (area <= largestArea)
-                    {
-                        continue;
-                    }
-
-                    largestArea = area;
-                    largest = usage.RenderedPixels;
-                }
-
-                return largest;
-            }
-        }
+        public Vector2 LargestRenderedUse => _largestRenderedUse;
 
         public void AddUsage(UITextureUsageRecord usage)
         {
             Usages.Add(usage);
             RecommendedMaxSize = Mathf.Max(RecommendedMaxSize, usage.RequiredMaxSize);
+            _confidence = (UITextureConfidence)Mathf.Max((int)_confidence, (int)usage.Confidence);
+            float area = usage.RenderedPixels.x * usage.RenderedPixels.y;
+            if (area > _largestRenderedArea)
+            {
+                _largestRenderedArea = area;
+                _largestRenderedUse = usage.RenderedPixels;
+            }
+
+            _reasonSummaryCache = null;
+            _sortedUsagesCache = null;
         }
 
         public string GetReasonSummary()
         {
+            if (_reasonSummaryCache != null)
+            {
+                return _reasonSummaryCache;
+            }
+
             IEnumerable<IGrouping<UITextureUsageReason, UITextureUsageReason>> groups = Usages
                 .SelectMany(usage => (usage.Reasons ?? new List<UITextureUsageReason>()).Distinct())
                 .GroupBy(reason => reason)
                 .OrderByDescending(group => group.Count())
                 .ThenBy(group => group.Key.ToString(), StringComparer.Ordinal);
-            return string.Join(" + ", groups.Select(group => $"{group.Count()} {FormatReason(group.Key)}"));
+            _reasonSummaryCache = string.Join(" + ", groups.Select(group => $"{group.Count()} {FormatReason(group.Key)}"));
+            return _reasonSummaryCache;
+        }
+
+        public IReadOnlyList<UITextureUsageRecord> GetSortedUsages()
+        {
+            if (_sortedUsagesCache != null)
+            {
+                return _sortedUsagesCache;
+            }
+
+            _sortedUsagesCache = new List<UITextureUsageRecord>(Usages);
+            _sortedUsagesCache.Sort((left, right) =>
+            {
+                int requiredComparison = right.RequiredMaxSize.CompareTo(left.RequiredMaxSize);
+                return requiredComparison != 0
+                    ? requiredComparison
+                    : StringComparer.OrdinalIgnoreCase.Compare(left.ContainerPath, right.ContainerPath);
+            });
+            return _sortedUsagesCache;
         }
 
         public static string FormatReason(UITextureUsageReason reason)
