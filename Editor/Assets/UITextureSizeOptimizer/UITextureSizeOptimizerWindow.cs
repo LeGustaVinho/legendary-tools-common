@@ -29,6 +29,7 @@ namespace LegendaryTools.Editor
         private enum ResultSort
         {
             Path,
+            SourceSize,
             RecommendedSize,
             EstimatedSaving,
             UsageCount
@@ -488,6 +489,7 @@ namespace LegendaryTools.Editor
 
             _visibleResults.Sort((left, right) => _sort switch
             {
+                ResultSort.SourceSize => CompareSourceSize(left, right),
                 ResultSort.RecommendedSize => left.RecommendedMaxSize.CompareTo(right.RecommendedMaxSize),
                 ResultSort.EstimatedSaving => left.EstimatedMemorySaving.CompareTo(right.EstimatedMemorySaving),
                 ResultSort.UsageCount => left.Usages.Count.CompareTo(right.Usages.Count),
@@ -501,6 +503,25 @@ namespace LegendaryTools.Editor
 
             _visibleResultsDirty = false;
             return _visibleResults;
+        }
+
+        private static int CompareSourceSize(
+            UITextureOptimizationResult left,
+            UITextureOptimizationResult right)
+        {
+            long leftArea = (long)left.SourceWidth * left.SourceHeight;
+            long rightArea = (long)right.SourceWidth * right.SourceHeight;
+            int areaComparison = leftArea.CompareTo(rightArea);
+            if (areaComparison != 0)
+            {
+                return areaComparison;
+            }
+
+            int axisComparison = Mathf.Max(left.SourceWidth, left.SourceHeight)
+                .CompareTo(Mathf.Max(right.SourceWidth, right.SourceHeight));
+            return axisComparison != 0
+                ? axisComparison
+                : StringComparer.OrdinalIgnoreCase.Compare(left.AssetPath, right.AssetPath);
         }
 
         private bool MatchesSearch(UITextureOptimizationResult result)
