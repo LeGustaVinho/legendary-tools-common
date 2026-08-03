@@ -26,19 +26,39 @@ namespace LegendaryTools.Editor
             Unsupported
         }
 
+        private enum ResultViewMode
+        {
+            Cards,
+            Table
+        }
+
         private enum ResultSort
         {
             Path,
+            Kind,
+            Confidence,
             SourceSize,
+            ImportedSize,
+            CurrentMaxSize,
             RecommendedSize,
+            LargestUse,
             EstimatedSaving,
             UsageCount
+        }
+
+        [Serializable]
+        private sealed class FolderFilterPreferences
+        {
+            public List<string> Whitelist = new();
+            public List<string> Blacklist = new();
         }
 
         private const string WidthPreference = "LegendaryTools.UITextureOptimizer.ScreenWidth";
         private const string HeightPreference = "LegendaryTools.UITextureOptimizer.ScreenHeight";
         private const string RoundingPreference = "LegendaryTools.UITextureOptimizer.RoundingMode";
         private const string CachePreference = "LegendaryTools.UITextureOptimizer.UseIncrementalCache";
+        private const string FolderFiltersPreference = "LegendaryTools.UITextureOptimizer.FolderFilters";
+        private const string ViewModePreference = "LegendaryTools.UITextureOptimizer.ViewMode";
         private const int ResultsPerPage = 75;
 
         private struct SummaryStats
@@ -57,8 +77,11 @@ namespace LegendaryTools.Editor
         private readonly List<UITextureOptimizationResult> _results = new();
         private readonly List<UITextureOptimizationResult> _visibleResults = new();
         private readonly List<string> _scanErrors = new();
+        private readonly List<string> _whitelistFolders = new();
+        private readonly List<string> _blacklistFolders = new();
         private UITextureSizeScanService _scanService;
         private Vector2 _scroll;
+        private Vector2 _tableScroll;
         private int _screenWidth;
         private int _screenHeight;
         private string _search = string.Empty;
@@ -70,6 +93,8 @@ namespace LegendaryTools.Editor
         private bool _showScanErrors;
         private UITextureRoundingMode _roundingMode;
         private bool _useIncrementalCache;
+        private bool _showFolderFilters;
+        private ResultViewMode _viewMode;
         private bool _visibleResultsDirty = true;
         private bool _summaryDirty = true;
         private SummaryStats _summary;
@@ -93,10 +118,13 @@ namespace LegendaryTools.Editor
                 RoundingPreference,
                 (int)UITextureRoundingMode.Up);
             _useIncrementalCache = EditorPrefs.GetBool(CachePreference, true);
+            _viewMode = (ResultViewMode)EditorPrefs.GetInt(ViewModePreference, (int)ResultViewMode.Cards);
+            LoadFolderPreferences();
         }
 
         private void OnDisable()
         {
+            SaveFolderPreferences();
             StopScan(true);
         }
 
@@ -174,6 +202,8 @@ namespace LegendaryTools.Editor
                         MessageType.Warning);
                 }
 
+                DrawFolderFilters();
+
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     using (new EditorGUI.DisabledScope(IsScanning))
@@ -210,6 +240,104 @@ namespace LegendaryTools.Editor
                     GUILayout.FlexibleSpace();
                     EditorGUILayout.LabelField(_status, EditorStyles.miniLabel, GUILayout.MaxWidth(520f));
                 }
+            }
+        }
+
+        private void DrawFolderFilters()
+        {
+            _showFolderFilters = EditorGUILayout.Foldout(
+                _showFolderFilters,
+                $"Scan Folders (Whitelist: {_whitelistFolders.Count}, Blacklist: {_blacklistFolders.Count})",
+                true);
+            if (!_showFolderFilters)
+            {
+                return;
+            }
+
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField(
+                    "A non-empty whitelist limits the scan to those folders. The blacklist is then applied and always takes precedence.",
+                    EditorStyles.wordWrappedMiniLabel);
+                using (new EditorGUI.DisabledScope(IsScanning))
+                {
+                    DrawFolderList("Whitelist", _whitelistFolders);
+                    EditorGUILayout.Space(3f);
+                    DrawFolderList("Blacklist", _blacklistFolders);
+                }
+            }
+        }
+
+        private void DrawFolderList(string label, List<string> folders)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField(label, EditorStyles.boldLabel, GUILayout.Width(85f));
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("Add Folder", GUILayout.Width(90f)))
+                {
+                    AddFolderFromPanel(folders, label);
+                }
+
+                using (new EditorGUI.DisabledScope(folders.Count == 0))
+                {
+                    if (GUILayout.Button("Clear", GUILayout.Width(50f)))
+                    {
+                        folders.Clear();
+                        SaveFolderPreferences();
+                    }
+                }
+            }
+
+            for (int i = 0; i < folders.Count; i++)
+            {
+                string folderPath = folders[i];
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.SelectableLabel(
+                        folderPath,
+                        EditorStyles.miniLabel,
+                        GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                    if (GUILayout.Button("Ping", GUILayout.Width(45f)))
+                    {
+                        EditorGUIUtility.PingObject(AssetDatabase.LoadAssetAtPath<DefaultAsset>(folderPath));
+                    }
+
+                    if (GUILayout.Button("Remove", GUILayout.Width(65f)))
+                    {
+                        folders.RemoveAt(i);
+                        SaveFolderPreferences();
+                        GUIUtility.ExitGUI();
+                    }
+                }
+            }
+        }
+
+        private void AddFolderFromPanel(List<string> folders, string listName)
+        {
+            string absolutePath = EditorUtility.OpenFolderPanel($"Add folder to {listName}", Application.dataPath, string.Empty);
+            if (string.IsNullOrEmpty(absolutePath))
+            {
+                return;
+            }
+
+            string assetPath = FileUtil.GetProjectRelativePath(absolutePath).Replace('\\', '/').TrimEnd('/');
+            if (!AssetDatabase.IsValidFolder(assetPath) ||
+                !(string.Equals(assetPath, "Assets", StringComparison.OrdinalIgnoreCase) ||
+                  assetPath.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase)))
+            {
+                EditorUtility.DisplayDialog(
+                    "Invalid scan folder",
+                    "Choose a folder inside this project's Assets folder.",
+                    "OK");
+                return;
+            }
+
+            if (!folders.Contains(assetPath, StringComparer.OrdinalIgnoreCase))
+            {
+                folders.Add(assetPath);
+                folders.Sort(StringComparer.OrdinalIgnoreCase);
+                SaveFolderPreferences();
             }
         }
 
@@ -314,6 +442,18 @@ namespace LegendaryTools.Editor
                 }
 
                 GUILayout.FlexibleSpace();
+                int nextViewMode = GUILayout.Toolbar(
+                    (int)_viewMode,
+                    new[] { "Cards", "Table" },
+                    GUILayout.Width(130f));
+                if (nextViewMode != (int)_viewMode)
+                {
+                    _viewMode = (ResultViewMode)nextViewMode;
+                    EditorPrefs.SetInt(ViewModePreference, nextViewMode);
+                    _scroll = Vector2.zero;
+                    _tableScroll = Vector2.zero;
+                }
+
                 using (new EditorGUI.DisabledScope(_results.Count == 0))
                 {
                     if (GUILayout.Button("Export CSV", GUILayout.Width(100f)))
@@ -342,6 +482,7 @@ namespace LegendaryTools.Editor
                     {
                         _currentPage--;
                         _scroll = Vector2.zero;
+                        _tableScroll = Vector2.zero;
                     }
                 }
 
@@ -352,22 +493,130 @@ namespace LegendaryTools.Editor
                     {
                         _currentPage++;
                         _scroll = Vector2.zero;
+                        _tableScroll = Vector2.zero;
                     }
                 }
-            }
-
-            _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            for (int i = startIndex; i < endIndex; i++)
-            {
-                DrawResult(visible[i]);
             }
 
             if (visible.Count == 0)
             {
                 EditorGUILayout.HelpBox("No results match the current filter.", MessageType.Info);
+                return;
+            }
+
+            if (_viewMode == ResultViewMode.Table)
+            {
+                DrawTableResults(visible, startIndex, endIndex);
+            }
+            else
+            {
+                DrawCardResults(visible, startIndex, endIndex);
+            }
+        }
+
+        private void DrawCardResults(IReadOnlyList<UITextureOptimizationResult> visible, int startIndex, int endIndex)
+        {
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+            for (int i = startIndex; i < endIndex; i++)
+            {
+                DrawResult(visible[i]);
+            }
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawTableResults(IReadOnlyList<UITextureOptimizationResult> visible, int startIndex, int endIndex)
+        {
+            _tableScroll = EditorGUILayout.BeginScrollView(_tableScroll, true, true);
+            using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
+            {
+                GUILayout.Label("", GUILayout.Width(22f));
+                DrawSortableHeader("Asset", ResultSort.Path, 250f);
+                DrawSortableHeader("Kind", ResultSort.Kind, 65f);
+                DrawSortableHeader("Confidence", ResultSort.Confidence, 100f);
+                DrawSortableHeader("Source", ResultSort.SourceSize, 90f);
+                DrawSortableHeader("Imported", ResultSort.ImportedSize, 90f);
+                DrawSortableHeader("Current", ResultSort.CurrentMaxSize, 70f);
+                DrawSortableHeader("Recommended", ResultSort.RecommendedSize, 100f);
+                DrawSortableHeader("Largest Use", ResultSort.LargestUse, 95f);
+                DrawSortableHeader("Usages", ResultSort.UsageCount, 60f);
+                DrawSortableHeader("Saving", ResultSort.EstimatedSaving, 90f);
+                GUILayout.Label("", GUILayout.Width(100f));
+            }
+
+            for (int i = startIndex; i < endIndex; i++)
+            {
+                DrawTableRow(visible[i]);
             }
 
             EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawSortableHeader(string label, ResultSort sort, float width)
+        {
+            string direction = _sort == sort ? (_sortDescending ? " ▼" : " ▲") : string.Empty;
+            if (!GUILayout.Button(label + direction, EditorStyles.toolbarButton, GUILayout.Width(width)))
+            {
+                return;
+            }
+
+            if (_sort == sort)
+            {
+                _sortDescending = !_sortDescending;
+            }
+            else
+            {
+                _sort = sort;
+                _sortDescending = false;
+            }
+
+            InvalidateVisibleResults();
+            _tableScroll = Vector2.zero;
+        }
+
+        private void DrawTableRow(UITextureOptimizationResult result)
+        {
+            using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
+            {
+                bool selected = _selectedPaths.Contains(result.AssetPath);
+                bool nextSelected = GUILayout.Toggle(selected, GUIContent.none, GUILayout.Width(22f));
+                if (nextSelected != selected)
+                {
+                    if (nextSelected) _selectedPaths.Add(result.AssetPath);
+                    else _selectedPaths.Remove(result.AssetPath);
+                }
+
+                if (GUILayout.Button(
+                        new GUIContent(result.AssetName, result.AssetPath),
+                        EditorStyles.label,
+                        GUILayout.Width(250f)))
+                {
+                    EditorGUIUtility.PingObject(AssetDatabase.LoadMainAssetAtPath(result.AssetPath));
+                }
+
+                GUILayout.Label(result.AssetKind, GUILayout.Width(65f));
+                GUILayout.Label(GetStatusLabel(result), GUILayout.Width(100f));
+                GUILayout.Label($"{result.SourceWidth}x{result.SourceHeight}", GUILayout.Width(90f));
+                GUILayout.Label($"{result.ImportedWidth}x{result.ImportedHeight}", GUILayout.Width(90f));
+                GUILayout.Label(result.CurrentMaxSize.ToString(), GUILayout.Width(70f));
+                GUILayout.Label(result.RecommendedMaxSize.ToString(), GUILayout.Width(100f));
+                Vector2 largest = result.LargestRenderedUse;
+                GUILayout.Label($"{largest.x:0}x{largest.y:0}", GUILayout.Width(95f));
+                GUILayout.Label(result.Usages.Count.ToString(), GUILayout.Width(60f));
+                GUILayout.Label(EditorUtility.FormatBytes(result.EstimatedMemorySaving), GUILayout.Width(90f));
+
+                if (GUILayout.Button("Ping", GUILayout.Width(45f)))
+                {
+                    EditorGUIUtility.PingObject(AssetDatabase.LoadMainAssetAtPath(result.AssetPath));
+                }
+
+                using (new EditorGUI.DisabledScope(IsScanning || !result.CanApply))
+                {
+                    if (GUILayout.Button("Apply", GUILayout.Width(50f)))
+                    {
+                        ApplyOneWithConfirmation(result);
+                    }
+                }
+            }
         }
 
         private void DrawResult(UITextureOptimizationResult result)
@@ -487,13 +736,32 @@ namespace LegendaryTools.Editor
                 }
             }
 
-            _visibleResults.Sort((left, right) => _sort switch
+            _visibleResults.Sort((left, right) =>
             {
-                ResultSort.SourceSize => CompareSourceSize(left, right),
-                ResultSort.RecommendedSize => left.RecommendedMaxSize.CompareTo(right.RecommendedMaxSize),
-                ResultSort.EstimatedSaving => left.EstimatedMemorySaving.CompareTo(right.EstimatedMemorySaving),
-                ResultSort.UsageCount => left.Usages.Count.CompareTo(right.Usages.Count),
-                _ => StringComparer.OrdinalIgnoreCase.Compare(left.AssetPath, right.AssetPath)
+                int comparison = _sort switch
+                {
+                    ResultSort.Kind => StringComparer.OrdinalIgnoreCase.Compare(left.AssetKind, right.AssetKind),
+                    ResultSort.Confidence => left.Confidence.CompareTo(right.Confidence),
+                    ResultSort.SourceSize => CompareDimensions(
+                        left.SourceWidth,
+                        left.SourceHeight,
+                        right.SourceWidth,
+                        right.SourceHeight),
+                    ResultSort.ImportedSize => CompareDimensions(
+                        left.ImportedWidth,
+                        left.ImportedHeight,
+                        right.ImportedWidth,
+                        right.ImportedHeight),
+                    ResultSort.CurrentMaxSize => left.CurrentMaxSize.CompareTo(right.CurrentMaxSize),
+                    ResultSort.RecommendedSize => left.RecommendedMaxSize.CompareTo(right.RecommendedMaxSize),
+                    ResultSort.LargestUse => CompareRenderedUse(left.LargestRenderedUse, right.LargestRenderedUse),
+                    ResultSort.EstimatedSaving => left.EstimatedMemorySaving.CompareTo(right.EstimatedMemorySaving),
+                    ResultSort.UsageCount => left.Usages.Count.CompareTo(right.Usages.Count),
+                    _ => StringComparer.OrdinalIgnoreCase.Compare(left.AssetPath, right.AssetPath)
+                };
+                return comparison != 0
+                    ? comparison
+                    : StringComparer.OrdinalIgnoreCase.Compare(left.AssetPath, right.AssetPath);
             });
 
             if (_sortDescending)
@@ -505,23 +773,32 @@ namespace LegendaryTools.Editor
             return _visibleResults;
         }
 
-        private static int CompareSourceSize(
-            UITextureOptimizationResult left,
-            UITextureOptimizationResult right)
+        private static int CompareDimensions(
+            int leftWidth,
+            int leftHeight,
+            int rightWidth,
+            int rightHeight)
         {
-            long leftArea = (long)left.SourceWidth * left.SourceHeight;
-            long rightArea = (long)right.SourceWidth * right.SourceHeight;
+            long leftArea = (long)leftWidth * leftHeight;
+            long rightArea = (long)rightWidth * rightHeight;
             int areaComparison = leftArea.CompareTo(rightArea);
             if (areaComparison != 0)
             {
                 return areaComparison;
             }
 
-            int axisComparison = Mathf.Max(left.SourceWidth, left.SourceHeight)
-                .CompareTo(Mathf.Max(right.SourceWidth, right.SourceHeight));
-            return axisComparison != 0
-                ? axisComparison
-                : StringComparer.OrdinalIgnoreCase.Compare(left.AssetPath, right.AssetPath);
+            return Mathf.Max(leftWidth, leftHeight).CompareTo(Mathf.Max(rightWidth, rightHeight));
+        }
+
+        private static int CompareRenderedUse(Vector2 left, Vector2 right)
+        {
+            float areaComparison = left.x * left.y - right.x * right.y;
+            if (!Mathf.Approximately(areaComparison, 0f))
+            {
+                return areaComparison < 0f ? -1 : 1;
+            }
+
+            return Mathf.Max(left.x, left.y).CompareTo(Mathf.Max(right.x, right.y));
         }
 
         private bool MatchesSearch(UITextureOptimizationResult result)
@@ -629,12 +906,66 @@ namespace LegendaryTools.Editor
             _visibleResultsDirty = true;
             _currentPage = 0;
             _scroll = Vector2.zero;
+            _tableScroll = Vector2.zero;
         }
 
         private void InvalidateResultCaches()
         {
             _summaryDirty = true;
             InvalidateVisibleResults();
+        }
+
+        private void LoadFolderPreferences()
+        {
+            _whitelistFolders.Clear();
+            _blacklistFolders.Clear();
+            string json = EditorPrefs.GetString(FolderFiltersPreference, string.Empty);
+            if (string.IsNullOrEmpty(json))
+            {
+                return;
+            }
+
+            try
+            {
+                FolderFilterPreferences preferences = JsonUtility.FromJson<FolderFilterPreferences>(json);
+                AddValidFolders(preferences?.Whitelist, _whitelistFolders);
+                AddValidFolders(preferences?.Blacklist, _blacklistFolders);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"Unable to load UI Texture Optimizer folder filters: {exception.Message}");
+            }
+        }
+
+        private void SaveFolderPreferences()
+        {
+            FolderFilterPreferences preferences = new()
+            {
+                Whitelist = new List<string>(_whitelistFolders),
+                Blacklist = new List<string>(_blacklistFolders)
+            };
+            EditorPrefs.SetString(FolderFiltersPreference, JsonUtility.ToJson(preferences));
+        }
+
+        private static void AddValidFolders(IEnumerable<string> source, List<string> destination)
+        {
+            if (source == null)
+            {
+                return;
+            }
+
+            foreach (string value in source)
+            {
+                string folder = value?.Replace('\\', '/').TrimEnd('/');
+                if (!string.IsNullOrEmpty(folder) &&
+                    AssetDatabase.IsValidFolder(folder) &&
+                    !destination.Contains(folder, StringComparer.OrdinalIgnoreCase))
+                {
+                    destination.Add(folder);
+                }
+            }
+
+            destination.Sort(StringComparer.OrdinalIgnoreCase);
         }
 
         private void StartScan(bool forceRescan)
@@ -649,11 +980,14 @@ namespace LegendaryTools.Editor
             EditorPrefs.SetInt(HeightPreference, _screenHeight);
             EditorPrefs.SetInt(RoundingPreference, (int)_roundingMode);
             EditorPrefs.SetBool(CachePreference, _useIncrementalCache);
+            SaveFolderPreferences();
             _scanService = new UITextureSizeScanService(
                 new Vector2(_screenWidth, _screenHeight),
                 _roundingMode,
                 _useIncrementalCache,
-                forceRescan);
+                forceRescan,
+                _whitelistFolders,
+                _blacklistFolders);
             _status = $"Scanning {_scanService.TotalAssets} assets...";
             EditorApplication.update += ScanUpdate;
         }

@@ -20,6 +20,7 @@ namespace LegendaryTools.Editor
         private readonly UITextureRoundingMode _roundingMode;
         private readonly bool _useIncrementalCache;
         private readonly bool _forceRescan;
+        private readonly bool _hasRestrictedAssetScope;
         private readonly string _configurationKey;
         private readonly UITextureScanCache _cache;
         private readonly Scene _originalActiveScene;
@@ -38,15 +39,34 @@ namespace LegendaryTools.Editor
             UITextureRoundingMode roundingMode,
             bool useIncrementalCache,
             bool forceRescan)
+            : this(
+                simulatedScreenSize,
+                roundingMode,
+                useIncrementalCache,
+                forceRescan,
+                Array.Empty<string>(),
+                Array.Empty<string>())
+        {
+        }
+
+        public UITextureSizeScanService(
+            Vector2 simulatedScreenSize,
+            UITextureRoundingMode roundingMode,
+            bool useIncrementalCache,
+            bool forceRescan,
+            IReadOnlyCollection<string> whitelistFolders,
+            IReadOnlyCollection<string> blacklistFolders)
         {
             _simulatedScreenSize = simulatedScreenSize;
             _roundingMode = roundingMode;
             _useIncrementalCache = useIncrementalCache;
             _forceRescan = forceRescan;
+            _hasRestrictedAssetScope = (whitelistFolders?.Count ?? 0) > 0 ||
+                                       (blacklistFolders?.Count ?? 0) > 0;
             _configurationKey = $"{Mathf.RoundToInt(simulatedScreenSize.x)}x{Mathf.RoundToInt(simulatedScreenSize.y)}:{roundingMode}";
             _cache = UITextureScanCache.Load();
             _originalActiveScene = EditorSceneManager.GetActiveScene();
-            _assetPaths = FindAssetPaths();
+            _assetPaths = FindAssetPaths(whitelistFolders, blacklistFolders);
         }
 
         public IReadOnlyList<UITextureOptimizationResult> Results => _results.Values
@@ -131,27 +151,96 @@ namespace LegendaryTools.Editor
             _disposed = true;
             if (_useIncrementalCache)
             {
-                _cache.Save(_assetPaths, !_cancelRequested && _nextAssetIndex >= TotalAssets);
+                _cache.Save(
+                    _assetPaths,
+                    !_hasRestrictedAssetScope && !_cancelRequested && _nextAssetIndex >= TotalAssets);
             }
             RestoreActiveScene();
         }
 
-        private static List<string> FindAssetPaths()
+        private static List<string> FindAssetPaths(
+            IReadOnlyCollection<string> whitelistFolders,
+            IReadOnlyCollection<string> blacklistFolders)
         {
-            HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
-            foreach (string guid in AssetDatabase.FindAssets("t:Scene", new[] { "Assets" }))
+            bool hasWhitelist = (whitelistFolders?.Count ?? 0) > 0;
+            string[] whitelist = NormalizeFolders(whitelistFolders)
+                .Where(AssetDatabase.IsValidFolder)
+                .ToArray();
+            string[] blacklist = NormalizeFolders(blacklistFolders).ToArray();
+            if (hasWhitelist && whitelist.Length == 0)
             {
-                string path = AssetDatabase.GUIDToAssetPath(guid);
-                if (!string.IsNullOrEmpty(path)) paths.Add(path);
+                return new List<string>();
             }
 
-            foreach (string guid in AssetDatabase.FindAssets("t:Prefab", new[] { "Assets" }))
+            string[] searchFolders = hasWhitelist ? whitelist : new[] { "Assets" };
+            HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+            foreach (string guid in AssetDatabase.FindAssets("t:Scene", searchFolders))
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
-                if (!string.IsNullOrEmpty(path)) paths.Add(path);
+                if (IsAssetIncludedNormalized(path, whitelist, blacklist)) paths.Add(path);
+            }
+
+            foreach (string guid in AssetDatabase.FindAssets("t:Prefab", searchFolders))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (IsAssetIncludedNormalized(path, whitelist, blacklist)) paths.Add(path);
             }
 
             return paths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        internal static bool IsAssetIncluded(
+            string assetPath,
+            IReadOnlyCollection<string> whitelistFolders,
+            IReadOnlyCollection<string> blacklistFolders)
+        {
+            if (string.IsNullOrEmpty(assetPath))
+            {
+                return false;
+            }
+
+            string normalizedPath = assetPath.Replace('\\', '/');
+            string[] whitelist = NormalizeFolders(whitelistFolders).ToArray();
+            string[] blacklist = NormalizeFolders(blacklistFolders).ToArray();
+            return IsAssetIncludedNormalized(normalizedPath, whitelist, blacklist);
+        }
+
+        private static bool IsAssetIncludedNormalized(
+            string assetPath,
+            IReadOnlyCollection<string> whitelistFolders,
+            IReadOnlyCollection<string> blacklistFolders)
+        {
+            bool isWhitelisted = whitelistFolders.Count == 0 ||
+                                 whitelistFolders.Any(folder => IsUnderFolder(assetPath, folder));
+            bool isBlacklisted = blacklistFolders.Any(folder => IsUnderFolder(assetPath, folder));
+            return isWhitelisted && !isBlacklisted;
+        }
+
+        private static IEnumerable<string> NormalizeFolders(IEnumerable<string> folders)
+        {
+            if (folders == null)
+            {
+                yield break;
+            }
+
+            HashSet<string> unique = new(StringComparer.OrdinalIgnoreCase);
+            foreach (string value in folders)
+            {
+                string folder = value?.Replace('\\', '/').Trim().TrimEnd('/');
+                if (!string.IsNullOrEmpty(folder) &&
+                    (string.Equals(folder, "Assets", StringComparison.OrdinalIgnoreCase) ||
+                     folder.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase)) &&
+                    unique.Add(folder))
+                {
+                    yield return folder;
+                }
+            }
+        }
+
+        private static bool IsUnderFolder(string assetPath, string folder)
+        {
+            return string.Equals(assetPath, folder, StringComparison.OrdinalIgnoreCase) ||
+                   assetPath.StartsWith(folder + "/", StringComparison.OrdinalIgnoreCase);
         }
 
         private void ScanPrefab(string prefabPath)
