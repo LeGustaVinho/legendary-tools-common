@@ -4,6 +4,8 @@
     "references": [
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
+        "UnityEngine.UI",
+        "LegendaryTools.Editor",
         "LegendaryTools",
         "LegendaryTools.Concurrency",
         "LegendaryTools.Concurrency.Shared"
