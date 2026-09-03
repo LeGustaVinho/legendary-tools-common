@@ -8,6 +8,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Compilation;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -26,6 +27,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
     /// </summary>
     public static class RoslynNuGetInstaller
     {
+        private const string RoslynAvailableDefine = "LEGENDARYTOOLS_HAS_ROSLYN";
         private const string NuGetV2PackageUrlFormat = "https://www.nuget.org/api/v2/package/{0}/{1}";
         private const string InstallFolderRelative =
             "Assets/legendary-tools-common/Editor/ThirdParty/Roslyn";
@@ -33,6 +35,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
         // Latest stable Microsoft.CodeAnalysis.CSharp version on NuGet on 2026-08-31.
         // This is only a fallback: an imported Unity/third-party pair always has priority.
         private const string NuGetFallbackRoslynVersion = "5.9.0";
+        private static readonly Version MinimumSupportedRoslynAssemblyVersion = new(3, 8, 0, 0);
         private static readonly Version LegacyBundledRoslynAssemblyVersion = new(3, 8, 0, 0);
 
         private static readonly string[] RoslynAssemblyNames =
@@ -44,7 +47,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
         // Unity validates direct plugin references before loading editor assemblies. These two
         // assemblies can exist in a package's private tool folder (for example Burst/.Runtime)
         // without being resolvable by project plugins, so the bundled Roslyn set must keep them.
-        private static readonly string[] RequiredBundledDependencyAssemblyNames =
+        private static readonly string[] RequiredRoslynDependencyAssemblyNames =
         {
             "System.Collections.Immutable",
             "System.Reflection.Metadata"
@@ -73,8 +76,25 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
         [InitializeOnLoadMethod]
         private static void ReconcileDuplicateOnEditorLoad()
         {
+            // Define constraints are evaluated before the Roslyn-dependent assemblies compile.
+            // Synchronize immediately so a cold project import can enable them on the next pass.
+            try
+            {
+                bool hasUsableRoslyn = FindExistingRoslynOutsideLegendaryTools() != null ||
+                                       FindBundledLegendaryToolsRoslyn() != null;
+                SynchronizeRoslynCompilationDefine(hasUsableRoslyn);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Legendary Tools could not detect Roslyn availability: {ex.Message}");
+            }
+
+            UnityEditor.PackageManager.Events.registeredPackages += _ =>
+                EditorApplication.delayCall += SynchronizeRoslynCompilationDefineFromImportedAssemblies;
+
             EditorApplication.delayCall += () =>
             {
+                bool hasUsableRoslyn = false;
                 try
                 {
                     RoslynInstallation? existing = FindExistingRoslynOutsideLegendaryTools();
@@ -85,12 +105,20 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
                         Debug.Log(
                             $"Legendary Tools removed its Roslyn copy and will use the already imported " +
                             $"Roslyn {existing.Version} from '{existing.Description}'.");
+                        hasUsableRoslyn = true;
+                        return;
+                    }
+
+                    if (existing != null)
+                    {
+                        hasUsableRoslyn = true;
                         return;
                     }
 
                     RoslynInstallation? bundled = FindBundledLegendaryToolsRoslyn();
                     if (bundled != null)
                     {
+                        hasUsableRoslyn = true;
                         int removedDependencies = RemoveRedundantBundledDependencies(bundled.Version);
                         if (removedDependencies > 0)
                         {
@@ -107,6 +135,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
                 }
                 finally
                 {
+                    SynchronizeRoslynCompilationDefine(hasUsableRoslyn);
                     EditorUtility.ClearProgressBar();
                 }
             };
@@ -126,6 +155,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
                         AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
                     }
 
+                    SynchronizeRoslynCompilationDefine(true);
                     Debug.Log(
                         $"Roslyn is already installed ({existing.Version}) by '{existing.Description}'. " +
                         "Legendary Tools will use it and will not install another copy.");
@@ -139,6 +169,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
                     if (removedDependencies > 0)
                         AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
 
+                    SynchronizeRoslynCompilationDefine(true);
                     Debug.Log(
                         $"Legendary Tools will use its existing loadable Roslyn {bundled.Version} set. " +
                         $"Removed redundant bundled dependency DLLs: {removedDependencies}.");
@@ -172,6 +203,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
                 }
 
                 RemoveLegendaryToolsInstallation();
+                SynchronizeRoslynCompilationDefine(FindExistingRoslynOutsideLegendaryTools() != null);
                 AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
                 Debug.Log($"Legendary Tools Roslyn copy was removed from: {InstallFolderRelative}");
             }
@@ -238,6 +270,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
             RemoveLegendaryToolsInstallation();
             Directory.CreateDirectory(Path.GetDirectoryName(installAbsoluteFolder));
             Directory.Move(stagingAbsoluteFolder, installAbsoluteFolder);
+            SynchronizeRoslynCompilationDefine(true);
             AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
             Debug.Log(
                 $"Roslyn NuGet fallback {NuGetFallbackRoslynVersion} installed. " +
@@ -256,9 +289,19 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
 
             IEnumerable<IGrouping<Version, AssemblyCandidate>> versionGroups = candidates
                 .GroupBy(candidate => candidate.Version)
+                .Where(group => group.Key >= MinimumSupportedRoslynAssemblyVersion)
                 .Where(group => RoslynAssemblyNames.All(requiredName =>
                     group.Any(candidate => string.Equals(
                         candidate.Name, requiredName, StringComparison.OrdinalIgnoreCase))));
+
+            HashSet<string> importedAssemblyNames = GetImportedAssemblyCandidates()
+                .Select(candidate => candidate.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (RequiredRoslynDependencyAssemblyNames.Any(requiredName =>
+                    !importedAssemblyNames.Contains(requiredName)))
+            {
+                return null;
+            }
 
             IGrouping<Version, AssemblyCandidate>? selected = versionGroups
                 .OrderBy(group => group.Min(candidate => GetSourcePriority(candidate.Path)))
@@ -345,7 +388,9 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
         {
             string installFolder = GetInstallFolderAbsolute();
             Version? version = GetRoslynPairVersion(GetInstallFolderAbsolute());
-            if (version != null && RequiredBundledDependencyAssemblyNames.Any(assemblyName =>
+            if (version != null && version < MinimumSupportedRoslynAssemblyVersion) return null;
+
+            if (version != null && RequiredRoslynDependencyAssemblyNames.Any(assemblyName =>
                     !File.Exists(Path.Combine(installFolder, assemblyName + ".dll"))))
             {
                 return null;
@@ -366,7 +411,7 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
             if (!Directory.Exists(installFolder)) return 0;
 
             IEnumerable<string> preservedAssemblyNames = RoslynAssemblyNames
-                .Concat(RequiredBundledDependencyAssemblyNames);
+                .Concat(RequiredRoslynDependencyAssemblyNames);
             HashSet<string> preservedFiles = preservedAssemblyNames
                 .Select(assemblyName => assemblyName + ".dll")
                 .Concat(preservedAssemblyNames.Select(assemblyName => assemblyName + ".dll.meta"))
@@ -621,6 +666,51 @@ namespace LegendaryTools.CSFilesAggregator.TypeIndex.Installer
         private static string NormalizePath(string path)
         {
             return path.Replace('\\', '/');
+        }
+
+        private static void SynchronizeRoslynCompilationDefine(bool enabled)
+        {
+            BuildTargetGroup buildTargetGroup = BuildPipeline.GetBuildTargetGroup(
+                EditorUserBuildSettings.activeBuildTarget);
+            if (buildTargetGroup == BuildTargetGroup.Unknown) return;
+
+            NamedBuildTarget namedBuildTarget = NamedBuildTarget.FromBuildTargetGroup(buildTargetGroup);
+            string current = PlayerSettings.GetScriptingDefineSymbols(namedBuildTarget);
+            List<string> symbols = current
+                .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(symbol => symbol.Trim())
+                .Where(symbol => symbol.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            bool contains = symbols.Contains(RoslynAvailableDefine, StringComparer.Ordinal);
+            if (contains == enabled) return;
+
+            if (enabled)
+                symbols.Add(RoslynAvailableDefine);
+            else
+                symbols.RemoveAll(symbol => string.Equals(
+                    symbol, RoslynAvailableDefine, StringComparison.Ordinal));
+
+            PlayerSettings.SetScriptingDefineSymbols(namedBuildTarget, string.Join(";", symbols));
+            Debug.Log(
+                enabled
+                    ? $"Legendary Tools enabled {RoslynAvailableDefine}; compatible Roslyn assemblies are available."
+                    : $"Legendary Tools disabled {RoslynAvailableDefine}; compatible Roslyn assemblies or dependencies were not found.");
+        }
+
+        private static void SynchronizeRoslynCompilationDefineFromImportedAssemblies()
+        {
+            try
+            {
+                bool hasUsableRoslyn = FindExistingRoslynOutsideLegendaryTools() != null ||
+                                       FindBundledLegendaryToolsRoslyn() != null;
+                SynchronizeRoslynCompilationDefine(hasUsableRoslyn);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Legendary Tools could not refresh Roslyn availability: {ex.Message}");
+            }
         }
 
         private sealed class AssemblyCandidate

@@ -1,0 +1,18 @@
+{
+    "name": "LegendaryTools.CodeOverview.Editor",
+    "rootNamespace": "",
+    "references": [],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "LEGENDARYTOOLS_HAS_ROSLYN"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
