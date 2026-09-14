@@ -8,7 +8,6 @@ namespace LegendaryTools.Editor
     [InitializeOnLoad]
     internal static class PrefabThumbnailOrchestrator
     {
-        private const string EnabledEditorPrefKey = "PrefabThumbnailOrchestrator.Enabled";
         private const double ProcessingBudgetSeconds = 0.015d;
         private const int MaxPrefabsPerTick = 2;
 
@@ -16,9 +15,9 @@ namespace LegendaryTools.Editor
         private static readonly HashSet<string> QueuedAssetGuids = new(StringComparer.Ordinal);
 
         private static PrefabIconGenerator.BatchSession _batchSession;
-        private static bool _startupScanPending = true;
+        private static bool _startupScanPending;
         private static bool _projectWindowDirty;
-        private static bool _isEnabled = EditorPrefs.GetBool(EnabledEditorPrefKey, true);
+        private static bool _isEnabled;
 
         static PrefabThumbnailOrchestrator()
         {
@@ -51,12 +50,13 @@ namespace LegendaryTools.Editor
             if (_isEnabled == enabled) return;
 
             _isEnabled = enabled;
-            EditorPrefs.SetBool(EnabledEditorPrefKey, enabled);
 
             if (enabled)
                 _startupScanPending = true;
             else
-                DisposeBatchSession();
+                ClearPendingWork();
+
+            EditorApplication.RepaintProjectWindow();
         }
 
         internal static void NotifyPrefabAssetsChanged(
@@ -65,6 +65,8 @@ namespace LegendaryTools.Editor
             string[] movedAssets,
             string[] movedFromAssetPaths)
         {
+            if (!_isEnabled) return;
+
             EnqueuePrefabPaths(importedAssets);
             EnqueuePrefabPaths(movedAssets);
 

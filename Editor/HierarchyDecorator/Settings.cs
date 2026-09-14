@@ -57,7 +57,7 @@ namespace HierarchyDecorator
     [FilePath("Library/HierarchyDecorator/Settings.asset", FilePathAttribute.Location.ProjectFolder)]
     public class Settings : ScriptableSingleton<Settings>, ISerializationCallbackReceiver
     {
-        public bool enableHierarchyDecorator = true;
+        public bool enableHierarchyDecorator = false;
         public bool enableBranchCategoryColorDrawer = true;
         public GlobalData globalData = new GlobalData();
         public HierarchyStyleData styleData = new HierarchyStyleData();
@@ -82,6 +82,7 @@ namespace HierarchyDecorator
 
         internal void SetDefaults(bool isDarkMode)
         {
+            enableHierarchyDecorator = false;
             EnsureInitialized();
             components.UpdateData();
             styleData.UpdateStyles(isDarkMode);

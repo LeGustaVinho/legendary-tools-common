@@ -11,7 +11,6 @@ namespace AiClipboardPipeline.Editor
     {
         internal static class PrefKeys
         {
-            public const string Enabled = "AICodePasteHub.Enabled";
             public const string AutomationMode = "AICodePasteHub.AutomationMode";
             public const string AutoCapture = "AICodePasteHub.AutoCapture";
             public const string AutoApply = "AICodePasteHub.AutoApply";
@@ -448,7 +447,7 @@ namespace AiClipboardPipeline.Editor
         {
 #if UNITY_EDITOR_WIN
             ClipboardHistoryStore.instance.SetCapacity(MaxHistory);
-            ClipboardHistoryBootstrap.ApplyRuntimeSettings();
+            ClipboardHistoryBootstrap.ApplyRuntimeSettings(Enabled);
 #endif
         }
 
@@ -625,7 +624,11 @@ namespace AiClipboardPipeline.Editor
 
         private void LoadPrefs()
         {
-            Enabled = EditorPrefs.GetBool(PrefKeys.Enabled, true);
+#if UNITY_EDITOR_WIN
+            Enabled = ClipboardWatcher.IsRunning;
+#else
+            Enabled = false;
+#endif
             Mode = (AutomationMode)EditorPrefs.GetInt(PrefKeys.AutomationMode, (int)AutomationMode.SmartConfirm);
 
             AutoCapture = EditorPrefs.GetBool(PrefKeys.AutoCapture, true);
@@ -649,7 +652,6 @@ namespace AiClipboardPipeline.Editor
 
         private void SavePrefs()
         {
-            EditorPrefs.SetBool(PrefKeys.Enabled, Enabled);
             EditorPrefs.SetInt(PrefKeys.AutomationMode, (int)Mode);
 
             EditorPrefs.SetBool(PrefKeys.AutoCapture, AutoCapture);

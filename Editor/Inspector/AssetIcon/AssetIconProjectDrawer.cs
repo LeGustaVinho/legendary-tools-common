@@ -28,6 +28,8 @@ namespace LegendaryTools.Editor
             Object thumbnail;
             if (!AssetThumbnailStore.instance.TryGetThumbnail(guid, out thumbnail))
             {
+                if (!PrefabThumbnailOrchestrator.IsEnabled()) return;
+
                 Texture2D generatedThumbnail;
                 if (!PrefabThumbnailCache.TryGetThumbnail(guid, out generatedThumbnail)) return;
 

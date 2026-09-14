@@ -8,7 +8,6 @@ namespace AiClipboardPipeline.Editor
     [InitializeOnLoad]
     public static class ClipboardHistoryBootstrap
     {
-        private const string PrefEnabled = "AICodePasteHub.Enabled";
         private const string PrefAutoCapture = "AICodePasteHub.AutoCapture";
         private const string PrefAutoApply = "AICodePasteHub.AutoApply";
         private const string PrefMaxHistory = "AICodePasteHub.MaxHistory";
@@ -26,7 +25,8 @@ namespace AiClipboardPipeline.Editor
                 ClipboardWatcher.ClipboardChanged -= OnClipboardChanged;
                 ClipboardWatcher.ClipboardChanged += OnClipboardChanged;
 
-                ApplyRuntimeSettings();
+                int cap = Mathf.Clamp(EditorPrefs.GetInt(PrefMaxHistory, 200), 1, 5000);
+                ClipboardHistoryStore.instance.SetCapacity(cap);
             }
             catch (Exception ex)
             {
@@ -35,14 +35,12 @@ namespace AiClipboardPipeline.Editor
             }
         }
 
-        public static void ApplyRuntimeSettings()
+        public static void ApplyRuntimeSettings(bool watcherEnabled)
         {
-            bool enabled = EditorPrefs.GetBool(PrefEnabled, true);
-
             int cap = Mathf.Clamp(EditorPrefs.GetInt(PrefMaxHistory, 200), 1, 5000);
             ClipboardHistoryStore.instance.SetCapacity(cap);
 
-            if (enabled)
+            if (watcherEnabled)
                 ClipboardWatcher.Start();
             else
                 ClipboardWatcher.Stop();
@@ -50,8 +48,7 @@ namespace AiClipboardPipeline.Editor
 
         private static void OnClipboardChanged(string text)
         {
-            bool enabled = EditorPrefs.GetBool(PrefEnabled, true);
-            if (!enabled)
+            if (!ClipboardWatcher.IsRunning)
                 return;
 
             bool autoCapture = EditorPrefs.GetBool(PrefAutoCapture, true);

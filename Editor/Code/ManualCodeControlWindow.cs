@@ -180,16 +180,10 @@ namespace LegendaryTools.Editor
         public ManualCodeChangeKind Kind { get; }
     }
 
-    [InitializeOnLoad]
     internal static class ManualCodeControlSettings
     {
         private const string AutoRefreshModePreference = "kAutoRefreshMode";
         private const int AutoRefreshDisabled = 0;
-
-        static ManualCodeControlSettings()
-        {
-            Apply();
-        }
 
         internal static bool IsAutoRefreshDisabled =>
             EditorPrefs.GetInt(AutoRefreshModePreference, AutoRefreshDisabled) == AutoRefreshDisabled;
