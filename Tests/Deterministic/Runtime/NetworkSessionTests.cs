@@ -25,11 +25,11 @@ namespace LegendaryTools.Deterministic.Tests
             internal bool Active = true;
             internal long Capture;
             internal Node(DeterministicRuntimeContext context, IDeterministicTransport transport, ReadOnlySpan<PeerId> voters,
-                DeterministicSessionTopology topology, SnapshotPolicy snapshots, bool learner, ulong sessionId = 1)
+                DeterministicSessionTopology topology, SnapshotPolicy snapshots, bool learner, ulong sessionId = 1, int inputDelay = 2)
             {
                 Transport = transport; State = new DeterministicStateRegistry(context, new DeterministicCompatibilityProfile(1, 2, 3, 4, 5), 1);
                 State.TryRegister(ManagedStateBindings.Cell(1, Value, default(Int32Policy), 1, 128, 128)).ThrowIfFailure(); State.TryFreeze().ThrowIfFailure();
-                var runtime = new DeterministicRuntimeOptions(8, PredictionPolicy.HoldLast, snapshots, historyTicks: 128, pageBytes: 64);
+                var runtime = new DeterministicRuntimeOptions(8, PredictionPolicy.HoldLast, snapshots, inputDelay: inputDelay, historyTicks: 128, pageBytes: 64);
                 var raft = new DeterministicRaftOptions(8, 256, 1024, 65536);
                 Session = new DeterministicNetworkSession<int, Int32Policy, int, Int32Policy>(context, runtime, raft, transport,
                     new DeterministicSessionId(sessionId), State, new Simulation(Value), voters, topology, 0, 4, 4, startAsLearner: learner);
@@ -44,24 +44,31 @@ namespace LegendaryTools.Deterministic.Tests
             internal readonly PeerId[] Voters;
             internal readonly DeterministicSessionTopology Topology;
             internal readonly SnapshotPolicy Snapshots;
+            internal readonly int InputDelay;
+            private readonly int[] pumpOrder = new int[8];
+            private uint pumpSeed;
             internal long Time;
             internal Cluster(int players = 3, DeterministicSessionTopology topology = DeterministicSessionTopology.PeerToPeer,
-                SnapshotPolicy snapshots = SnapshotPolicy.KeyframesAndDeltas, LoopbackFaults faults = default)
+                SnapshotPolicy snapshots = SnapshotPolicy.KeyframesAndDeltas, LoopbackFaults faults = default, uint pumpSeed = 0, int inputDelay = 2)
             {
-                Topology = topology; Snapshots = snapshots; Network = new DeterministicLoopbackNetwork(Context, 8, 8192, 2048, faults);
+                Topology = topology; Snapshots = snapshots; InputDelay = inputDelay; this.pumpSeed = pumpSeed; Network = new DeterministicLoopbackNetwork(Context, 8, 8192, 2048, faults);
                 Voters = new PeerId[players]; for (int i = 0; i < players; i++) Voters[i] = new PeerId(new PlayerId((ulong)i + 1), 1);
                 for (int i = 0; i < players; i++) Add(i, Voters[i], false);
                 Nodes[0].Session.Raft.TryStartElection().ThrowIfFailure(); Pump(100);
             }
             internal void Add(int slot, PeerId peer, bool learner)
-            { Nodes[slot] = new Node(Context, Network.CreateEndpoint(peer), Voters, Topology, Snapshots, learner); }
+            { Nodes[slot] = new Node(Context, Network.CreateEndpoint(peer), Voters, Topology, Snapshots, learner, inputDelay: InputDelay); }
             internal void Pump(int steps, long captureLimit = 0, bool speculate = true)
             {
                 for (int step = 0; step < steps; step++)
                 {
                     Time += 10; Network.TryAdvanceTime(Time).ThrowIfFailure();
-                    for (int i = 0; i < Nodes.Length; i++) if (Nodes[i] != null && Nodes[i].Active)
+                    for (int i = 0; i < pumpOrder.Length; i++) pumpOrder[i] = i;
+                    if (pumpSeed != 0) for (int i = pumpOrder.Length - 1; i > 0; i--)
+                    { pumpSeed ^= pumpSeed << 13; pumpSeed ^= pumpSeed >> 17; pumpSeed ^= pumpSeed << 5; int j = (int)(pumpSeed % (uint)(i + 1)); int swap = pumpOrder[i]; pumpOrder[i] = pumpOrder[j]; pumpOrder[j] = swap; }
+                    for (int at = 0; at < Nodes.Length; at++)
                     {
+                        int i = pumpOrder[at]; if (Nodes[i] == null || !Nodes[i].Active) continue;
                         var node = Nodes[i]; var session = node.Session;
                         if (node.Capture < session.EarliestLocalCaptureTick) node.Capture = session.EarliestLocalCaptureTick;
                         if (node.Capture < captureLimit && node.Capture <= session.CommittedBoundary + 8)
@@ -206,6 +213,48 @@ namespace LegendaryTools.Deterministic.Tests
                 }
                 long allocated = GC.GetAllocatedBytesForCurrentThread() - before; Assert.AreEqual(0, allocated);
                 Assert.AreEqual(0, failures); Assert.AreEqual(402, cluster.Nodes[0].Session.CommittedBoundary); cluster.AssertSameCommittedWorld(0, 1, 2);
+            }
+        }
+        private static System.Collections.Generic.IEnumerable<TestCaseData> FaultCases()
+        {
+            foreach (uint seed in new uint[] { 1, 777, 9187, 0x87abcdef, 0xfffffff1 })
+            foreach (SnapshotPolicy snapshots in Enum.GetValues(typeof(SnapshotPolicy)))
+            foreach (DeterministicSessionTopology topology in Enum.GetValues(typeof(DeterministicSessionTopology)))
+                yield return new TestCaseData(seed, snapshots, topology);
+        }
+        [TestCaseSource(nameof(FaultCases))]
+        public void RandomPacketAndPumpSchedulesMatchIndependentGameplayAfterCompaction(uint seed, SnapshotPolicy snapshots, DeterministicSessionTopology topology)
+        {
+            const int captures = 180;
+            using (var cluster = new Cluster(topology: topology, snapshots: snapshots,
+                faults: new LoopbackFaults(0, 80, 120, 500, seed), pumpSeed: seed))
+            {
+                cluster.Pump(2500, captures); cluster.Pump(200, speculate: false); cluster.AssertSameCommittedWorld(0, 1, 2);
+                Assert.AreEqual(captures + 2, cluster.Nodes[0].Session.CommittedBoundary);
+                int expected = 0;
+                for (int tick = 0; tick < captures + 2; tick++) for (int player = 1; player <= 3; player++)
+                { int input = tick < 2 ? 0 : (tick - 2) * 7 % 13 + player; expected = unchecked(expected * 31 + input * player); }
+                for (int i = 0; i < 3; i++)
+                {
+                    var node = cluster.Nodes[i]; node.Session.Runner.History.TryRestore(node.State, captures + 2).ThrowIfFailure();
+                    Assert.AreEqual(expected, node.Value.Value); Assert.Greater(node.Session.Raft.SnapshotIndex, 0);
+                }
+            }
+        }
+        [TestCase(1, DeterministicSessionTopology.AuthoritativeHost)] [TestCase(2, DeterministicSessionTopology.AuthoritativeHost)] [TestCase(4, DeterministicSessionTopology.AuthoritativeHost)]
+        [TestCase(1, DeterministicSessionTopology.PeerToPeer)] [TestCase(2, DeterministicSessionTopology.PeerToPeer)] [TestCase(4, DeterministicSessionTopology.PeerToPeer)]
+        public void ReplacingInputOwnerUnderPacketFaultsPreservesDelaySeedsAndCommittedState(int inputDelay, DeterministicSessionTopology topology)
+        {
+            using (var cluster = new Cluster(topology: topology, snapshots: (SnapshotPolicy)(inputDelay % 3),
+                faults: new LoopbackFaults(0, 40, 50, 200, 843), pumpSeed: 327, inputDelay: inputDelay))
+            {
+                cluster.Pump(500, 25); int old = (cluster.Leader() + 1) % 3;
+                cluster.Nodes[old].Dispose(); cluster.Nodes[old] = null;
+                var fresh = new PeerId(cluster.Voters[old].Player, 2); cluster.Add(3, fresh, true);
+                cluster.Nodes[3].Session.TryRequestJoinOrReconnect(cluster.Nodes[cluster.Leader()].Transport.LocalPeer).ThrowIfFailure();
+                cluster.Pump(900); Assert.IsTrue(cluster.Nodes[3].Session.Raft.IsAdmitted);
+                cluster.Pump(1200, 70); cluster.Pump(200, speculate: false); cluster.AssertSameCommittedWorld((old + 1) % 3, (old + 2) % 3, 3);
+                Assert.AreEqual(70 + inputDelay, cluster.Nodes[3].Session.CommittedBoundary);
             }
         }
     }

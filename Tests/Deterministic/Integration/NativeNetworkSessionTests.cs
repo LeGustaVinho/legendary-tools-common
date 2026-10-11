@@ -5,7 +5,7 @@ using Unity.Collections;
 
 namespace LegendaryTools.Deterministic.Tests
 {
-    public sealed class NativeNetworkSessionTests
+    public sealed unsafe class NativeNetworkSessionTests
     {
         [TestCase(SnapshotPolicy.FullPerTick)] [TestCase(SnapshotPolicy.KeyframesAndDeltas)] [TestCase(SnapshotPolicy.CopyOnWrite)]
         public void ManagedAndNativeSessionsAgreeWhileNativeStepsExecuteInBurst(SnapshotPolicy snapshots)
@@ -46,6 +46,19 @@ namespace LegendaryTools.Deterministic.Tests
                     Assert.IsFalse(left.IsFaulted); Assert.IsFalse(right.IsFaulted);
                     Assert.Greater(left.Raft.SnapshotIndex, 0); Assert.Greater(right.Raft.SnapshotIndex, 0);
                 }
+            }
+        }
+        [TestCase(SnapshotPolicy.FullPerTick)] [TestCase(SnapshotPolicy.KeyframesAndDeltas)] [TestCase(SnapshotPolicy.CopyOnWrite)]
+        public void NativeWorldHistoryRejectsWrongBoundaryBeforeChangingTheWorld(SnapshotPolicy policy)
+        {
+            var context = new DeterministicRuntimeContext(DeterministicBackend.BurstCompiler, new NativeDeterministicMemoryFactory());
+            using (var value = new NativeDeterministicCell<int>(Allocator.Persistent))
+            using (var state = new DeterministicStateRegistry(context, new DeterministicCompatibilityProfile(1, 0, 0, 2, 3), 1))
+            using (var history = new DeterministicWorldHistory(context, 512, 8, policy, 4, 64))
+            {
+                state.TryRegister(NativeStateBindings.Cell(1, value, default(Int32Policy), 1, 128, 128)).ThrowIfFailure(); state.TryFreeze().ThrowIfFailure();
+                var writable = value; writable.Value = 41; state.TryEncode(7, out byte* bytes, out int length).ThrowIfFailure(); history.TryCapture(0, bytes, length).ThrowIfFailure();
+                writable.Value = 99; Assert.AreEqual(DeterministicStatus.ProtocolConflict, history.TryRestore(state, 0)); Assert.AreEqual(99, value.Value);
             }
         }
     }

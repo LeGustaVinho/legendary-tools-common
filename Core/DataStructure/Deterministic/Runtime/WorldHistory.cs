@@ -216,6 +216,9 @@ namespace LegendaryTools.Deterministic
             if (registry == null || registry.Backend != Backend) return DeterministicStatus.ProfileMismatch;
             var status = TryRestore(tick, out byte* packet, out int length); if (!status.IsSuccess()) return status;
             var reader = new DeterministicReader(packet, length);
+            var validation = reader;
+            status = registry.TryValidateCanonical(ref validation, out long validatedTick); if (!status.IsSuccess()) return status;
+            if (validatedTick != tick || validation.Position != length) return DeterministicStatus.ProtocolConflict;
             status = registry.TryReadCanonical(ref reader, out long decodedTick);
             return status.IsSuccess() && (decodedTick != tick || reader.Position != length) ? DeterministicStatus.ProtocolConflict : status;
         }

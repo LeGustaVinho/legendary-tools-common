@@ -215,5 +215,24 @@ namespace LegendaryTools.Deterministic.Tests
                 Assert.AreEqual(5, machine.Sum); Assert.AreEqual(1, machine.Count); Assert.AreEqual(2, node.CurrentTerm);
             }
         }
+        [Test]
+        public void StaleSnapshotForAnAlreadyCompactedPrefixIsAcknowledgedWithoutReinstallingState()
+        {
+            using (var cluster = new Cluster(3))
+            {
+                cluster.Propose(37); int leader = cluster.Leader(), follower = (leader + 1) % 3;
+                cluster.Nodes[follower].TryCompact().ThrowIfFailure(); ulong snapshot = cluster.Nodes[follower].SnapshotIndex;
+                byte* body = stackalloc byte[37]; var writer = new DeterministicWriter(body, 37);
+                writer.TryUInt(cluster.Nodes[leader].CurrentTerm, 8); writer.TryUInt(1, 8); writer.TryUInt(1, 8);
+                writer.TryUInt(40, 4); writer.TryUInt(0, 4); writer.TryUInt(1, 4); writer.TryUInt(0xff, 1);
+                byte* packet = stackalloc byte[256]; var envelope = new DeterministicWriter(packet, 256);
+                var header = new DeterministicMessageHeader(new DeterministicSessionId(1), 99, cluster.Transports[leader].LocalPeer,
+                    cluster.Transports[follower].LocalPeer, 9001, 5);
+                DeterministicSessionProtocol.TryWrite(ref envelope, header, new ReadOnlySpan<byte>(body, writer.Position)).ThrowIfFailure();
+                cluster.Transports[leader].TrySend(cluster.Transports[follower].LocalPeer, new ReadOnlySpan<byte>(packet, envelope.Position)).ThrowIfFailure(); cluster.Pump(20);
+                Assert.IsFalse(cluster.Nodes[follower].IsFaulted); Assert.AreEqual(snapshot, cluster.Nodes[follower].SnapshotIndex);
+                Assert.AreEqual(37, cluster.Machines[follower].Sum); Assert.AreEqual(0, cluster.Machines[follower].InstallAttempts);
+            }
+        }
     }
 }
