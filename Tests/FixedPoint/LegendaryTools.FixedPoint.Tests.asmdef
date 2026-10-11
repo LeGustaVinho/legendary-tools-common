@@ -1,0 +1,14 @@
+{
+    "name": "LegendaryTools.FixedPoint.Tests",
+    "rootNamespace": "LegendaryTools.FixedPoint.Tests",
+    "references": ["LegendaryTools.FixedPoint", "LegendaryTools.FixedPoint.Unity", "Unity.Burst", "Unity.Collections", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": ["nunit.framework.dll"],
+    "autoReferenced": false,
+    "defineConstraints": ["UNITY_INCLUDE_TESTS"],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

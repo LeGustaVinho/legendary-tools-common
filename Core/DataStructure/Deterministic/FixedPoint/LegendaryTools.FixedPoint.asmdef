@@ -1,0 +1,14 @@
+{
+    "name": "LegendaryTools.FixedPoint",
+    "rootNamespace": "LegendaryTools.FixedPoint",
+    "references": ["Unity.Burst"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

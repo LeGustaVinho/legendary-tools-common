@@ -1,0 +1,7 @@
+{
+  "name": "LegendaryTools.FixedPoint.Editor",
+  "references": [],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true,
+  "noEngineReferences": false
+}
