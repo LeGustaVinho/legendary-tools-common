@@ -16,14 +16,14 @@ namespace LegendaryTools.FixedPoint
             return FromDecimalDigits(magnitude, negative, -decimals, kind, state, out status);
         }
 
-        internal static ulong FromDecimalDigits(BigInteger digits, bool negative, long exponent,
+        internal static ulong FromDecimalDigits(BigInteger digits, bool negative, BigInteger exponent,
             FixedKind kind, FixedRuntimeState state, out FixedStatus status)
         {
             var f = new FixedFormat(kind, state);
             status = state.IsInitialized ? FixedStatus.None : FixedStatus.Uninitialized;
             if (!state.IsInitialized) return f.NaN;
             if (digits.IsZero) return f.Finite(0, negative);
-            long power = exponent + f.DecimalPlaces;
+            BigInteger power = exponent + f.DecimalPlaces;
             if (power > 40)
             {
                 ulong residue = (ulong)(digits % f.FiniteCount);
@@ -97,104 +97,131 @@ namespace LegendaryTools.FixedPoint
             raw = f.NaN;
             status = state.IsInitialized ? FixedStatus.InvalidEncoding : FixedStatus.Uninitialized;
             if ((styles & ~NumberStyles.Any) != 0) throw new ArgumentException("Hexadecimal and binary styles are not supported.", nameof(styles));
-            if (!state.IsInitialized || text == null || text.Length == 0) return false;
+            if (!state.IsInitialized || string.IsNullOrEmpty(text)) return false;
             NumberFormatInfo nfi = NumberFormatInfo.GetInstance(provider ?? CultureInfo.InvariantCulture);
-            string value = text;
-            if ((styles & NumberStyles.AllowLeadingWhite) != 0) value = value.TrimStart();
-            if ((styles & NumberStyles.AllowTrailingWhite) != 0) value = value.TrimEnd();
-            if (value.Length == 0 || char.IsWhiteSpace(value[0]) || char.IsWhiteSpace(value[value.Length - 1])) return false;
-            if (string.Equals(value, nfi.NaNSymbol, StringComparison.OrdinalIgnoreCase)) { raw = f.NaN; status = FixedStatus.None; return true; }
-            if (string.Equals(value, nfi.PositiveInfinitySymbol, StringComparison.OrdinalIgnoreCase)) { raw = f.PositiveInfinity; status = FixedStatus.None; return true; }
-            if (string.Equals(value, nfi.NegativeInfinitySymbol, StringComparison.OrdinalIgnoreCase)) { raw = f.NegativeInfinity; status = FixedStatus.None; return true; }
+            if (TryDecimalText(text, styles, nfi, out BigInteger digits, out bool negative, out BigInteger exponent))
+            {
+                raw = FromDecimalDigits(digits, negative, exponent, kind, state, out status);
+                return status.IsSuccess();
+            }
+            // Floating special names have their own grammar, including Unicode padding,
+            // signed NaN and leading signs even when finite-number signs are disabled.
+            if (!TrySpecial(text.Trim(), nfi, f, out raw)) return false;
+            status = FixedStatus.None; return true;
+        }
 
-            bool negative = false, hasSign = false;
-            if (value[0] == '(' && value[value.Length - 1] == ')' && (styles & NumberStyles.AllowParentheses) != 0)
-            { negative = true; hasSign = true; value = value.Substring(1, value.Length - 2).Trim(); }
-            bool currency = false;
-            if ((styles & NumberStyles.AllowCurrencySymbol) != 0 && !string.IsNullOrEmpty(nfi.CurrencySymbol))
+        private static bool TryDecimalText(string text, NumberStyles styles, NumberFormatInfo nfi,
+            out BigInteger digits, out bool negative, out BigInteger exponent)
+        {
+            digits = exponent = BigInteger.Zero; negative = false;
+            int position = 0; bool signSeen = false, parentheses = false, currencySeen = false;
+            bool currency = (styles & NumberStyles.AllowCurrencySymbol) != 0;
+            // Consume prefixes in their original order: removing a currency symbol first
+            // would incorrectly admit "- CUR12" and reject "CUR(12)".
+            while (position < text.Length)
             {
-                int first = value.IndexOf(nfi.CurrencySymbol, StringComparison.Ordinal);
-                if (first >= 0)
-                {
-                    if (value.IndexOf(nfi.CurrencySymbol, first + nfi.CurrencySymbol.Length, StringComparison.Ordinal) >= 0) return false;
-                    if (!IsCurrencyMargin(value.Substring(0, first), nfi) &&
-                        !IsCurrencyMargin(value.Substring(first + nfi.CurrencySymbol.Length), nfi)) return false;
-                    value = value.Remove(first, nfi.CurrencySymbol.Length).Trim();
-                    currency = true;
-                }
+                if (IsNumberWhite(text[position]) && (styles & NumberStyles.AllowLeadingWhite) != 0 &&
+                    (!signSeen || currencySeen || nfi.NumberNegativePattern == 2)) { position++; continue; }
+                if (!signSeen && (styles & NumberStyles.AllowLeadingSign) != 0 && TrySign(text, ref position, nfi, out bool sign))
+                { signSeen = true; negative = sign; continue; }
+                if (!signSeen && text[position] == '(' && (styles & NumberStyles.AllowParentheses) != 0)
+                { signSeen = parentheses = negative = true; position++; continue; }
+                if (currency && !currencySeen && MatchToken(text, ref position, nfi.CurrencySymbol))
+                { currencySeen = true; continue; }
+                break;
             }
-            if ((styles & NumberStyles.AllowLeadingSign) != 0 && !hasSign)
-            {
-                if (TakePrefix(ref value, nfi.NegativeSign)) { negative = true; hasSign = true; }
-                else if (TakePrefix(ref value, nfi.PositiveSign)) hasSign = true;
-            }
-            if ((styles & NumberStyles.AllowTrailingSign) != 0 && !hasSign)
-            {
-                if (TakeSuffix(ref value, nfi.NegativeSign)) { negative = true; hasSign = true; }
-                else if (TakeSuffix(ref value, nfi.PositiveSign)) hasSign = true;
-            }
-            if (value.Length == 0) return false;
-            if (string.Equals(value, nfi.PositiveInfinitySymbol, StringComparison.OrdinalIgnoreCase))
-            { raw = f.Infinity(negative); status = FixedStatus.None; return true; }
-            long exponent = 0;
-            int e = value.IndexOfAny(new[] { 'e', 'E' });
-            if (e >= 0)
-            {
-                if ((styles & NumberStyles.AllowExponent) == 0 || e == 0 || e == value.Length - 1) return false;
-                string exp = value.Substring(e + 1);
-                bool expNegative = TakePrefix(ref exp, nfi.NegativeSign);
-                if (!expNegative) TakePrefix(ref exp, nfi.PositiveSign);
-                if (exp.Length == 0) return false;
-                foreach (char c in exp)
-                {
-                    if (c < '0' || c > '9') return false;
-                    exponent = Math.Min(1000000000L, exponent * 10 + c - '0');
-                }
-                if (expNegative) exponent = -exponent;
-                value = value.Substring(0, e);
-            }
+
+            bool decimalSeen = false, digitSeen = false; int fractionDigits = 0;
+            var mantissa = new System.Text.StringBuilder();
             string decimalSeparator = currency ? nfi.CurrencyDecimalSeparator : nfi.NumberDecimalSeparator;
             string groupSeparator = currency ? nfi.CurrencyGroupSeparator : nfi.NumberGroupSeparator;
-            int dot = string.IsNullOrEmpty(decimalSeparator) ? -1 : value.IndexOf(decimalSeparator, StringComparison.Ordinal);
-            int fractionLength = 0;
-            string integerPart = value, fractionPart = "";
-            if (dot >= 0)
+            while (position < text.Length)
             {
-                if ((styles & NumberStyles.AllowDecimalPoint) == 0 ||
-                    value.IndexOf(decimalSeparator, dot + decimalSeparator.Length, StringComparison.Ordinal) >= 0) return false;
-                integerPart = value.Substring(0, dot);
-                fractionPart = value.Substring(dot + decimalSeparator.Length);
-                fractionLength = fractionPart.Length;
+                char ch = text[position];
+                if (ch >= '0' && ch <= '9')
+                { mantissa.Append(ch); digitSeen = true; position++; if (decimalSeen) fractionDigits++; continue; }
+                if (!decimalSeen && (styles & NumberStyles.AllowDecimalPoint) != 0 &&
+                    (MatchToken(text, ref position, decimalSeparator) ||
+                    currency && !currencySeen && MatchToken(text, ref position, nfi.NumberDecimalSeparator)))
+                { decimalSeen = true; continue; }
+                if (digitSeen && !decimalSeen && (styles & NumberStyles.AllowThousands) != 0 &&
+                    (MatchToken(text, ref position, groupSeparator) ||
+                    currency && !currencySeen && MatchToken(text, ref position, nfi.NumberGroupSeparator))) continue;
+                break;
             }
-            if ((styles & NumberStyles.AllowThousands) != 0 && !string.IsNullOrEmpty(groupSeparator))
+            if (!digitSeen) return false;
+            if (position < text.Length && (text[position] == 'e' || text[position] == 'E') && (styles & NumberStyles.AllowExponent) != 0)
             {
-                if (integerPart.StartsWith(groupSeparator, StringComparison.Ordinal)) return false;
-                integerPart = integerPart.Replace(groupSeparator, "");
+                int exponentStart = position++;
+                TrySign(text, ref position, nfi, out bool exponentNegative);
+                int firstDigit = position;
+                while (position < text.Length && text[position] >= '0' && text[position] <= '9')
+                { exponent = exponent * 10 + text[position] - '0'; position++; }
+                if (position == firstDigit) position = exponentStart;
+                else if (exponentNegative) exponent = -exponent;
             }
-            string digits = integerPart + fractionPart;
-            if (digits.Length == 0) return false;
-            foreach (char c in digits) if (c < '0' || c > '9') return false;
-            if (!BigInteger.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out BigInteger magnitude)) return false;
-            raw = FromDecimalDigits(magnitude, negative, exponent - fractionLength, kind, state, out status);
-            return status.IsSuccess();
+            while (position < text.Length)
+            {
+                if (IsNumberWhite(text[position]) && (styles & NumberStyles.AllowTrailingWhite) != 0) { position++; continue; }
+                if (!signSeen && (styles & NumberStyles.AllowTrailingSign) != 0 && TrySign(text, ref position, nfi, out bool sign))
+                { signSeen = true; negative = sign; continue; }
+                if (parentheses && text[position] == ')') { parentheses = false; position++; continue; }
+                if (currency && !currencySeen && MatchToken(text, ref position, nfi.CurrencySymbol))
+                { currencySeen = true; continue; }
+                break;
+            }
+            // Number parsing accepts terminal NULs, but embedded NULs are never ignored.
+            while (position < text.Length && text[position] == '\0') position++;
+            if (parentheses || position != text.Length) return false;
+            exponent -= fractionDigits;
+            return BigInteger.TryParse(mantissa.ToString(), NumberStyles.None, CultureInfo.InvariantCulture, out digits);
         }
 
-        private static bool IsCurrencyMargin(string value, NumberFormatInfo nfi)
+        private static bool MatchToken(string text, ref int position, string token)
         {
-            value = value.Trim();
-            return value.Length == 0 || value == nfi.NegativeSign || value == nfi.PositiveSign;
+            if (string.IsNullOrEmpty(token) || token.Length > text.Length - position) return false;
+            for (int i = 0; i < token.Length; i++)
+            {
+                char expected = token[i], actual = text[position + i];
+                // .NET permits ordinary space for a locale's nonbreaking grouping/currency space.
+                if (actual != expected && !(actual == ' ' && (expected == '\u00a0' || expected == '\u202f'))) return false;
+            }
+            position += token.Length; return true;
+        }
+        private static bool TrySign(string text, ref int position, NumberFormatInfo nfi, out bool negative)
+        {
+            negative = false;
+            if (MatchToken(text, ref position, nfi.PositiveSign)) return true;
+            if (MatchToken(text, ref position, nfi.NegativeSign)) { negative = true; return true; }
+            // Cultures with one of these minus signs also accept the ASCII hyphen.
+            if (position < text.Length && text[position] == '-' && nfi.NegativeSign.Length == 1 &&
+                "\u2012\u207b\u208b\u2212\u2796\ufe63\uff0d".IndexOf(nfi.NegativeSign[0]) >= 0)
+            { position++; negative = true; return true; }
+            return false;
+        }
+        private static bool IsNumberWhite(char value) => value == ' ' || value >= '\t' && value <= '\r';
+
+        private static bool TrySpecial(string value, NumberFormatInfo nfi, FixedFormat f, out ulong raw)
+        {
+            raw = f.NaN;
+            if (string.Equals(value, nfi.PositiveInfinitySymbol, StringComparison.OrdinalIgnoreCase))
+            { raw = f.PositiveInfinity; return true; }
+            if (string.Equals(value, nfi.NegativeInfinitySymbol, StringComparison.OrdinalIgnoreCase))
+            { raw = f.NegativeInfinity; return true; }
+            if (string.Equals(value, nfi.NaNSymbol, StringComparison.OrdinalIgnoreCase)) return true;
+            // Special-token signs are case-insensitive and have a different grammar
+            // from finite numbers. Negative infinity must match its complete symbol.
+            if (value.StartsWith(nfi.PositiveSign, StringComparison.OrdinalIgnoreCase))
+            {
+                string unsigned = value.Substring(nfi.PositiveSign.Length);
+                if (string.Equals(unsigned, nfi.PositiveInfinitySymbol, StringComparison.OrdinalIgnoreCase))
+                { raw = f.PositiveInfinity; return true; }
+                return string.Equals(unsigned, nfi.NaNSymbol, StringComparison.OrdinalIgnoreCase);
+            }
+            return value.StartsWith(nfi.NegativeSign, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(value.Substring(nfi.NegativeSign.Length), nfi.NaNSymbol, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool TakePrefix(ref string value, string prefix)
-        {
-            if (string.IsNullOrEmpty(prefix) || !value.StartsWith(prefix, StringComparison.Ordinal)) return false;
-            value = value.Substring(prefix.Length); return true;
-        }
-        private static bool TakeSuffix(ref string value, string suffix)
-        {
-            if (string.IsNullOrEmpty(suffix) || !value.EndsWith(suffix, StringComparison.Ordinal)) return false;
-            value = value.Substring(0, value.Length - suffix.Length); return true;
-        }
 
         internal static ulong Parse(string text, NumberStyles styles, IFormatProvider provider, FixedKind kind, FixedRuntimeState state)
         {

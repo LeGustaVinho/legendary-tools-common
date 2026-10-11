@@ -1,0 +1,7 @@
+{
+  "name": "LegendaryTools.Deterministic.Samples",
+  "rootNamespace": "LegendaryTools.Deterministic.Samples",
+  "references": ["LegendaryTools.Deterministic.Collections", "LegendaryTools.Deterministic.Collections.Managed", "LegendaryTools.Deterministic.Collections.Native", "LegendaryTools.Deterministic.Runtime", "Unity.Burst", "Unity.Collections"],
+  "allowUnsafeCode": true,
+  "noEngineReferences": false
+}

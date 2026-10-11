@@ -2,6 +2,10 @@
 
 `LegendaryTools.FixedPoint` representa `RawValue / 10^p` com uma escala decimal por família. Os quatro tipos são `readonly struct`, sem referências, com um único campo inteiro. A configuração pertence ao runtime e ao perfil negociado de rede.
 
+Vetores de componentes `Fixed64`: [FixedVector2/FixedVector3, Burst, rede e Inspector](VECTORS.md), com [evidência de validação vetorial](VECTORS_VALIDATION.md).
+
+[FixedRandom](Random/README.md) oferece geração determinística com esses quatro tipos, amostras espaciais, loot por pesos, jobs Burst, snapshots de 24 bytes e checkpoints compactos para rede/replay.
+
 ## Começar
 
 ```csharp
@@ -22,6 +26,8 @@ bool ok = Fixed32.TryDivide(distancia, Fixed32.Zero,
 ```
 
 Para escrever um literal decimal exato, use `FromDecimal(1.234m)`, `FromRatio(1234, 1000)` ou `Parse("1.234")`. `FromRaw(1234)` já está na escala configurada. `FromSingle` e `FromDouble` quantizam o valor binário efetivamente recebido; um literal `1.234f` pode estar acima ou abaixo do decimal escrito.
+
+`Parse`/`TryParse` aceitam cultura e `NumberStyles`. Sinais, moeda e separadores respeitam os estilos escolhidos; nomes NaN/Infinity têm regras explícitas para conservar o comportamento entre .NET, Mono e IL2CPP. Texto vazio e `null` são inválidos. Os casos comuns, limites e símbolos personalizados estão documentados em [EDGE_CASE_VALIDATION.md](EDGE_CASE_VALIDATION.md).
 
 ```csharp
 FixedRuntime.Initialize(new FixedSettings(

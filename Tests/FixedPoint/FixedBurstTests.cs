@@ -56,7 +56,8 @@ namespace LegendaryTools.FixedPoint.Tests
         public void NativeBurstCompilationMatchesManagedRawBitsAndStatuses()
         {
             Assert.IsTrue(BurstCompiler.IsEnabled, "Enable Burst for this native parity validation.");
-            const int count = 4 * 4 * 25;
+            const int operations = (int)FixedUnary.ReciprocalSqrt + 1;
+            const int count = 4 * 4 * operations;
             using (var samples = new NativeArray<Sample>(count, Allocator.TempJob))
             using (var managed = new NativeArray<Result>(count, Allocator.TempJob))
             using (var native = new NativeArray<Result>(count, Allocator.TempJob))
@@ -64,8 +65,8 @@ namespace LegendaryTools.FixedPoint.Tests
                 NativeArray<Sample> writableSamples = samples;
                 for (int i = 0; i < count; i++)
                 {
-                    FixedKind kind = (FixedKind)(i / 100);
-                    int p = (i / 25 % 4) * 3; if (p == 9 && kind >= FixedKind.Signed64) p = 18;
+                    FixedKind kind = (FixedKind)(i / (4 * operations));
+                    int p = (i / operations % 4) * 3; if (p == 9 && kind >= FixedKind.Signed64) p = 18;
                     var settings = new FixedSettings(p > 9 ? 9 : p, p, rounding: (FixedRounding)(i % 5),
                         mathProfile: (i & 1) == 0 ? FixedMathProfile.Accurate : FixedMathProfile.Fast,
                         arithmeticMode: (i & 2) == 0 ? FixedArithmeticMode.Portable : FixedArithmeticMode.Intrinsic);
@@ -74,7 +75,7 @@ namespace LegendaryTools.FixedPoint.Tests
                     ulong raw = i % 9 == 0 ? f.NaN : i % 9 == 1 ? f.NegativeZero : i % 9 == 2 ? f.PositiveInfinity :
                         i % 9 == 3 ? f.NegativeInfinity : i % 9 == 4 ? f.MaxPositive : i % 9 == 5 ? f.MinValue : i % 9 == 6 ? 1 :
                         f.Finite(f.Scale, !f.Unsigned && (i & 1) != 0);
-                    writableSamples[i] = new Sample { Kind = kind, Settings = settings, Unary = (FixedUnary)(i % 25), A = raw, B = f.Scale, C = 1 };
+                    writableSamples[i] = new Sample { Kind = kind, Settings = settings, Unary = (FixedUnary)(i % operations), A = raw, B = f.Scale, C = 1 };
                 }
                 new ParityJob { Samples = samples, Results = managed }.Execute();
                 new ParityJob { Samples = samples, Results = native }.Schedule().Complete();
@@ -100,16 +101,21 @@ namespace LegendaryTools.FixedPoint.Tests
                 Result[1] = FixedMath.Sqrt(b * b).RawValue;
                 Result[2] = unchecked((ulong)FixedMath.Sqrt(c * c).RawValue);
                 Result[3] = FixedMath.Sqrt(d * d).RawValue;
+                int managed = 0; MarkManaged(ref managed); Result[4] = (ulong)managed;
             }
+            [BurstDiscard] private static void MarkManaged(ref int flag) => flag = 1;
         }
 
         [Test]
         public void PublicFacadeAndSharedRuntimeCompileInBurst()
         {
             FixedRuntime.Initialize();
-            using (var values = new NativeArray<ulong>(4, Allocator.TempJob))
+            using (var managed = new NativeArray<ulong>(5, Allocator.TempJob))
+            using (var values = new NativeArray<ulong>(5, Allocator.TempJob))
             {
+                new PublicApiJob { Result = managed }.Execute();
                 new PublicApiJob { Result = values }.Schedule().Complete();
+                Assert.AreEqual(1UL, managed[4]); Assert.AreEqual(0UL, values[4], "Public facade job fell back to managed.");
                 for (int i = 0; i < 4; i++) Assert.AreEqual(2000UL, values[i]);
             }
         }

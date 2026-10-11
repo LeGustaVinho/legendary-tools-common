@@ -1,0 +1,6 @@
+{
+  "name": "LegendaryTools.FixedPoint.Tests.Fixtures",
+  "references": ["LegendaryTools.FixedPoint", "LegendaryTools.FixedPoint.Unity"],
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "LegendaryTools.Deterministic.Runtime.Tests",
+  "rootNamespace": "LegendaryTools.Deterministic.Tests",
+  "references": ["LegendaryTools.Deterministic.Collections", "LegendaryTools.Deterministic.Collections.Managed", "LegendaryTools.Deterministic.Runtime", "LegendaryTools.Deterministic.Runtime.Managed", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
+  "includePlatforms": ["Editor"],
+  "allowUnsafeCode": true,
+  "overrideReferences": true,
+  "precompiledReferences": ["nunit.framework.dll"],
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}

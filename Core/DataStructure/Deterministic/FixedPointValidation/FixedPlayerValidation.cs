@@ -13,9 +13,14 @@ namespace LegendaryTools.FixedPoint
         [Serializable] private class Report
         {
             public bool Passed, PublicApiPassed;
-            public int Cases, NativeCases;
+            public bool VectorPublicApiPassed;
+            public int Cases, NativeCases, ReplayCases, NativeReplayCases, ReplayVersion;
+            public int VectorCases, NativeVectorCases, VectorReplayVersion;
+            public int NativeVectorSequenceTicks;
             public string Platform, Error;
-            public ulong Checksum;
+            public ulong Checksum, ReplayChecksum, ReplayInputChecksum;
+            public ulong VectorChecksum;
+            public ulong VectorInputChecksum;
         }
         private struct Sample
         { internal FixedKind Kind; internal FixedSettings Settings; internal FixedUnary Operation; internal ulong Raw; }
@@ -67,6 +72,22 @@ namespace LegendaryTools.FixedPoint
             [BurstDiscard] private static void MarkManaged(ref int flag) => flag = 1;
         }
 
+        [BurstCompile(CompileSynchronously = true)]
+        private struct ReplayJob : IJob
+        {
+            [ReadOnly] internal NativeArray<FixedReplayCorpus.Sample> Samples;
+            internal NativeArray<FixedReplayCorpus.Result> Results;
+            public void Execute()
+            {
+                for (int i = 0; i < Samples.Length; i++)
+                {
+                    var result = FixedReplayCorpus.Evaluate(Samples[i]);
+                    MarkManaged(ref result.Managed); Results[i] = result;
+                }
+            }
+            [BurstDiscard] private static void MarkManaged(ref int flag) => flag = 1;
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Run()
         {
@@ -82,35 +103,39 @@ namespace LegendaryTools.FixedPoint
                 FixedRuntime.Initialize();
                 ValidatePublicApi(report);
                 string[] lines = FixedPlayerReference.Vectors.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                using (var samples = new NativeArray<Sample>(lines.Length, Allocator.Persistent))
-                using (var managed = new NativeArray<Result>(lines.Length, Allocator.Persistent))
-                using (var native = new NativeArray<Result>(lines.Length, Allocator.Persistent))
+                int referenceCases = lines.Length * 2;
+                using (var samples = new NativeArray<Sample>(referenceCases, Allocator.Persistent))
+                using (var managed = new NativeArray<Result>(referenceCases, Allocator.Persistent))
+                using (var native = new NativeArray<Result>(referenceCases, Allocator.Persistent))
                 {
                     NativeArray<Sample> writable = samples;
-                    for (int i = 0; i < lines.Length; i++)
+                    for (int i = 0; i < referenceCases; i++)
                     {
-                        string[] fields = lines[i].Split(','); int p = int.Parse(fields[1]);
-                        writable[i] = new Sample { Kind = (FixedKind)int.Parse(fields[0]), Settings = new FixedSettings(Math.Min(p, 9), p),
+                        string[] fields = lines[i % lines.Length].Split(','); int p = int.Parse(fields[1]);
+                        writable[i] = new Sample { Kind = (FixedKind)int.Parse(fields[0]), Settings = new FixedSettings(Math.Min(p, 9), p,
+                            mathProfile: (FixedMathProfile)(i / lines.Length)),
                             Operation = (FixedUnary)Enum.Parse(typeof(FixedUnary), fields[2]), Raw = ulong.Parse(fields[3]) };
                     }
                     new ValidationJob { Samples = samples, Results = managed }.Execute();
                     new ValidationJob { Samples = samples, Results = native }.Schedule().Complete();
-                    for (int i = 0; i < lines.Length; i++)
+                    for (int i = 0; i < referenceCases; i++)
                     {
+                        string line = lines[i % lines.Length];
                         Result m = managed[i], n = native[i];
                         Require(m.Managed == 1 && n.Managed == 0, "Burst did not execute native code."); m.Managed = 0;
-                        Require(m.Equals(n), "Managed/Burst mismatch: " + lines[i]);
+                        Require(m.Equals(n), "Managed/Burst mismatch: " + line);
                         Sample sample = samples[i]; var state = new FixedRuntimeState(sample.Settings); var f = new FixedFormat(sample.Kind, state);
-                        string[] fields = lines[i].Split(','); ulong expected = ulong.Parse(fields[4]);
+                        string[] fields = line.Split(','); ulong expected = ulong.Parse(fields[4]);
+                        Require((n.Status & ~FixedStatus.Inexact) == (FixedStatus)uint.Parse(fields[5]), "Reference status: " + line);
                         FixedDecoded e = f.Decode(expected), a = f.Decode(n.Raw);
                         if (e.IsFinite && a.IsFinite)
                         {
                             ulong difference = e.Negative == a.Negative ? e.Magnitude > a.Magnitude ? e.Magnitude - a.Magnitude : a.Magnitude - e.Magnitude :
                                 FixedUInt128.Add(new FixedUInt128(e.Magnitude), new FixedUInt128(a.Magnitude), out _).Lo;
-                            Require(difference <= 1, "Accurate error bound: " + lines[i]);
+                            Require(difference <= (sample.Settings.MathProfile == FixedMathProfile.Accurate ? 1UL : 4UL), "Math error bound: " + line);
                         }
-                        else Require(expected == n.Raw, "Special value mismatch: " + lines[i]);
-                        Require(n.RoundTrip == sample.Raw && n.WriteStatus.IsSuccess() && n.ReadStatus.IsSuccess(), "Wire mismatch: " + lines[i]);
+                        else Require(expected == n.Raw, "Special value mismatch: " + line);
+                        Require(n.RoundTrip == sample.Raw && n.WriteStatus.IsSuccess() && n.ReadStatus.IsSuccess(), "Wire mismatch: " + line);
                         report.Cases++; report.NativeCases++;
                         report.Checksum = Mix(report.Checksum, n.Raw);
                         report.Checksum = Mix(report.Checksum, (uint)n.Status);
@@ -121,6 +146,14 @@ namespace LegendaryTools.FixedPoint
                         report.Checksum = Mix(report.Checksum, (uint)n.ReadStatus);
                     }
                 }
+                ValidateReplay(report, arguments);
+                string vectorTracePath = null;
+                foreach (string argument in arguments)
+                    if (argument.StartsWith("--fixed-vector-replay-trace=", StringComparison.Ordinal)) vectorTracePath = argument.Substring(28);
+                FixedVectorPlayerValidation.Run(out report.VectorCases, out report.NativeVectorCases, out report.VectorChecksum,
+                    out report.VectorInputChecksum, out report.NativeVectorSequenceTicks, vectorTracePath);
+                report.VectorPublicApiPassed = true;
+                report.VectorReplayVersion = FixedVectorReplayCorpus.Version;
                 report.Passed = true;
             }
             catch (Exception exception) { report.Error = exception.ToString(); }
@@ -129,6 +162,54 @@ namespace LegendaryTools.FixedPoint
             Debug.Log(JsonUtility.ToJson(report));
             Application.Quit(report.Passed ? 0 : 1);
         }
+        private static void ValidateReplay(Report report, string[] arguments)
+        {
+            using (var samples = new NativeArray<FixedReplayCorpus.Sample>(FixedReplayCorpus.Count, Allocator.Persistent))
+            using (var managed = new NativeArray<FixedReplayCorpus.Result>(FixedReplayCorpus.Count, Allocator.Persistent))
+            using (var native = new NativeArray<FixedReplayCorpus.Result>(FixedReplayCorpus.Count, Allocator.Persistent))
+            {
+                var writable = samples;
+                report.ReplayInputChecksum = 14695981039346656037UL;
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    var sample = FixedReplayCorpus.Create(i, (FixedArithmeticMode)(i % 3)); writable[i] = sample;
+                    report.ReplayInputChecksum = FixedReplayCorpus.DigestInput(sample, report.ReplayInputChecksum);
+                }
+                new ReplayJob { Samples = samples, Results = managed }.Execute();
+                new ReplayJob { Samples = samples, Results = native }.Schedule().Complete();
+                const string tracePrefix = "--fixed-point-replay-trace=";
+                foreach (string argument in arguments)
+                    if (argument.StartsWith(tracePrefix, StringComparison.Ordinal)) WriteReplayTrace(argument.Substring(tracePrefix.Length), samples, native);
+                Require(report.ReplayInputChecksum == FixedReplayCorpus.ExpectedInputChecksum, "Replay input generation differs across runtimes.");
+                report.ReplayVersion = FixedReplayCorpus.Version; report.ReplayChecksum = 14695981039346656037UL;
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    var a = managed[i]; var b = native[i];
+                    Require(a.Managed == 1 && b.Managed == 0, "Replay job did not execute native code: " + i);
+                    Require(a.Same(ref b), "Replay Managed/Burst field mismatch: " + i);
+                    report.ReplayChecksum = b.Digest(report.ReplayChecksum);
+                    report.Checksum = b.Digest(report.Checksum);
+                    report.Cases++; report.NativeCases++; report.ReplayCases++; report.NativeReplayCases++;
+                }
+                Require(report.ReplayChecksum == FixedReplayCorpus.ExpectedChecksum, "Versioned replay checksum differs across runtimes.");
+            }
+        }
+
+        private static void WriteReplayTrace(string path, NativeArray<FixedReplayCorpus.Sample> samples,
+            NativeArray<FixedReplayCorpus.Result> results)
+        {
+            using (var writer = new StreamWriter(path))
+            {
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    var sample = samples[i]; var result = results[i];
+                    writer.Write(i + "," + sample.A + "," + sample.B + "," + sample.C + "," + sample.InputDouble + "," + sample.InputSingle);
+                    for (int field = 0; field < result.Count; field++) writer.Write("," + result.ValueAt(field));
+                    writer.WriteLine();
+                }
+            }
+        }
+
         private static void ValidatePublicApi(Report report)
         {
             using (var managed = new NativeArray<ulong>(8, Allocator.TempJob))

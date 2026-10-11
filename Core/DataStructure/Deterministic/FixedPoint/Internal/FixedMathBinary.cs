@@ -21,7 +21,7 @@ namespace LegendaryTools.FixedPoint
             var f = new FixedFormat(kind, state); status = state.IsInitialized ? FixedStatus.None : FixedStatus.Uninitialized;
             if (!state.IsInitialized) return f.NaN;
             FixedDecoded x = f.Decode(raw), b = f.Decode(baseBits);
-            if (x.IsNaN || b.IsNaN || x.Negative && !x.IsZero || b.Negative || b.IsFinite && b.Magnitude == f.Scale ||
+            if (x.IsNaN || b.IsNaN || x.Negative && !x.IsZero || b.Negative && !b.IsZero || b.IsFinite && b.Magnitude == f.Scale ||
                 (b.IsZero || !b.IsFinite) && (!x.IsFinite || x.Magnitude != f.Scale))
             { status |= FixedStatus.InvalidDomain; return f.NaN; }
             if (x.IsFinite && x.Magnitude == f.Scale) return f.Finite(0, b.IsZero || b.IsFinite && b.Magnitude < f.Scale);
@@ -69,21 +69,7 @@ namespace LegendaryTools.FixedPoint
             if (x.Negative && !integer) { status |= FixedStatus.InvalidDomain; return f.NaN; }
             int p = Precision(state);
             FixedQ exponent = FixedQ.Multiply(Log(FixedQ.From(x.Magnitude, false, f.Scale, p), p), FixedQ.From(y.Magnitude, y.Negative, f.Scale, p), p);
-            if (negative)
-            {
-                if (FixedQ.Compare(exponent.Abs, FixedQ.Integer(176, p)) > 0)
-                {
-                    if (exponent.Negative)
-                    {
-                        status |= FixedStatus.Inexact;
-                        return FixedKernel.Pack(new FixedUInt128(state.Settings.Rounding == FixedRounding.TowardNegativeInfinity ? 1UL : 0UL), true, f, state.Settings, ref status);
-                    }
-                    return TranscendentalOverflow(true, f, state.Settings, ref status);
-                }
-                FixedQ result = Exp(exponent, p); result.Negative = true;
-                return FromQ(result, f, state.Settings, p, ref status);
-            }
-            return ExpToRaw(exponent, f, state.Settings, p, ref status);
+            return ExpToRaw(exponent, f, state.Settings, p, ref status, negative);
         }
 
         internal static ulong FusedMultiplyAdd(ulong aBits, ulong bBits, ulong cBits, FixedKind kind, FixedRuntimeState state, out FixedStatus status)

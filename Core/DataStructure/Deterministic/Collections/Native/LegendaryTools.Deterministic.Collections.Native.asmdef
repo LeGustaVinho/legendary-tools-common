@@ -1,0 +1,8 @@
+{
+  "name": "LegendaryTools.Deterministic.Collections.Native",
+  "rootNamespace": "LegendaryTools.Deterministic",
+  "references": ["LegendaryTools.Deterministic.Collections", "Unity.Collections", "Unity.Burst"],
+  "allowUnsafeCode": true,
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

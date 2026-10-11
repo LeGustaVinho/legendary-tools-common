@@ -150,8 +150,16 @@ namespace LegendaryTools.FixedPoint
                         return FixedKernel.FromInteger(1, x.Negative, kind, state, out status);
                     }
                     if (operation != FixedUnary.Cosh && x.IsZero) return raw;
+                    if (operation == FixedUnary.Tanh) status |= FixedStatus.Inexact;
                     if (operation == FixedUnary.Tanh && FixedQ.Compare(qx.Abs, FixedQ.Integer(96, bits)) > 0)
-                        return FromQ(new FixedQ(one.Magnitude, x.Negative), f, state.Settings, bits, ref status);
+                    {
+                        // Finite tanh approaches one from inside; retain the discarded fraction and its direction.
+                        bool towardZero = state.Settings.Rounding == FixedRounding.TowardZero ||
+                            state.Settings.Rounding == FixedRounding.TowardPositiveInfinity && x.Negative ||
+                            state.Settings.Rounding == FixedRounding.TowardNegativeInfinity && !x.Negative;
+                        return FixedKernel.Pack(new FixedUInt128(f.Scale - (towardZero ? 1UL : 0UL)),
+                            x.Negative, f, state.Settings, ref status);
+                    }
                     if (FixedQ.Compare(qx.Abs, FixedQ.Integer(176, bits)) > 0)
                         return TranscendentalOverflow(operation == FixedUnary.Sinh && x.Negative, f, state.Settings, ref status);
                     FixedQ ep = Exp(qx.Abs, bits), en = FixedQ.Divide(one, ep, bits);
@@ -281,15 +289,23 @@ namespace LegendaryTools.FixedPoint
             return sum.Shifted(k);
         }
 
-        internal static ulong ExpToRaw(FixedQ x, FixedFormat f, FixedSettings settings, int bits, ref FixedStatus status)
+        internal static ulong ExpToRaw(FixedQ x, FixedFormat f, FixedSettings settings, int bits, ref FixedStatus status,
+            bool negativeResult = false)
         {
-            if (FixedQ.Compare(x.Abs, FixedQ.Integer(176, bits)) <= 0) return FromQ(Exp(x, bits), f, settings, bits, ref status);
-            if (x.Negative)
+            bool outsideGuard = FixedQ.Compare(x.Abs, FixedQ.Integer(176, bits)) > 0;
+            if (outsideGuard && !x.Negative)
+                return TranscendentalOverflow(negativeResult, f, settings, ref status);
+            FixedQ result = outsideGuard ? default : Exp(x, bits);
+            if (x.Negative && result.IsZero)
             {
+                // A nonzero exponential may underflow even the guard accumulator, especially in Fast.
                 status |= FixedStatus.Inexact;
-                return settings.Rounding == FixedRounding.TowardPositiveInfinity ? 1UL : 0UL;
+                bool away = settings.Rounding == FixedRounding.TowardPositiveInfinity && !negativeResult ||
+                    settings.Rounding == FixedRounding.TowardNegativeInfinity && negativeResult;
+                return FixedKernel.Pack(new FixedUInt128(away ? 1UL : 0UL), negativeResult, f, settings, ref status);
             }
-            return TranscendentalOverflow(false, f, settings, ref status);
+            result.Negative = negativeResult;
+            return FromQ(result, f, settings, bits, ref status);
         }
 
         internal static ulong TranscendentalOverflow(bool negative, FixedFormat f, FixedSettings settings, ref FixedStatus status)
