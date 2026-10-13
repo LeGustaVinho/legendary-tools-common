@@ -1,0 +1,7 @@
+{
+  "name": "LegendaryTools.Deterministic.Spatial.Editor",
+  "includePlatforms": ["Editor"],
+  "references": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": true
+}

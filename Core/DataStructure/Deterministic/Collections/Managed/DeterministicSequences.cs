@@ -20,6 +20,7 @@ namespace LegendaryTools.Deterministic
         {
             moved = false;
             if (owner == null || owner.Disposed) return DeterministicStatus.Disposed;
+            if (owner.BatchActive) return DeterministicStatus.Invalidated;
             if (revision != owner.Revision) return DeterministicStatus.Invalidated;
             if (index < state.Count) index++;
             if (index >= state.Count) return DeterministicStatus.None;
@@ -56,7 +57,11 @@ namespace LegendaryTools.Deterministic
             get { TryGet(index, out T value).ThrowIfFailure(); return value; }
             set { TrySet(index, value).ThrowIfFailure(); }
         }
-        public DeterministicStatus TryGet(int index, out T value) => SequenceKernel<T, ManagedStorage<T>>.TryGet(ref Storage, state, index, out value);
+        public DeterministicStatus TryGet(int index, out T value)
+        {
+            value = default;
+            return Storage.Owner.BatchActive ? DeterministicStatus.Invalidated : SequenceKernel<T, ManagedStorage<T>>.TryGet(ref Storage, state, index, out value);
+        }
         public DeterministicStatus TrySet(int index, in T value) => SequenceKernel<T, ManagedStorage<T>>.TrySet(ref Storage, state, index, value);
         public DeterministicStatus TryClear()
         {

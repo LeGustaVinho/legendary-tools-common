@@ -36,13 +36,16 @@ namespace LegendaryTools.Deterministic
     {
         private static int Bucket(ulong hash, int capacity) => (int)(hash & (uint)(capacity - 1));
         public static int Find(ref TEntries entries, ref TBuckets buckets, in TKey key, TPolicy policy, out int previous)
+            => FindHashed(ref entries, ref buckets, key, policy, policy.Hash(key), out previous, out _);
+        private static int FindHashed(ref TEntries entries, ref TBuckets buckets, in TKey key, TPolicy policy,
+            ulong hash, out int previous, out OrderedHashEntry<TKey, TValue> found)
         {
-            previous = -1; ulong hash = policy.Hash(key);
+            previous = -1; found = default;
             int encoded = buckets.Read(Bucket(hash, buckets.Capacity));
             while (encoded != 0)
             {
                 int index = encoded - 1; var entry = entries.Read(index);
-                if (entry.Hash == hash && policy.Equals(entry.Key, key)) return index;
+                if (entry.Hash == hash && policy.Equals(entry.Key, key)) { found = entry; return index; }
                 previous = index; encoded = entry.BucketNext;
             }
             return -1;
@@ -52,9 +55,9 @@ namespace LegendaryTools.Deterministic
             value = default;
             if (!entries.IsCreated || !buckets.IsCreated) return DeterministicStatus.Disposed;
             if (!policy.IsValid) return DeterministicStatus.UnsupportedType;
-            int index = Find(ref entries, ref buckets, key, policy, out _);
+            int index = FindHashed(ref entries, ref buckets, key, policy, policy.Hash(key), out _, out var found);
             if (index < 0) return DeterministicStatus.NotFound;
-            value = entries.Read(index).Value; return DeterministicStatus.None;
+            value = found.Value; return DeterministicStatus.None;
         }
 
         public static DeterministicStatus TryPut(ref TEntries entries, ref TBuckets buckets, ref OrderedMapState state,
@@ -62,12 +65,13 @@ namespace LegendaryTools.Deterministic
         {
             if (!entries.IsCreated || !buckets.IsCreated) return DeterministicStatus.Disposed;
             if (!policy.IsValid) return DeterministicStatus.UnsupportedType;
-            int existing = Find(ref entries, ref buckets, key, policy, out _);
+            ulong hash = policy.Hash(key);
+            int existing = FindHashed(ref entries, ref buckets, key, policy, hash, out _, out var replacement);
             if (existing >= 0)
             {
                 if (addOnly) return DeterministicStatus.DuplicateKey;
                 var status = entries.PrepareWrite(entries.Capacity, existing, 1); if (!status.IsSuccess()) return status;
-                var replacement = entries.Read(existing); replacement.Value = value; entries.Write(existing, replacement);
+                replacement.Value = value; entries.Write(existing, replacement);
                 entries.CommitWrite(); return DeterministicStatus.None;
             }
             bool reused = state.FreeHead != 0;
@@ -79,7 +83,7 @@ namespace LegendaryTools.Deterministic
             int bucketCapacity = OrderedHashRules.BucketCapacity(nextCapacity);
             if (bucketCapacity == 0) return DeterministicStatus.InvalidConfiguration;
             bool rehash = bucketCapacity != buckets.Capacity;
-            ulong hash = policy.Hash(key); int bucket = Bucket(hash, bucketCapacity);
+            int bucket = Bucket(hash, bucketCapacity);
             var statusEntry = entries.CanPrepareWrite(required, rehash ? 0 : index, rehash ? required : 1);
             if (!statusEntry.IsSuccess()) return statusEntry;
             var statusBucket = buckets.CanPrepareWrite(bucketCapacity, rehash ? 0 : bucket, rehash ? bucketCapacity : 1);
@@ -132,16 +136,19 @@ namespace LegendaryTools.Deterministic
         {
             if (!entries.IsCreated || !buckets.IsCreated) return DeterministicStatus.Disposed;
             if (!policy.IsValid) return DeterministicStatus.UnsupportedType;
-            int index = Find(ref entries, ref buckets, key, policy, out int previousBucket);
+            int index = FindHashed(ref entries, ref buckets, key, policy, policy.Hash(key), out int previousBucket, out var removed);
             if (index < 0) return DeterministicStatus.NotFound;
-            var removed = entries.Read(index); int bucket = Bucket(removed.Hash, buckets.Capacity);
+            int bucket = Bucket(removed.Hash, buckets.Capacity);
             for (int phase = 0; phase < 2; phase++)
             {
                 bool prepare = phase != 0;
                 var status = ReserveIndex(ref entries, index, prepare); if (!status.IsSuccess()) return status;
                 status = ReserveIndex(ref entries, previousBucket, prepare); if (!status.IsSuccess()) return status;
-                status = ReserveIndex(ref entries, removed.OrderPrevious - 1, prepare); if (!status.IsSuccess()) return status;
-                status = ReserveIndex(ref entries, removed.OrderNext - 1, prepare); if (!status.IsSuccess()) return status;
+                int orderPrevious = removed.OrderPrevious - 1, orderNext = removed.OrderNext - 1;
+                if (orderPrevious != previousBucket)
+                { status = ReserveIndex(ref entries, orderPrevious, prepare); if (!status.IsSuccess()) return status; }
+                if (orderNext != previousBucket)
+                { status = ReserveIndex(ref entries, orderNext, prepare); if (!status.IsSuccess()) return status; }
                 status = prepare ? buckets.PrepareWrite(buckets.Capacity, bucket, 1) : buckets.CanPrepareWrite(buckets.Capacity, bucket, 1);
                 if (!status.IsSuccess()) return status;
             }
@@ -162,13 +169,53 @@ namespace LegendaryTools.Deterministic
         {
             if (!entries.IsCreated || !buckets.IsCreated) return DeterministicStatus.Disposed;
             if (state.Count == 0 && state.Used == 0) return DeterministicStatus.None;
-            var status = entries.CanPrepareWrite(entries.Capacity, 0, state.Used); if (!status.IsSuccess()) return status;
-            status = buckets.CanPrepareWrite(buckets.Capacity, 0, buckets.Capacity); if (!status.IsSuccess()) return status;
-            status = entries.PrepareWrite(entries.Capacity, 0, state.Used); if (!status.IsSuccess()) return status;
-            status = buckets.PrepareWrite(buckets.Capacity, 0, buckets.Capacity); if (!status.IsSuccess()) return status;
-            OrderedHashEntry<TKey, TValue> zeroEntry = default; int zero = 0;
-            for (int i = 0; i < state.Used; i++) entries.Write(i, zeroEntry);
-            for (int i = 0; i < buckets.Capacity; i++) buckets.Write(i, zero);
+            // Removed entries already contain no key/value. Only live links own nonempty buckets.
+            // Keep contiguous preparation for dense maps; avoid copying holes and empty bucket pages.
+            bool denseEntries = state.Count > state.Used / 2;
+            bool denseBuckets = state.Count > 0 && (buckets.Capacity <= 4096 || state.Count >= buckets.Capacity / 4);
+            for (int phase = 0; phase < 2; phase++)
+            {
+                bool prepare = phase != 0;
+                DeterministicStatus status;
+                if (denseEntries)
+                {
+                    status = prepare ? entries.PrepareWrite(entries.Capacity, 0, state.Used) : entries.CanPrepareWrite(entries.Capacity, 0, state.Used);
+                    if (!status.IsSuccess()) return status;
+                }
+                if (denseBuckets)
+                {
+                    status = prepare ? buckets.PrepareWrite(buckets.Capacity, 0, buckets.Capacity) : buckets.CanPrepareWrite(buckets.Capacity, 0, buckets.Capacity);
+                    if (!status.IsSuccess()) return status;
+                }
+                if (denseEntries && denseBuckets) continue;
+                int encoded = state.OrderHead;
+                while (encoded != 0)
+                {
+                    int index = encoded - 1; var entry = entries.Read(index);
+                    if (!denseEntries)
+                    { status = ReserveIndex(ref entries, index, prepare); if (!status.IsSuccess()) return status; }
+                    if (!denseBuckets)
+                    {
+                        int bucket = Bucket(entry.Hash, buckets.Capacity);
+                        status = prepare ? buckets.PrepareWrite(buckets.Capacity, bucket, 1) : buckets.CanPrepareWrite(buckets.Capacity, bucket, 1);
+                        if (!status.IsSuccess()) return status;
+                    }
+                    encoded = entry.OrderNext;
+                }
+            }
+            if (!denseEntries || !denseBuckets)
+            {
+                int encoded = state.OrderHead;
+                while (encoded != 0)
+                {
+                    int index = encoded - 1; var entry = entries.Read(index);
+                    if (!denseBuckets) buckets.Write(Bucket(entry.Hash, buckets.Capacity), 0);
+                    if (!denseEntries) entries.Write(index, default);
+                    encoded = entry.OrderNext;
+                }
+            }
+            if (denseEntries) for (int i = 0; i < state.Used; i++) entries.Write(i, default);
+            if (denseBuckets) for (int i = 0; i < buckets.Capacity; i++) buckets.Write(i, 0);
             state = default; entries.CommitWrite(); buckets.CommitWrite(); return DeterministicStatus.None;
         }
     }

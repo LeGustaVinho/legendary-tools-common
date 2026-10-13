@@ -36,7 +36,7 @@ namespace LegendaryTools.Deterministic
         private DeterministicStatus Put(in TKey key, in TValue value, bool addOnly)
         {
             CheckWrite(); if (!IsCreated) return DeterministicStatus.Disposed;
-            return SortedListKernel<TKey, TValue, TComparer, NativeStorage<SortedEntry<TKey, TValue>>>.TryPut(ref Storage, ref Storage.Data->State, key, value, comparer, addOnly);
+            return SortedListKernel<TKey, TValue, TComparer, NativeStorage<SortedEntry<TKey, TValue>>>.TryPut(ref Storage, ref Storage.Data->State, key, value, comparer, addOnly, default(NativeMovement<SortedEntry<TKey, TValue>>));
         }
         public void Add(TKey key, TValue value) => NativeChecks.Status(TryAdd(key, value));
         public DeterministicStatus TryGet(in TKey key, out TValue value)
@@ -49,7 +49,7 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryRemove(in TKey key)
         {
             CheckWrite(); if (!IsCreated) return DeterministicStatus.Disposed;
-            return SortedListKernel<TKey, TValue, TComparer, NativeStorage<SortedEntry<TKey, TValue>>>.TryRemove(ref Storage, ref Storage.Data->State, key, comparer);
+            return SortedListKernel<TKey, TValue, TComparer, NativeStorage<SortedEntry<TKey, TValue>>>.TryRemove(ref Storage, ref Storage.Data->State, key, comparer, default(NativeMovement<SortedEntry<TKey, TValue>>));
         }
         public bool Remove(TKey key) { var status = TryRemove(key); if (status == DeterministicStatus.NotFound) return false; NativeChecks.Status(status); return status.IsSuccess(); }
         public DeterministicStatus TryClear()
@@ -88,7 +88,7 @@ namespace LegendaryTools.Deterministic
 #endif
             return iterator;
         }
-        public DeterministicStatus TryRemoveAt(int index) { CheckWrite(); if (!IsCreated) return DeterministicStatus.Disposed; return SequenceKernel<SortedEntry<TKey, TValue>, NativeStorage<SortedEntry<TKey, TValue>>>.TryRemoveAt(ref Storage, ref Storage.Data->State, index); }
+        public DeterministicStatus TryRemoveAt(int index) { CheckWrite(); if (!IsCreated) return DeterministicStatus.Disposed; return SequenceKernel<SortedEntry<TKey, TValue>, NativeStorage<SortedEntry<TKey, TValue>>>.TryRemoveAt(ref Storage, ref Storage.Data->State, index, false, default(NativeMovement<SortedEntry<TKey, TValue>>)); }
         public void Dispose()
         {
             if (!IsCreated) return; CheckWrite();

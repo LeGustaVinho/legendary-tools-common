@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 
 namespace LegendaryTools.Deterministic
 {
@@ -10,12 +11,15 @@ namespace LegendaryTools.Deterministic
         public readonly ulong Sequence;
         public DeterministicCommandHeader(ushort phase, uint systemId, StableHandle entity, ulong sequence, uint producerId)
         { Phase = phase; SystemId = systemId; Entity = entity; Sequence = sequence; ProducerId = producerId; }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int CompareTo(DeterministicCommandHeader other)
         {
-            int c = Phase.CompareTo(other.Phase); if (c != 0) return c;
-            c = SystemId.CompareTo(other.SystemId); if (c != 0) return c;
-            c = Entity.CompareTo(other.Entity); if (c != 0) return c;
-            c = Sequence.CompareTo(other.Sequence); return c != 0 ? c : ProducerId.CompareTo(other.ProducerId);
+            int phase = Phase - other.Phase; if (phase != 0) return phase;
+            if (SystemId != other.SystemId) return SystemId < other.SystemId ? -1 : 1;
+            if (Entity.Index != other.Entity.Index) return Entity.Index < other.Entity.Index ? -1 : 1;
+            if (Entity.Generation != other.Entity.Generation) return Entity.Generation < other.Entity.Generation ? -1 : 1;
+            if (Sequence != other.Sequence) return Sequence < other.Sequence ? -1 : 1;
+            return ProducerId == other.ProducerId ? 0 : ProducerId < other.ProducerId ? -1 : 1;
         }
     }
     public readonly struct DeterministicCommand<T> where T : unmanaged
@@ -59,6 +63,8 @@ namespace LegendaryTools.Deterministic
         private readonly IDeterministicMemory memory;
         private readonly uint[] producers;
         private readonly int perProducer, totalCapacity;
+        // Bound stack scratch independently of user capacity; bigger batches use the in-place heap.
+        private const int MaxIndexSortCount = 4096;
         private DeterministicCommand<T>* partitions, merged;
         private int* counts;
         private bool disposed;
@@ -96,23 +102,68 @@ namespace LegendaryTools.Deterministic
             for (int producer = 0; producer < producers.Length; producer++)
             {
                 if (counts[producer] < 0 || counts[producer] > perProducer) return DeterministicStatus.ProtocolConflict;
-                for (int i = 0; i < counts[producer]; i++) merged[count++] = partitions[producer * perProducer + i];
+                count += counts[producer];
             }
-            for (int i = count / 2 - 1; i >= 0; i--) Sift(i, count);
-            for (int end = count - 1; end > 0; end--) { Swap(0, end); Sift(0, end); }
+            bool ordered = true, hasPrevious = false; DeterministicCommandHeader previous = default;
+            for (int producer = 0; producer < producers.Length && ordered; producer++)
+                for (int i = 0; i < counts[producer]; i++)
+                {
+                    var header = partitions[producer * perProducer + i].Header;
+                    if (hasPrevious && previous.CompareTo(header) > 0) { ordered = false; break; }
+                    previous = header; hasPrevious = true;
+                }
+            if (!ordered && sizeof(T) >= 64 && count <= MaxIndexSortCount)
+            {
+                int* order = stackalloc int[count]; int rank = 0;
+                for (int producer = 0; producer < producers.Length; producer++)
+                    for (int i = 0; i < counts[producer]; i++) order[rank++] = producer * perProducer + i;
+                for (int i = count / 2 - 1; i >= 0; i--) SiftIndices(order, i, count);
+                for (int end = count - 1; end > 0; end--)
+                { int value = order[0]; order[0] = order[end]; order[end] = value; SiftIndices(order, 0, end); }
+                for (int i = 0; i < count; i++) merged[i] = partitions[order[i]];
+            }
+            else
+            {
+                int offset = 0;
+                for (int producer = 0; producer < producers.Length; producer++)
+                {
+                    int length = counts[producer];
+                    RuntimeBytes.Copy((byte*)(partitions + producer * perProducer), (byte*)(merged + offset), length * sizeof(DeterministicCommand<T>));
+                    offset += length;
+                }
+                if (!ordered)
+                {
+                    for (int i = count / 2 - 1; i >= 0; i--) Sift(i, count);
+                    for (int end = count - 1; end > 0; end--) { Swap(0, end); Sift(0, end); }
+                }
+            }
             for (int i = 1; i < count; i++) if (merged[i - 1].Header.CompareTo(merged[i].Header) == 0) return DeterministicStatus.ProtocolConflict;
             Count = count; commands = new ReadOnlySpan<DeterministicCommand<T>>(merged, count); return DeterministicStatus.None;
         }
         private void Swap(int a, int b) { var value = merged[a]; merged[a] = merged[b]; merged[b] = value; }
         private void Sift(int root, int count)
         {
+            int start = root; var value = merged[root];
             while (root < count / 2)
             {
                 int child = root * 2 + 1;
                 if (child + 1 < count && merged[child].Header.CompareTo(merged[child + 1].Header) < 0) child++;
-                if (merged[root].Header.CompareTo(merged[child].Header) >= 0) break;
-                Swap(root, child); root = child;
+                if (value.Header.CompareTo(merged[child].Header) >= 0) break;
+                merged[root] = merged[child]; root = child;
             }
+            if (root != start) merged[root] = value;
+        }
+        private void SiftIndices(int* order, int root, int count)
+        {
+            int start = root, value = order[root]; var header = partitions[value].Header;
+            while (root < count / 2)
+            {
+                int child = root * 2 + 1;
+                if (child + 1 < count && partitions[order[child]].Header.CompareTo(partitions[order[child + 1]].Header) < 0) child++;
+                if (header.CompareTo(partitions[order[child]].Header) >= 0) break;
+                order[root] = order[child]; root = child;
+            }
+            if (root != start) order[root] = value;
         }
         public DeterministicStatus TryReset()
         {

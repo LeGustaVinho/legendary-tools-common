@@ -1,0 +1,15 @@
+{
+  "name": "LegendaryTools.Deterministic.Spatial.Native",
+  "rootNamespace": "LegendaryTools.Deterministic",
+  "references": [
+    "LegendaryTools.Deterministic.Spatial",
+    "LegendaryTools.FixedPoint",
+    "LegendaryTools.Deterministic.Collections",
+    "LegendaryTools.Deterministic.Collections.Native",
+    "Unity.Collections",
+    "Unity.Burst"
+  ],
+  "allowUnsafeCode": true,
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

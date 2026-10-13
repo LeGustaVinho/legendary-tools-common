@@ -54,7 +54,8 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryGet(int index, out T value)
         {
             CheckRead(); value = default;
-            return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
+            return !IsCreated ? DeterministicStatus.Disposed : Storage.BatchActive ? DeterministicStatus.Invalidated
+                : SequenceKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
         }
         public DeterministicStatus TryCapture(out NativeSequenceSnapshot<T> snapshot)
         {
@@ -95,6 +96,7 @@ namespace LegendaryTools.Deterministic
         public void Dispose()
         {
             if (!IsCreated) return; CheckWrite();
+            if (Storage.BatchActive) DeterministicStatus.Invalidated.ThrowIfFailure();
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.Release(m_Safety);
 #endif
@@ -167,7 +169,8 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryGet(int index, out T value)
         {
             CheckRead(); value = default;
-            return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
+            return !IsCreated ? DeterministicStatus.Disposed : Storage.BatchActive ? DeterministicStatus.Invalidated
+                : SequenceKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
         }
         public DeterministicStatus TryCapture(out NativeSequenceSnapshot<T> snapshot)
         {
@@ -208,6 +211,7 @@ namespace LegendaryTools.Deterministic
         public void Dispose()
         {
             if (!IsCreated) return; CheckWrite();
+            if (Storage.BatchActive) DeterministicStatus.Invalidated.ThrowIfFailure();
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.Release(m_Safety);
 #endif
@@ -287,7 +291,8 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryGet(int index, out T value)
         {
             CheckRead(); value = default;
-            return !IsCreated ? DeterministicStatus.Disposed : RingKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
+            return !IsCreated ? DeterministicStatus.Disposed : Storage.BatchActive ? DeterministicStatus.Invalidated
+                : RingKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
         }
         public DeterministicStatus TryCapture(out NativeSequenceSnapshot<T> snapshot)
         {
@@ -328,6 +333,7 @@ namespace LegendaryTools.Deterministic
         public void Dispose()
         {
             if (!IsCreated) return; CheckWrite();
+            if (Storage.BatchActive) DeterministicStatus.Invalidated.ThrowIfFailure();
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.Release(m_Safety);
 #endif
@@ -409,7 +415,8 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryGet(int index, out T value)
         {
             CheckRead(); value = default;
-            return !IsCreated ? DeterministicStatus.Disposed : RingKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
+            return !IsCreated ? DeterministicStatus.Disposed : Storage.BatchActive ? DeterministicStatus.Invalidated
+                : RingKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
         }
         public DeterministicStatus TryCapture(out NativeSequenceSnapshot<T> snapshot)
         {
@@ -450,6 +457,7 @@ namespace LegendaryTools.Deterministic
         public void Dispose()
         {
             if (!IsCreated) return; CheckWrite();
+            if (Storage.BatchActive) DeterministicStatus.Invalidated.ThrowIfFailure();
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.Release(m_Safety);
 #endif
@@ -535,7 +543,8 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryGet(int index, out T value)
         {
             CheckRead(); value = default;
-            return !IsCreated ? DeterministicStatus.Disposed : RingKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
+            return !IsCreated ? DeterministicStatus.Disposed : Storage.BatchActive ? DeterministicStatus.Invalidated
+                : RingKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
         }
         public DeterministicStatus TryCapture(out NativeSequenceSnapshot<T> snapshot)
         {
@@ -576,6 +585,7 @@ namespace LegendaryTools.Deterministic
         public void Dispose()
         {
             if (!IsCreated) return; CheckWrite();
+            if (Storage.BatchActive) DeterministicStatus.Invalidated.ThrowIfFailure();
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.Release(m_Safety);
 #endif
@@ -649,7 +659,8 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryGet(int index, out T value)
         {
             CheckRead(); value = default;
-            return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
+            return !IsCreated ? DeterministicStatus.Disposed : Storage.BatchActive ? DeterministicStatus.Invalidated
+                : SequenceKernel<T, NativeStorage<T>>.TryGet(ref Storage, Storage.Data->State, index, out value);
         }
         public DeterministicStatus TryCapture(out NativeSequenceSnapshot<T> snapshot)
         {
@@ -690,6 +701,7 @@ namespace LegendaryTools.Deterministic
         public void Dispose()
         {
             if (!IsCreated) return; CheckWrite();
+            if (Storage.BatchActive) DeterministicStatus.Invalidated.ThrowIfFailure();
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.Release(m_Safety);
 #endif

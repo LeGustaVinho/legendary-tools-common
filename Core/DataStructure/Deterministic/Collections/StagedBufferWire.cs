@@ -1,7 +1,7 @@
 namespace LegendaryTools.Deterministic
 {
     public enum DeterministicCollectionKind : byte
-    { Array = 1, Cell, List, Queue, Stack, Deque, RingBuffer, Dictionary, HashSet, SortedList, SortedDictionary, SortedSet, PriorityQueue, BitSet, SparseSet, SlotMap, LinkedList, MultiMap }
+    { Array = 1, Cell, List, Queue, Stack, Deque, RingBuffer, Dictionary, HashSet, SortedList, SortedDictionary, SortedSet, PriorityQueue, BitSet, SparseSet, SlotMap, LinkedList, MultiMap, Graph, FrozenGraph, SpatialIndex2, SpatialIndex3 }
 
     /// <summary>Borrowed workspace. Use pinned GC bytes with Managed and native bytes with Burst; pointers must outlive the entire operation.</summary>
     public unsafe struct CanonicalScratch
@@ -52,7 +52,9 @@ namespace LegendaryTools.Deterministic
             DeterministicCollectionKind kind, in TCodec codec, in TStateCodec stateCodec, in TLayout layout)
         {
             if (!buffer.IsCreated) return DeterministicStatus.Disposed;
-            if (kind < DeterministicCollectionKind.Array || kind > DeterministicCollectionKind.MultiMap || codec.SchemaId == 0 || codec.Version == 0 || stateCodec.SchemaId == 0 || stateCodec.Version == 0)
+            if (kind < DeterministicCollectionKind.Array ||
+                kind > DeterministicCollectionKind.MultiMap && kind != DeterministicCollectionKind.SpatialIndex2 && kind != DeterministicCollectionKind.SpatialIndex3 ||
+                codec.SchemaId == 0 || codec.Version == 0 || stateCodec.SchemaId == 0 || stateCodec.Version == 0)
                 return DeterministicStatus.InvalidConfiguration;
             var status = layout.ValidateMetadata(state, buffer.Capacity); if (!status.IsSuccess()) return status;
             status = writer.TryUInt(Magic, 4); if (!status.IsSuccess()) return status;
@@ -73,6 +75,11 @@ namespace LegendaryTools.Deterministic
             DeterministicCollectionKind kind, in TCodec codec, in TStateCodec stateCodec, in TLayout layout)
         {
             if (writer.IsMeasuring) return WriteBody(ref writer, ref buffer, state, kind, codec, stateCodec, layout);
+            if (writer.HasPremeasuredCapacity)
+            {
+                var planned = writer; var plannedStatus = WriteBody(ref planned, ref buffer, state, kind, codec, stateCodec, layout);
+                if (plannedStatus.IsSuccess()) writer = planned; return plannedStatus;
+            }
             var measured = DeterministicWriter.CreateMeasure(); var status = WriteBody(ref measured, ref buffer, state, kind, codec, stateCodec, layout);
             if (!status.IsSuccess()) return status;
             if (!writer.Has(measured.Position)) return DeterministicStatus.BufferTooSmall;

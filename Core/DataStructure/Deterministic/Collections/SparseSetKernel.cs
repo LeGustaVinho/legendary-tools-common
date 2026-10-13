@@ -12,19 +12,46 @@ namespace LegendaryTools.Deterministic
         public int DenseIndex;
     }
 
-    /// <summary>Dense iteration follows insertion and swap removal. Sorted iteration is a separate sparse-index scan.</summary>
+    /// <summary>Dense iteration follows insertion and swap removal. Ordered iteration adapts its read-only search to density.</summary>
     public static class SparseSetKernel<T, TDense, TSparse> where T : unmanaged
         where TDense : struct, IDeterministicBuffer<SparseSetEntry<T>>
         where TSparse : struct, IDeterministicBuffer<SparseSetIndex>
     {
-        public static DeterministicStatus TryGet(ref TDense dense, ref TSparse sparse, StableHandle handle, out T value)
+        /// <summary>Read-only ordered walk. Select from dense storage when scanning the universe costs more than repeated selection.</summary>
+        public static bool PreferDenseOrdered(int count, int entitySlots) => entitySlots > 2L * count * count;
+        public static DeterministicStatus TryNextDenseOrdered(ref TDense dense, int count, int entitySlots,
+            ref int cursor, out SparseSetEntry<T> item, out bool moved)
         {
-            value = default;
+            item = default; moved = false;
+            if (!dense.IsCreated) return DeterministicStatus.Disposed;
+            if (cursor >= entitySlots) return DeterministicStatus.None;
+            uint best = uint.MaxValue;
+            for (int i = 0; i < count; i++)
+            {
+                var candidate = dense.Read(i);
+                if ((long)candidate.Handle.Index <= cursor || candidate.Handle.Index >= best) continue;
+                best = candidate.Handle.Index; item = candidate; moved = true;
+            }
+            cursor = moved ? (int)best : entitySlots;
+            return DeterministicStatus.None;
+        }
+        private static DeterministicStatus TryFind(ref TDense dense, ref TSparse sparse, StableHandle handle, out int index)
+        {
+            index = -1;
             if (!dense.IsCreated || !sparse.IsCreated) return DeterministicStatus.Disposed;
             if (!handle.IsValid || handle.Index >= (uint)sparse.Capacity) return DeterministicStatus.NotFound;
             var cell = sparse.Read((int)handle.Index);
             if (cell.DenseIndex == 0 || cell.Generation != handle.Generation) return DeterministicStatus.NotFound;
-            value = dense.Read(cell.DenseIndex - 1).Value; return DeterministicStatus.None;
+            index = cell.DenseIndex - 1; return DeterministicStatus.None;
+        }
+        public static bool ContainsKey(ref TDense dense, ref TSparse sparse, StableHandle handle)
+            => TryFind(ref dense, ref sparse, handle, out _).IsSuccess();
+        public static DeterministicStatus TryGet(ref TDense dense, ref TSparse sparse, StableHandle handle, out T value)
+        {
+            value = default;
+            var status = TryFind(ref dense, ref sparse, handle, out int index);
+            if (!status.IsSuccess()) return status;
+            value = dense.Read(index).Value; return DeterministicStatus.None;
         }
         public static DeterministicStatus TryPut(ref TDense dense, ref TSparse sparse, ref SequenceState state,
             int maxEntitySlots, StableHandle handle, in T value, bool addOnly)
@@ -56,15 +83,18 @@ namespace LegendaryTools.Deterministic
         }
         public static DeterministicStatus TryRemove(ref TDense dense, ref TSparse sparse, ref SequenceState state, StableHandle handle)
         {
-            var status = TryGet(ref dense, ref sparse, handle, out _); if (!status.IsSuccess()) return status;
-            int index = sparse.Read((int)handle.Index).DenseIndex - 1, last = state.Count - 1;
-            var moved = dense.Read(last);
+            var status = TryFind(ref dense, ref sparse, handle, out int index); if (!status.IsSuccess()) return status;
+            int last = state.Count - 1;
+            var moved = index != last ? dense.Read(last) : default;
             for (int phase = 0; phase < 2; phase++)
             {
                 status = phase == 0 ? dense.CanPrepareWrite(dense.Capacity, index, 1) : dense.PrepareWrite(dense.Capacity, index, 1);
                 if (!status.IsSuccess()) return status;
-                status = phase == 0 ? dense.CanPrepareWrite(dense.Capacity, last, 1) : dense.PrepareWrite(dense.Capacity, last, 1);
-                if (!status.IsSuccess()) return status;
+                if (index != last)
+                {
+                    status = phase == 0 ? dense.CanPrepareWrite(dense.Capacity, last, 1) : dense.PrepareWrite(dense.Capacity, last, 1);
+                    if (!status.IsSuccess()) return status;
+                }
                 status = phase == 0 ? sparse.CanPrepareWrite(sparse.Capacity, (int)handle.Index, 1) : sparse.PrepareWrite(sparse.Capacity, (int)handle.Index, 1);
                 if (!status.IsSuccess()) return status;
                 if (index != last)

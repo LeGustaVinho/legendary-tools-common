@@ -1,0 +1,13 @@
+{
+  "name": "LegendaryTools.Deterministic.Spatial.Managed",
+  "rootNamespace": "LegendaryTools.Deterministic",
+  "references": [
+    "LegendaryTools.Deterministic.Spatial",
+    "LegendaryTools.FixedPoint",
+    "LegendaryTools.Deterministic.Collections",
+    "LegendaryTools.Deterministic.Collections.Managed"
+  ],
+  "allowUnsafeCode": true,
+  "autoReferenced": true,
+  "noEngineReferences": true
+}

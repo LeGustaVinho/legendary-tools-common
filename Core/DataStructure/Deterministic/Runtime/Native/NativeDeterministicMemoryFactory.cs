@@ -9,9 +9,10 @@ namespace LegendaryTools.Deterministic
     {
         private readonly Allocator allocator;
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
-        public NativeDeterministicMemoryFactory(Allocator allocator = Allocator.Persistent)
+        /// <summary>Legacy calls require Burst. Explicit Native host execution may allocate with requireBurst=false.</summary>
+        public NativeDeterministicMemoryFactory(Allocator allocator = Allocator.Persistent, bool requireBurst = true)
         {
-            if (!BurstCompiler.IsEnabled) DeterministicStatus.BackendUnavailable.ThrowIfFailure();
+            if (requireBurst && !BurstCompiler.IsEnabled) DeterministicStatus.BackendUnavailable.ThrowIfFailure();
             if (allocator != Allocator.Persistent && allocator != Allocator.TempJob)
                 DeterministicStatus.InvalidConfiguration.ThrowIfFailure();
             this.allocator = allocator;

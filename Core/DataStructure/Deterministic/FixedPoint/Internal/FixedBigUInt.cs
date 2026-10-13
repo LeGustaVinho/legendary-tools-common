@@ -120,6 +120,29 @@ namespace LegendaryTools.FixedPoint
             }
             return q;
         }
+        /// <summary>Unshifted quotient and remainder in one pass. Zero divisors retain Divide/Mod's zero results.</summary>
+        internal static FixedBigUInt DivRem(FixedBigUInt numerator, FixedBigUInt denominator, out FixedBigUInt remainder)
+        {
+            int denominatorBits = denominator.BitLength;
+            remainder = default;
+            if (denominatorBits == 0) return default;
+            if (denominatorBits <= 64)
+            {
+                var quotient = Divide(numerator, denominator.Low, out ulong wordRemainder);
+                remainder = From(wordRemainder);
+                return quotient;
+            }
+            FixedBigUInt result = default;
+            for (int i = numerator.BitLength - 1; i >= 0; i--)
+            {
+                bool carry = remainder.Bit(511);
+                remainder = ShiftLeft(remainder, 1);
+                if (numerator.Bit(i)) remainder.Set(0, remainder.Get(0) | 1);
+                if (carry || Compare(remainder, denominator) >= 0)
+                { remainder = Subtract(remainder, denominator); result.SetBit(i); }
+            }
+            return result;
+        }
         internal static FixedBigUInt Mod(FixedBigUInt a, FixedBigUInt divisor)
         {
             FixedBigUInt rem = default;

@@ -39,11 +39,11 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TrySet(int index, in T value)
         { CheckWrite(); return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TrySet(ref Storage, Storage.Data->State, index, value); }
         public DeterministicStatus TryAdd(in T value)
-        { CheckWrite(); return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TryInsert(ref Storage, ref Storage.Data->State, Storage.Data->State.Count, value); }
+        { CheckWrite(); return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TryInsert(ref Storage, ref Storage.Data->State, Storage.Data->State.Count, value, default(NativeMovement<T>)); }
         public DeterministicStatus TryInsert(int index, in T value)
-        { CheckWrite(); return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TryInsert(ref Storage, ref Storage.Data->State, index, value); }
+        { CheckWrite(); return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TryInsert(ref Storage, ref Storage.Data->State, index, value, default(NativeMovement<T>)); }
         public DeterministicStatus TryRemoveAt(int index)
-        { CheckWrite(); return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TryRemoveAt(ref Storage, ref Storage.Data->State, index); }
+        { CheckWrite(); return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TryRemoveAt(ref Storage, ref Storage.Data->State, index, false, default(NativeMovement<T>)); }
         public DeterministicStatus TryRemoveAtSwapBack(int index)
         { CheckWrite(); return !IsCreated ? DeterministicStatus.Disposed : SequenceKernel<T, NativeStorage<T>>.TryRemoveAt(ref Storage, ref Storage.Data->State, index, true); }
         public DeterministicStatus TryClear()

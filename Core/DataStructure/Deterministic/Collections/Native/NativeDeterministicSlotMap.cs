@@ -67,6 +67,18 @@ namespace LegendaryTools.Deterministic
         public bool IsCreated => Storage.IsCreated;
         public int Count { get { CheckRead(); return IsCreated ? Storage.Data->SlotState.Count : 0; } }
         public int Capacity { get { CheckRead(); return Storage.Capacity; } }
+        public int UsedSlotCount { get { CheckRead(); return IsCreated ? Storage.Data->SlotState.Used : 0; } }
+        /// <summary>Read an allocation slot in logical index order. Free slots return NotFound.</summary>
+        public DeterministicStatus TryGetSlot(int index, out SlotMapItem<T> item)
+        {
+            CheckRead(); item = default;
+            if (!IsCreated) return DeterministicStatus.Disposed;
+            if ((uint)index >= (uint)Storage.Data->SlotState.Used) return DeterministicStatus.OutOfRange;
+            var node = Storage.Read(index);
+            if (node.Active == 0) return DeterministicStatus.NotFound;
+            item = new SlotMapItem<T>(new StableHandle((uint)index, node.Generation), node.Value);
+            return DeterministicStatus.None;
+        }
         public T this[StableHandle handle]
         {
             get { var status = TryGet(handle, out T value); NativeChecks.Status(status); return value; }

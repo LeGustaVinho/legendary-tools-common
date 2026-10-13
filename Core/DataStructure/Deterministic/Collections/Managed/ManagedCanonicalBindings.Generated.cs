@@ -6,6 +6,7 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryWriteCanonical<TCodec>(ref DeterministicWriter writer, TCodec codec) where TCodec : unmanaged, IDeterministicCodec<T>
         {
              if (!IsCreated) return DeterministicStatus.Disposed;
+            if (Storage.Owner.BatchActive) return DeterministicStatus.Invalidated;
 
             var elementCodec = codec; var layout = new SequenceWireLayout<T>(false, Count); var metadata = state;
             return StagedBufferWire<T, SequenceState, TCodec, SequenceStateCodec, SequenceWireLayout<T>, ManagedStorage<T>>.TryWrite(ref writer, ref Storage, metadata, DeterministicCollectionKind.Array, elementCodec, default(SequenceStateCodec), layout);
@@ -13,6 +14,7 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryValidateCanonical<TCodec>(ref DeterministicReader reader, ref CanonicalScratch scratch, TCodec codec) where TCodec : unmanaged, IDeterministicCodec<T>
         {
              if (!IsCreated) return DeterministicStatus.Disposed;
+            if (Storage.Owner.BatchActive) return DeterministicStatus.Invalidated;
 
             var elementCodec = codec; var layout = new SequenceWireLayout<T>(false, Count); var metadata = state;
             var trial = reader; var workspace = scratch;
@@ -22,6 +24,7 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryReadCanonical<TCodec>(ref DeterministicReader reader, ref CanonicalScratch scratch, TCodec codec) where TCodec : unmanaged, IDeterministicCodec<T>
         {
              if (!IsCreated) return DeterministicStatus.Disposed;
+            if (Storage.Owner.BatchActive) return DeterministicStatus.Invalidated;
 
             var elementCodec = codec; var layout = new SequenceWireLayout<T>(false, Count); var metadata = state;
             var trial = reader; var workspace = scratch;
@@ -401,7 +404,7 @@ namespace LegendaryTools.Deterministic
             if (kind == DeterministicCollectionKind.HashSet) for (int i = 0; i < stage.State.Used; i++) if (stage.Items[i].Active != 0) if (!default(PrimitiveEquality<TValue>).Equals(stage.Items[i].Value, default)) return DeterministicStatus.InvalidEncoding;
             status = Entries.PrepareReplace(stage.Capacity); if (!status.IsSuccess()) return status;
             status = Buckets.PrepareReplace(bucketCapacity); if (!status.IsSuccess()) return status;
-            StagedBufferWire<OrderedHashEntry<TKey, TValue>, OrderedMapState, OrderedHashEntryCodec<TKey, TValue, TKeyCodec, TValueCodec>, OrderedMapStateCodec, OrderedMapWireLayout<TKey, TValue, TPolicy>, ManagedStorage<OrderedHashEntry<TKey, TValue>>>.PublishPrepared(ref Entries, stage, layout); layout.RebuildBuckets(ref Entries, ref Buckets, stage.State); State = stage.State;
+            StagedBufferWire<OrderedHashEntry<TKey, TValue>, OrderedMapState, OrderedHashEntryCodec<TKey, TValue, TKeyCodec, TValueCodec>, OrderedMapStateCodec, OrderedMapWireLayout<TKey, TValue, TPolicy>, ManagedStorage<OrderedHashEntry<TKey, TValue>>>.PublishPrepared(ref Entries, stage, layout); layout.RebuildValidatedBuckets(ref Entries, ref Buckets, stage.State); State = stage.State;
             reader = trial; scratch = workspace; return DeterministicStatus.None;
         }
         public DeterministicStatus TryWriteCanonical<TKeyCodec, TValueCodec>(ref DeterministicWriter writer, TKeyCodec keyCodec, TValueCodec valueCodec) where TKeyCodec : unmanaged, IDeterministicCodec<TKey> where TValueCodec : unmanaged, IDeterministicCodec<TValue> => TryWriteCanonicalKind(ref writer, DeterministicCollectionKind.Dictionary, keyCodec, valueCodec);
@@ -419,12 +422,14 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryWriteCanonical<TCodec>(ref DeterministicWriter writer, TCodec codec) where TCodec : unmanaged, IDeterministicCodec<T>
         {
              if (!IsCreated) return DeterministicStatus.Disposed;
+            if (Dense.Owner.BatchActive || Sparse.Owner.BatchActive) return DeterministicStatus.Invalidated;
             var elementCodec = new SparseSetEntryCodec<T, TCodec>(codec); var layout = new SparseSetWireLayout<T>(Sparse.Owner.Options); var metadata = new SparseSetWireState { Count = Count, EntitySlotCapacity = Sparse.Capacity };
             return StagedBufferWire<SparseSetEntry<T>, SparseSetWireState, SparseSetEntryCodec<T, TCodec>, SparseSetWireStateCodec, SparseSetWireLayout<T>, ManagedStorage<SparseSetEntry<T>>>.TryWrite(ref writer, ref Dense, metadata, DeterministicCollectionKind.SparseSet, elementCodec, default(SparseSetWireStateCodec), layout);
         }
         public DeterministicStatus TryValidateCanonical<TCodec>(ref DeterministicReader reader, ref CanonicalScratch scratch, TCodec codec) where TCodec : unmanaged, IDeterministicCodec<T>
         {
              if (!IsCreated) return DeterministicStatus.Disposed;
+            if (Dense.Owner.BatchActive || Sparse.Owner.BatchActive) return DeterministicStatus.Invalidated;
             var elementCodec = new SparseSetEntryCodec<T, TCodec>(codec); var layout = new SparseSetWireLayout<T>(Sparse.Owner.Options); var metadata = new SparseSetWireState { Count = Count, EntitySlotCapacity = Sparse.Capacity };
             var trial = reader; var workspace = scratch; var status = StagedBufferWire<SparseSetEntry<T>, SparseSetWireState, SparseSetEntryCodec<T, TCodec>, SparseSetWireStateCodec, SparseSetWireLayout<T>, ManagedStorage<SparseSetEntry<T>>>.TryReadStaged(ref trial, ref workspace, ref Dense, DeterministicCollectionKind.SparseSet, elementCodec, default(SparseSetWireStateCodec), layout, out var stage); if (!status.IsSuccess()) return status;
             status = Sparse.CanReplaceCapacity(stage.State.EntitySlotCapacity); if (!status.IsSuccess()) return status;
@@ -433,6 +438,7 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryReadCanonical<TCodec>(ref DeterministicReader reader, ref CanonicalScratch scratch, TCodec codec) where TCodec : unmanaged, IDeterministicCodec<T>
         {
              if (!IsCreated) return DeterministicStatus.Disposed;
+            if (Dense.Owner.BatchActive || Sparse.Owner.BatchActive) return DeterministicStatus.Invalidated;
             var elementCodec = new SparseSetEntryCodec<T, TCodec>(codec); var layout = new SparseSetWireLayout<T>(Sparse.Owner.Options); var metadata = new SparseSetWireState { Count = Count, EntitySlotCapacity = Sparse.Capacity };
             var trial = reader; var workspace = scratch; var status = StagedBufferWire<SparseSetEntry<T>, SparseSetWireState, SparseSetEntryCodec<T, TCodec>, SparseSetWireStateCodec, SparseSetWireLayout<T>, ManagedStorage<SparseSetEntry<T>>>.TryReadStaged(ref trial, ref workspace, ref Dense, DeterministicCollectionKind.SparseSet, elementCodec, default(SparseSetWireStateCodec), layout, out var stage); if (!status.IsSuccess()) return status;
             status = Sparse.CanReplaceCapacity(stage.State.EntitySlotCapacity); if (!status.IsSuccess()) return status;
@@ -485,7 +491,7 @@ namespace LegendaryTools.Deterministic
             status = keys.Entries.PrepareReplace(ks.Capacity); if (!status.IsSuccess()) return status; status = keys.Buckets.PrepareReplace(OrderedHashRules.BucketCapacity(ks.Capacity)); if (!status.IsSuccess()) return status;
             status = values.Storage.PrepareReplace(vs.Capacity); if (!status.IsSuccess()) return status;
             var kl = new OrderedMapWireLayout<TKey, MultiMapChain, TPolicy>(policy); var vl = default(SlotMapWireLayout<MultiMapValue<TKey, TValue>>);
-            StagedBufferWire<OrderedHashEntry<TKey, MultiMapChain>, OrderedMapState, OrderedHashEntryCodec<TKey, MultiMapChain, TKeyCodec, MultiMapChainCodec>, OrderedMapStateCodec, OrderedMapWireLayout<TKey, MultiMapChain, TPolicy>, ManagedStorage<OrderedHashEntry<TKey, MultiMapChain>>>.PublishPrepared(ref keys.Entries, ks, kl); StagedBufferWire<SlotMapNode<MultiMapValue<TKey, TValue>>, SlotMapState, SlotMapNodeCodec<MultiMapValue<TKey, TValue>, MultiMapValueCodec<TKey, TValue, TKeyCodec, TValueCodec>>, SlotMapStateCodec, SlotMapWireLayout<MultiMapValue<TKey, TValue>>, ManagedStorage<SlotMapNode<MultiMapValue<TKey, TValue>>>>.PublishPrepared(ref values.Storage, vs, vl); kl.RebuildBuckets(ref keys.Entries, ref keys.Buckets, ks.State);
+            StagedBufferWire<OrderedHashEntry<TKey, MultiMapChain>, OrderedMapState, OrderedHashEntryCodec<TKey, MultiMapChain, TKeyCodec, MultiMapChainCodec>, OrderedMapStateCodec, OrderedMapWireLayout<TKey, MultiMapChain, TPolicy>, ManagedStorage<OrderedHashEntry<TKey, MultiMapChain>>>.PublishPrepared(ref keys.Entries, ks, kl); StagedBufferWire<SlotMapNode<MultiMapValue<TKey, TValue>>, SlotMapState, SlotMapNodeCodec<MultiMapValue<TKey, TValue>, MultiMapValueCodec<TKey, TValue, TKeyCodec, TValueCodec>>, SlotMapStateCodec, SlotMapWireLayout<MultiMapValue<TKey, TValue>>, ManagedStorage<SlotMapNode<MultiMapValue<TKey, TValue>>>>.PublishPrepared(ref values.Storage, vs, vl); kl.RebuildValidatedBuckets(ref keys.Entries, ref keys.Buckets, ks.State);
             keys.State = ks.State; values.State = vs.State;
             reader = trial; scratch = workspace; return DeterministicStatus.None;
         }

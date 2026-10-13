@@ -56,14 +56,19 @@ namespace LegendaryTools.Deterministic
 
     internal static unsafe class RuntimeBytes
     {
-        internal static void Clear(byte* target, int bytes) { for (int i = 0; i < bytes; i++) target[i] = 0; }
+        internal static void Clear(byte* target, int bytes) => new Span<byte>(target, bytes).Clear();
         internal static void Copy(byte* from, byte* to, int bytes)
-        {
-            if (to > from && to < from + bytes) for (int i = bytes - 1; i >= 0; i--) to[i] = from[i];
-            else for (int i = 0; i < bytes; i++) to[i] = from[i];
-        }
+            => new ReadOnlySpan<byte>(from, bytes).CopyTo(new Span<byte>(to, bytes));
         internal static bool Equal(byte* a, byte* b, int bytes)
-        { for (int i = 0; i < bytes; i++) if (a[i] != b[i]) return false; return true; }
+        {
+            // Explicit byte loads keep arbitrary alignment portable and avoid per-element Span overhead in Mono.
+            int i = 0;
+            for (; i <= bytes - 8; i += 8)
+                if (((a[i] ^ b[i]) | (a[i + 1] ^ b[i + 1]) | (a[i + 2] ^ b[i + 2]) | (a[i + 3] ^ b[i + 3]) |
+                    (a[i + 4] ^ b[i + 4]) | (a[i + 5] ^ b[i + 5]) | (a[i + 6] ^ b[i + 6]) | (a[i + 7] ^ b[i + 7])) != 0) return false;
+            for (; i < bytes; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
         internal static bool Overlap(byte* a, int aBytes, byte* b, int bBytes)
         { return aBytes > 0 && bBytes > 0 && a < b + bBytes && b < a + aBytes; }
     }

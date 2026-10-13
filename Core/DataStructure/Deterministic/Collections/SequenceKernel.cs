@@ -21,24 +21,49 @@ namespace LegendaryTools.Deterministic
         }
 
         public static DeterministicStatus TryInsert(ref TBuffer buffer, ref SequenceState state, int index, in T value)
+            => TryInsert(ref buffer, ref state, index, value, default(ElementwiseMovement<T, TBuffer>));
+
+        internal static DeterministicStatus TryInsert<TMovement>(ref TBuffer buffer, ref SequenceState state,
+            int index, in T value, TMovement movement) where TMovement : struct, IDeterministicMovement<T, TBuffer>
         {
             if (!buffer.IsCreated) return DeterministicStatus.Disposed;
             if ((uint)index > (uint)state.Count) return DeterministicStatus.OutOfRange;
             if (state.Count == int.MaxValue) return DeterministicStatus.CapacityExceeded;
             var status = buffer.PrepareWrite(state.Count + 1, index, state.Count - index + 1);
             if (!status.IsSuccess()) return status;
-            for (int i = state.Count; i > index; i--) { var previous = buffer.Read(i - 1); buffer.Write(i, previous); }
+            movement.Move(ref buffer, index, index + 1, state.Count - index);
             buffer.Write(index, value); state.Count++; buffer.CommitWrite(); return DeterministicStatus.None;
         }
 
         public static DeterministicStatus TryRemoveAt(ref TBuffer buffer, ref SequenceState state, int index, bool swapBack = false)
+            => TryRemoveAt(ref buffer, ref state, index, swapBack, default(ElementwiseMovement<T, TBuffer>));
+
+        internal static DeterministicStatus TryRemoveAt<TMovement>(ref TBuffer buffer, ref SequenceState state,
+            int index, bool swapBack, TMovement movement) where TMovement : struct, IDeterministicMovement<T, TBuffer>
         {
             if (!buffer.IsCreated) return DeterministicStatus.Disposed;
             if ((uint)index >= (uint)state.Count) return DeterministicStatus.OutOfRange;
-            var status = buffer.PrepareWrite(state.Count, index, state.Count - index);
-            if (!status.IsSuccess()) return status;
-            if (swapBack) { var last = buffer.Read(state.Count - 1); buffer.Write(index, last); }
-            else for (int i = index; i + 1 < state.Count; i++) { var next = buffer.Read(i + 1); buffer.Write(i, next); }
+            DeterministicStatus status;
+            if (swapBack)
+            {
+                // Preflight both destinations before cloning either page. The intervening pages are read-only.
+                int lastIndex = state.Count - 1;
+                status = buffer.CanPrepareWrite(state.Count, index, 1); if (!status.IsSuccess()) return status;
+                if (index != lastIndex)
+                { status = buffer.CanPrepareWrite(state.Count, lastIndex, 1); if (!status.IsSuccess()) return status; }
+                status = buffer.PrepareWrite(state.Count, index, 1); if (!status.IsSuccess()) return status;
+                if (index != lastIndex)
+                {
+                    status = buffer.PrepareWrite(state.Count, lastIndex, 1); if (!status.IsSuccess()) return status;
+                    var last = buffer.Read(lastIndex); buffer.Write(index, last);
+                }
+            }
+            else
+            {
+                status = buffer.PrepareWrite(state.Count, index, state.Count - index);
+                if (!status.IsSuccess()) return status;
+                movement.Move(ref buffer, index + 1, index, state.Count - index - 1);
+            }
             T zero = default; buffer.Write(state.Count - 1, zero); state.Count--;
             buffer.CommitWrite(); return DeterministicStatus.None;
         }

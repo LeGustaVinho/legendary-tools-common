@@ -45,15 +45,36 @@ namespace LegendaryTools.Deterministic
         public int Count => State.Count;
         public int Capacity => Dense.Capacity;
         public int EntitySlotCapacity => Sparse.Capacity;
+        /// <summary>Read a logical entity slot in O(1), without knowing its current generation.</summary>
+        public DeterministicStatus TryGetSlot(int slot, out SparseSetEntry<T> item)
+        {
+            item = default;
+            if (!IsCreated) return DeterministicStatus.Disposed;
+            if (Dense.Owner.BatchActive) return DeterministicStatus.Invalidated;
+            if ((uint)slot >= (uint)Sparse.Capacity) return DeterministicStatus.OutOfRange;
+            var index = Sparse.Read(slot);
+            if (index.DenseIndex == 0) return DeterministicStatus.NotFound;
+            item = Dense.Read(index.DenseIndex - 1); return DeterministicStatus.None;
+        }
         public ulong Revision => Dense.Revision;
+        /// <summary>Read physical dense storage without an enumerator. Authoritative ordering needs a logical key.</summary>
+        public DeterministicStatus TryGetDenseAt(int index, out SparseSetEntry<T> item)
+        {
+            item = default;
+            if (!IsCreated) return DeterministicStatus.Disposed;
+            if (Dense.Owner.BatchActive) return DeterministicStatus.Invalidated;
+            if ((uint)index >= (uint)State.Count) return DeterministicStatus.OutOfRange;
+            item = Dense.Read(index); return DeterministicStatus.None;
+        }
         public T this[StableHandle handle]
         { get { TryGet(handle, out T value).ThrowIfFailure(); return value; } set { TrySet(handle, value).ThrowIfFailure(); } }
         public DeterministicStatus TryAdd(StableHandle handle, in T value) => SparseSetKernel<T, ManagedStorage<SparseSetEntry<T>>, ManagedStorage<SparseSetIndex>>.TryPut(ref Dense, ref Sparse, ref State, maxEntitySlots, handle, value, true);
         public void Add(StableHandle handle, T value) => TryAdd(handle, value).ThrowIfFailure();
         public DeterministicStatus TrySet(StableHandle handle, in T value) => SparseSetKernel<T, ManagedStorage<SparseSetEntry<T>>, ManagedStorage<SparseSetIndex>>.TryPut(ref Dense, ref Sparse, ref State, maxEntitySlots, handle, value, false);
-        public DeterministicStatus TryGet(StableHandle handle, out T value) => SparseSetKernel<T, ManagedStorage<SparseSetEntry<T>>, ManagedStorage<SparseSetIndex>>.TryGet(ref Dense, ref Sparse, handle, out value);
+        public DeterministicStatus TryGet(StableHandle handle, out T value)
+        { value = default; return Dense.Owner.BatchActive ? DeterministicStatus.Invalidated : SparseSetKernel<T, ManagedStorage<SparseSetEntry<T>>, ManagedStorage<SparseSetIndex>>.TryGet(ref Dense, ref Sparse, handle, out value); }
         public bool TryGetValue(StableHandle handle, out T value) => TryGet(handle, out value).IsSuccess();
-        public bool ContainsKey(StableHandle handle) => TryGetValue(handle, out _);
+        public bool ContainsKey(StableHandle handle) => SparseSetKernel<T, ManagedStorage<SparseSetEntry<T>>, ManagedStorage<SparseSetIndex>>.ContainsKey(ref Dense, ref Sparse, handle);
         public DeterministicStatus TryRemove(StableHandle handle) => SparseSetKernel<T, ManagedStorage<SparseSetEntry<T>>, ManagedStorage<SparseSetIndex>>.TryRemove(ref Dense, ref Sparse, ref State, handle);
         public bool Remove(StableHandle handle) { var status = TryRemove(handle); if (status == DeterministicStatus.NotFound) return false; status.ThrowIfFailure(); return true; }
         public DeterministicStatus TryClear() => SparseSetKernel<T, ManagedStorage<SparseSetEntry<T>>, ManagedStorage<SparseSetIndex>>.TryClear(ref Dense, ref Sparse, ref State);
@@ -67,9 +88,12 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryRestore(in ManagedSparseSetSnapshot<T> snapshot)
         {
             if (!IsCreated) return DeterministicStatus.Disposed;
+            if (Dense.Owner.BatchActive || Sparse.Owner.BatchActive) return DeterministicStatus.Invalidated;
             if (snapshot.Dense.Owner != Dense.Owner || snapshot.Sparse.Owner != Sparse.Owner) return DeterministicStatus.InvalidOwner;
             if (!snapshot.IsCreated) return DeterministicStatus.Disposed;
-            Dense.TryRestore(snapshot.Dense); Sparse.TryRestore(snapshot.Sparse); State = snapshot.State; return DeterministicStatus.None;
+            var status = Dense.TryRestore(snapshot.Dense); if (!status.IsSuccess()) return status;
+            status = Sparse.TryRestore(snapshot.Sparse); if (!status.IsSuccess()) return status;
+            State = snapshot.State; return DeterministicStatus.None;
         }
         public Enumerator GetEnumerator() => new Enumerator(this, false);
         public SortedView OrderedByEntity => new SortedView(this);
@@ -87,15 +111,27 @@ namespace LegendaryTools.Deterministic
             private readonly DeterministicSparseSet<T> owner;
             private readonly ulong revision;
             private readonly bool sorted;
+            private readonly bool denseSelection;
             private int index;
             private SparseSetEntry<T> current;
-            internal Enumerator(DeterministicSparseSet<T> owner, bool sorted) { this.owner = owner; revision = owner.Revision; this.sorted = sorted; index = -1; current = default; }
+            internal Enumerator(DeterministicSparseSet<T> owner, bool sorted)
+            {
+                this.owner = owner; revision = owner.Revision; this.sorted = sorted; index = -1; current = default;
+                denseSelection = sorted && SparseSetKernel<T, ManagedStorage<SparseSetEntry<T>>, ManagedStorage<SparseSetIndex>>.PreferDenseOrdered(owner.Count, owner.Sparse.Capacity);
+            }
             public SparseSetEntry<T> Current => current;
             object IEnumerator.Current => Current;
             public DeterministicStatus TryMoveNext(out bool moved)
             {
                 moved = false; if (!owner.IsCreated) return DeterministicStatus.Disposed;
+                if (owner.Dense.Owner.BatchActive) return DeterministicStatus.Invalidated;
                 if (owner.Revision != revision) return DeterministicStatus.Invalidated;
+                if (denseSelection)
+                {
+                    var status = SparseSetKernel<T, ManagedStorage<SparseSetEntry<T>>, ManagedStorage<SparseSetIndex>>.TryNextDenseOrdered(
+                        ref owner.Dense, owner.Count, owner.Sparse.Capacity, ref index, out var item, out moved);
+                    if (moved) current = item; return status;
+                }
                 int end = sorted ? owner.Sparse.Capacity : owner.Count;
                 if (index >= end) return DeterministicStatus.None;
                 while (++index < end)

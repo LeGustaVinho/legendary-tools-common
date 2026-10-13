@@ -92,10 +92,10 @@ namespace LegendaryTools.Deterministic
             status = OrderedHashKernel<TKey, MultiMapChain, TPolicy, TEntries, TBuckets>.TryRemove(ref entries, ref buckets, ref map, key, policy); if (!status.IsSuccess()) return status;
             for (var current = chain.First; current.IsValid;)
             {
-                var next = values.Read((int)current.Index).Value.Next;
-                status = SlotMapKernel<MultiMapValue<TKey, TValue>, TValues>.TryRemove(ref values, ref slots, current); if (!status.IsSuccess()) return status; current = next;
+                int index = (int)current.Index; var node = values.Read(index); var next = node.Value.Next;
+                SlotMapKernel<MultiMapValue<TKey, TValue>, TValues>.RemoveReserved(ref values, ref slots, index, node); current = next;
             }
-            return DeterministicStatus.None;
+            values.CommitWrite(); return DeterministicStatus.None;
         }
         public static DeterministicStatus TryClear(ref TEntries entries, ref TBuckets buckets, ref TValues values, ref OrderedMapState map, ref SlotMapState slots)
         {

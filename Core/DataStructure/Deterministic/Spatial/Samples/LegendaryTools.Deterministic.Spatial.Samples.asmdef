@@ -1,0 +1,7 @@
+{
+  "name": "LegendaryTools.Deterministic.Spatial.Samples",
+  "references": ["LegendaryTools.Deterministic.Spatial", "LegendaryTools.Deterministic.Spatial.Managed", "LegendaryTools.Deterministic.Spatial.Native", "LegendaryTools.Deterministic.Collections", "LegendaryTools.Deterministic.Runtime", "LegendaryTools.FixedPoint"],
+  "allowUnsafeCode": true,
+  "autoReferenced": false,
+  "noEngineReferences": true
+}

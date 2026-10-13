@@ -90,14 +90,45 @@ namespace LegendaryTools.Deterministic
             int slot = Slot(tick); ref EventRow row = ref rows[slot];
             if (row.Tick != tick || row.Published != 0) return DeterministicStatus.Invalidated;
             var values = events + slot * eventsPerTick;
+            bool ordered = true;
             for (int i = 1; i < row.Count; i++)
-            {
-                var value = values[i]; int j = i - 1;
-                while (j >= 0 && values[j].Id.CompareTo(value.Id) > 0) { values[j + 1] = values[j]; j--; }
-                values[j + 1] = value;
-            }
+                if (values[i - 1].Id.CompareTo(values[i].Id) > 0) { ordered = false; break; }
+            if (!ordered) Sort(values, row.Count);
             for (int i = 1; i < row.Count; i++) if (values[i - 1].Id.Equals(values[i].Id)) return DeterministicStatus.ProtocolConflict;
             row.Prepared = 1; return DeterministicStatus.None;
+        }
+        private static void Sort(DeterministicEvent<T>* values, int count)
+        {
+            if (count <= 32)
+            {
+                for (int i = 1; i < count; i++)
+                {
+                    var value = values[i]; int j = i - 1;
+                    while (j >= 0 && values[j].Id.CompareTo(value.Id) > 0) { values[j + 1] = values[j]; j--; }
+                    values[j + 1] = value;
+                }
+                return;
+            }
+            // IDs must be unique before publication, so stability among equal IDs is not observable.
+            // Heapsort bounds the worst case without allocating an auxiliary payload buffer.
+            for (int root = count / 2 - 1; root >= 0; root--) Sift(values, root, count);
+            for (int end = count - 1; end > 0; end--)
+            {
+                var value = values[0]; values[0] = values[end]; values[end] = value;
+                Sift(values, 0, end);
+            }
+        }
+        private static void Sift(DeterministicEvent<T>* values, int root, int count)
+        {
+            var value = values[root];
+            while (root < count / 2)
+            {
+                int child = root * 2 + 1;
+                if (child + 1 < count && values[child].Id.CompareTo(values[child + 1].Id) < 0) child++;
+                if (value.Id.CompareTo(values[child].Id) >= 0) break;
+                values[root] = values[child]; root = child;
+            }
+            values[root] = value;
         }
         public DeterministicStatus TryPublish(long tick)
         {

@@ -4,6 +4,10 @@
 
 Vetores de componentes `Fixed64`: [FixedVector2/FixedVector3, Burst, rede e Inspector](VECTORS.md), com [evidência de validação vetorial](VECTORS_VALIDATION.md).
 
+[FixedQuaternion](QUATERNIONS.md) acrescenta rotações inteiras, composição com normalização configurável, transporte exato/compacto, patches reversíveis e integração com o runtime determinístico.
+
+[FixedBounds2/FixedBounds3](BOUNDS.md) oferecem AABBs com representação global MinMax/CenterExtents, raios inteiros, codecs compactos e integração com checkpoints/rollback/replay; veja [validação de Bounds](BOUNDS_VALIDATION.md).
+
 [FixedRandom](Random/README.md) oferece geração determinística com esses quatro tipos, amostras espaciais, loot por pesos, jobs Burst, snapshots de 24 bytes e checkpoints compactos para rede/replay.
 
 ## Começar

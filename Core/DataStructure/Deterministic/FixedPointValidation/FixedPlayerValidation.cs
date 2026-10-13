@@ -14,6 +14,12 @@ namespace LegendaryTools.FixedPoint
         {
             public bool Passed, PublicApiPassed;
             public bool VectorPublicApiPassed;
+            public bool QuaternionPublicApiPassed;
+            public int QuaternionCases, NativeQuaternionCases, QuaternionReplayVersion;
+            public ulong QuaternionChecksum;
+            public int QuaternionSequenceCases, NativeQuaternionSequenceCases, QuaternionSequenceVersion;
+            public ulong QuaternionSequenceChecksum;
+            public string QuaternionNormalization;
             public int Cases, NativeCases, ReplayCases, NativeReplayCases, ReplayVersion;
             public int VectorCases, NativeVectorCases, VectorReplayVersion;
             public int NativeVectorSequenceTicks;
@@ -100,7 +106,9 @@ namespace LegendaryTools.FixedPoint
             var report = new Report { Platform = Application.platform + " " + SystemInfo.processorType };
             try
             {
-                FixedRuntime.Initialize();
+                var quaternionNormalization = Array.IndexOf(arguments,"--fixed-quaternion-normalize-composition") >= 0 ? FixedQuaternionNormalizationMode.NormalizeResult : FixedQuaternionNormalizationMode.None;
+                FixedRuntime.Initialize(new FixedSettings(quaternionNormalization:quaternionNormalization));
+                report.QuaternionNormalization=quaternionNormalization.ToString();
                 ValidatePublicApi(report);
                 string[] lines = FixedPlayerReference.Vectors.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                 int referenceCases = lines.Length * 2;
@@ -154,6 +162,14 @@ namespace LegendaryTools.FixedPoint
                     out report.VectorInputChecksum, out report.NativeVectorSequenceTicks, vectorTracePath);
                 report.VectorPublicApiPassed = true;
                 report.VectorReplayVersion = FixedVectorReplayCorpus.Version;
+                string quaternionTracePath=null;
+                foreach (string argument in arguments) if (argument.StartsWith("--fixed-quaternion-replay-trace=",StringComparison.Ordinal)) quaternionTracePath=argument.Substring("--fixed-quaternion-replay-trace=".Length);
+                FixedQuaternionPlayerValidation.Run(out report.QuaternionCases,out report.NativeQuaternionCases,out report.QuaternionChecksum,quaternionTracePath);
+                report.QuaternionReplayVersion=FixedQuaternionReplayCorpus.Version; report.QuaternionPublicApiPassed=true;
+                string quaternionSequenceTracePath=null;
+                foreach (string argument in arguments) if (argument.StartsWith("--fixed-quaternion-sequence-trace=",StringComparison.Ordinal)) quaternionSequenceTracePath=argument.Substring("--fixed-quaternion-sequence-trace=".Length);
+                FixedQuaternionPlayerValidation.RunSequences(out report.QuaternionSequenceCases,out report.NativeQuaternionSequenceCases,out report.QuaternionSequenceChecksum,quaternionSequenceTracePath);
+                report.QuaternionSequenceVersion=FixedQuaternionSequenceCorpus.Version;
                 report.Passed = true;
             }
             catch (Exception exception) { report.Error = exception.ToString(); }

@@ -15,12 +15,13 @@ namespace LegendaryTools.Deterministic
         private const uint Magic = 0x3152444cu;
         private const int HeaderBytes = 32, RecordHeaderBytes = 5, ChecksumBytes = 8;
         private enum Kind : byte { Input = 1, Checkpoint = 2 }
-        private struct Record { internal Kind Kind; internal int Offset, Bytes; internal long Tick; }
+        // The derived checkpoint index fits the old alignment padding; it never enters canonical bytes.
+        private struct Record { internal Kind Kind; internal int Offset, Bytes, Checkpoint; internal long Tick; }
         private readonly IDeterministicMemory memory;
         private readonly int maxBytes, maxRecords, maxPlayers;
         private readonly ulong fingerprint;
         private readonly TCodec codec;
-        private byte* data, stage;
+        private byte* data;
         private Record* records, stagedRecords;
         private DeterministicPlayerInput<TInput>* decoded;
         private int used = HeaderBytes, count;
@@ -38,11 +39,11 @@ namespace LegendaryTools.Deterministic
                 DeterministicStatus.InvalidConfiguration.ThrowIfFailure();
             this.fingerprint = fingerprint; maxBytes = maxArchiveBytes; this.maxRecords = maxRecords;
             this.maxPlayers = maxPlayers; this.codec = codec;
-            long bytesOffset = ((long)maxBytes * 2 + 15) & ~15L;
+            long bytesOffset = ((long)maxBytes + 15) & ~15L;
             long recordsBytes = ((long)sizeof(Record) * maxRecords + 15) & ~15L;
             long total = bytesOffset + recordsBytes * 2 + (long)sizeof(DeterministicPlayerInput<TInput>) * maxPlayers;
             if (total > int.MaxValue - 15) DeterministicStatus.CapacityExceeded.ThrowIfFailure();
-            memory = context.Memory.Allocate((int)total); data = memory.Pointer; stage = data + maxBytes;
+            memory = context.Memory.Allocate((int)total); data = memory.Pointer;
             records = (Record*)(data + bytesOffset); stagedRecords = (Record*)((byte*)records + recordsBytes);
             decoded = (DeterministicPlayerInput<TInput>*)((byte*)stagedRecords + recordsBytes);
         }
@@ -69,7 +70,8 @@ namespace LegendaryTools.Deterministic
             int offset = used; var writer = new DeterministicWriter(data, maxBytes, used);
             writer.TryUInt((byte)kind, 1); writer.TryUInt((uint)bytes, 4); writer.TryBytes(payload, bytes);
             writer.TryUInt(DeterministicHash.Xxh64(data + offset, RecordHeaderBytes + bytes), ChecksumBytes);
-            records[count++] = new Record { Kind = kind, Tick = tick, Offset = offset + RecordHeaderBytes, Bytes = bytes };
+            records[count] = new Record { Kind = kind, Tick = tick, Offset = offset + RecordHeaderBytes, Bytes = bytes,
+                Checkpoint = kind == Kind.Checkpoint ? count : records[count - 1].Checkpoint }; count++;
             used = writer.Position; return DeterministicStatus.None;
         }
         public DeterministicStatus TryAppendCheckpoint(DeterministicStateRegistry registry, long tick)
@@ -97,8 +99,17 @@ namespace LegendaryTools.Deterministic
             for (int i = 0; i < inputs.Length; i++) if (!inputs[i].Player.IsValid || (i > 0 && inputs[i - 1].Player.CompareTo(inputs[i].Player) >= 0)) return DeterministicStatus.InvalidConfiguration;
             var measure = DeterministicWriter.CreateMeasure(); var status = WriteInputs(ref measure, tick, inputs, stateHashAfter); if (!status.IsSuccess()) return status;
             if (measure.Position > maxBytes || count == maxRecords || measure.Position > maxBytes - used - RecordHeaderBytes - ChecksumBytes * 2) return DeterministicStatus.CapacityExceeded;
-            var writer = new DeterministicWriter(stage, maxBytes); status = WriteInputs(ref writer, tick, inputs, stateHashAfter); if (!status.IsSuccess()) return status;
-            status = Append(Kind.Input, tick, stage, writer.Position); if (status.IsSuccess()) nextTick++; return status;
+            // Only unused tail bytes are written until the record is complete. A failed codec cannot replace live data.
+            int payloadStart = used + RecordHeaderBytes;
+            // Keep the codec's record-relative cursor identical to the former staging writer.
+            var writer = new DeterministicWriter(data + payloadStart, maxBytes - payloadStart - ChecksumBytes * 2);
+            status = WriteInputs(ref writer, tick, inputs, stateHashAfter); if (!status.IsSuccess()) return status;
+            int bytes = writer.Position;
+            var header = new DeterministicWriter(data, maxBytes, used); header.TryUInt((byte)Kind.Input, 1); header.TryUInt((uint)bytes, 4);
+            writer = new DeterministicWriter(data, maxBytes, payloadStart + bytes);
+            writer.TryUInt(DeterministicHash.Xxh64(data + used, RecordHeaderBytes + bytes), ChecksumBytes);
+            records[count] = new Record { Kind = Kind.Input, Tick = tick, Offset = payloadStart, Bytes = bytes, Checkpoint = records[count - 1].Checkpoint };
+            count++; used = writer.Position; nextTick++; return DeterministicStatus.None;
         }
         public DeterministicStatus TryWriteCanonical(ref DeterministicWriter writer)
         {
@@ -136,7 +147,7 @@ namespace LegendaryTools.Deterministic
             trial.TryUInt(4, out ulong schema); trial.TryUInt(2, out ulong codecVersion); trial.TryUInt(8, out ulong firstTick); trial.TryUInt(4, out ulong recordCount);
             if (magic != Magic || version != 1 || firstTick >= long.MaxValue || recordCount == 0 || recordCount > (uint)maxRecords) return DeterministicStatus.InvalidEncoding;
             if (profile != fingerprint || schema != codec.SchemaId || codecVersion != codec.Version) return DeterministicStatus.ProfileMismatch;
-            long at = (long)firstTick;
+            long at = (long)firstTick; int checkpoint = -1;
             for (int i = 0; i < (int)recordCount; i++)
             {
                 if (!trial.Has(RecordHeaderBytes)) return DeterministicStatus.BufferTooSmall;
@@ -148,7 +159,8 @@ namespace LegendaryTools.Deterministic
                 else status = ReadInputs(ref element, out tick, out _, out _);
                 if (!status.IsSuccess()) return status;
                 if (tick != at || element.Position != element.Length) return DeterministicStatus.InvalidEncoding;
-                stagedRecords[i] = new Record { Kind = (Kind)kind, Tick = tick, Offset = trial.Position - start, Bytes = (int)size };
+                if (kind == (byte)Kind.Checkpoint) checkpoint = i;
+                stagedRecords[i] = new Record { Kind = (Kind)kind, Tick = tick, Offset = trial.Position - start, Bytes = (int)size, Checkpoint = checkpoint };
                 trial.Position += (int)size; status = trial.TryUInt(ChecksumBytes, out ulong checksum); if (!status.IsSuccess()) return status;
                 if (DeterministicHash.Xxh64(trial.Buffer + recordStart, RecordHeaderBytes + (int)size) != checksum) return DeterministicStatus.InvalidEncoding;
                 if (kind == (byte)Kind.Input) at++;
@@ -156,7 +168,8 @@ namespace LegendaryTools.Deterministic
             }
             int body = trial.Position - start; var footer = trial.TryUInt(ChecksumBytes, out ulong archiveHash); if (!footer.IsSuccess()) return footer;
             if (DeterministicHash.Xxh64(trial.Buffer + start, body) != archiveHash) return DeterministicStatus.InvalidEncoding;
-            RuntimeBytes.Copy(trial.Buffer + start, stage, body); RuntimeBytes.Copy(stage, data, body);
+            // Validation has completed; memmove also supports a packet borrowed from this owner.
+            RuntimeBytes.Copy(trial.Buffer + start, data, body);
             for (int i = 0; i < (int)recordCount; i++) records[i] = stagedRecords[i];
             used = body; count = (int)recordCount; initialTick = (long)firstTick; nextTick = at; initialized = true; reader = trial; return DeterministicStatus.None;
         }
@@ -164,8 +177,16 @@ namespace LegendaryTools.Deterministic
         {
             recordIndex = -1; boundary = -1; if (disposed) return DeterministicStatus.Disposed;
             if (!initialized || targetBoundary < initialTick || targetBoundary > nextTick) return DeterministicStatus.OutOfRange;
-            for (int i = 0; i < count; i++) if (records[i].Kind == Kind.Checkpoint && records[i].Tick <= targetBoundary) { recordIndex = i; boundary = records[i].Tick; }
+            int at = UpperBound(targetBoundary) - 1;
+            if (at >= 0) { recordIndex = records[at].Checkpoint; boundary = records[recordIndex].Tick; }
             return recordIndex < 0 ? DeterministicStatus.NotFound : DeterministicStatus.None;
+        }
+        private int UpperBound(long tick)
+        {
+            int first = 0, last = count;
+            while (first < last)
+            { int middle = first + (last - first) / 2; if (records[middle].Tick <= tick) first = middle + 1; else last = middle; }
+            return first;
         }
         public DeterministicStatus TryRestoreCheckpoint(DeterministicStateRegistry registry, int recordIndex, out long boundary)
         {
@@ -177,9 +198,10 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryReadInputs(long tick, out ReadOnlySpan<DeterministicPlayerInput<TInput>> inputs, out ulong stateHashAfter)
         {
             inputs = default; stateHashAfter = 0; if (disposed) return DeterministicStatus.Disposed;
-            for (int i = 0; i < count; i++) if (records[i].Kind == Kind.Input && records[i].Tick == tick)
+            int index = UpperBound(tick) - 1;
+            if (index >= 0 && records[index].Kind == Kind.Input && records[index].Tick == tick)
             {
-                var record = records[i]; var reader = new DeterministicReader(data + record.Offset, record.Bytes);
+                var record = records[index]; var reader = new DeterministicReader(data + record.Offset, record.Bytes);
                 var status = ReadInputs(ref reader, out _, out int players, out stateHashAfter);
                 if (status.IsSuccess()) inputs = new ReadOnlySpan<DeterministicPlayerInput<TInput>>(decoded, players); return status;
             }
@@ -188,11 +210,19 @@ namespace LegendaryTools.Deterministic
         /// <summary>Use a fresh runner at a restored checkpoint boundary when seeking backwards; confirmed effects are irreversible.</summary>
         public DeterministicStatus TryReplayTo<TEquality, TEvent>(DeterministicSimulationRunner<TInput, TEquality, TEvent> runner, long targetBoundary)
             where TEquality : unmanaged, IDeterministicEquality<TInput> where TEvent : unmanaged
+            => TryReplayToBounded(runner, targetBoundary, int.MaxValue, out _);
+        /// <summary>Resume replay on a fresh checkpoint runner, spending at most maxTicks in this call.</summary>
+        public DeterministicStatus TryReplayToBounded<TEquality, TEvent>(DeterministicSimulationRunner<TInput, TEquality, TEvent> runner,
+            long targetBoundary, int maxTicks, out int executedTicks)
+            where TEquality : unmanaged, IDeterministicEquality<TInput> where TEvent : unmanaged
         {
+            executedTicks = 0;
+            if (disposed) return DeterministicStatus.Disposed;
+            if (maxTicks < 0) return DeterministicStatus.OutOfRange;
             if (runner == null || runner.Fingerprint != fingerprint) return DeterministicStatus.ProfileMismatch;
             if (targetBoundary < runner.NextTick || targetBoundary > nextTick) return DeterministicStatus.OutOfRange;
             PlayerId* ids = stackalloc PlayerId[64];
-            while (runner.NextTick < targetBoundary)
+            while (runner.NextTick < targetBoundary && executedTicks < maxTicks)
             {
                 long tick = runner.NextTick; var status = TryReadInputs(tick, out var inputs, out ulong expectedHash); if (!status.IsSuccess()) return status;
                 for (int i = 0; i < inputs.Length; i++) ids[i] = inputs[i].Player;
@@ -203,14 +233,15 @@ namespace LegendaryTools.Deterministic
                 }
                 if (runner.Confirmation == DeterministicConfirmationMode.ExternalCommit)
                 { status = runner.TryCommitInputsThrough(tick); if (!status.IsSuccess()) return status; }
-                status = runner.TryAdvance(1, out int executed); if (!status.IsSuccess()) return status;
-                if (executed != 1) return DeterministicStatus.ProtocolConflict;
+                status = runner.TryAdvanceBounded(1, out int executed, out int replayed); if (!status.IsSuccess()) return status;
+                if (executed != 1 || replayed != 0) return DeterministicStatus.ProtocolConflict;
+                executedTicks++;
                 status = runner.History.TryGetHash(tick + 1, out ulong actual); if (!status.IsSuccess()) return status;
                 if (actual != expectedHash) return DeterministicStatus.ProtocolConflict;
             }
-            return DeterministicStatus.None;
+            return runner.NextTick < targetBoundary ? DeterministicStatus.Pending : DeterministicStatus.None;
         }
         public void Dispose()
-        { if (disposed) return; disposed = true; memory.Dispose(); data = stage = null; records = stagedRecords = null; decoded = null; }
+        { if (disposed) return; disposed = true; memory.Dispose(); data = null; records = stagedRecords = null; decoded = null; }
     }
 }

@@ -27,6 +27,13 @@ namespace LegendaryTools.Deterministic
 
     public static class FixedDeterministicProfile
     {
+        /// <summary>Opt-in world profile for simulations using quaternions, scalar arithmetic and Philox.</summary>
+        public static DeterministicStatus TryQuaternionFingerprint(out ulong fingerprint)
+        {
+            var status = TryFingerprint(out fingerprint);
+            if (status.IsSuccess()) fingerprint = DeterministicHash.Mix(fingerprint ^ DeterministicHash.Mix(FixedRuntime.Settings.QuaternionFingerprint));
+            return status;
+        }
         public static DeterministicStatus TryFingerprint(out ulong fingerprint)
         {
             fingerprint = 0;

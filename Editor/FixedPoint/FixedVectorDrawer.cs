@@ -14,7 +14,7 @@ namespace LegendaryTools.FixedPoint.Editor
     public abstract class FixedVectorDrawer : PropertyDrawer
     {
         protected abstract int Dimensions { get; }
-        private static readonly string[] Axes = { "x", "y", "z" };
+        private static readonly string[] Axes = { "x", "y", "z", "w" };
         private readonly Dictionary<string, FixedStatus> messages = new Dictionary<string, FixedStatus>();
         private static int Precision(SerializedProperty value) => FixedVectorSerialization.Precision((byte)value.FindPropertyRelative("_precisionCode").intValue);
         private static string Message(FixedStatus status) => status.IsSuccess()
@@ -53,7 +53,7 @@ namespace LegendaryTools.FixedPoint.Editor
             }
             if (!status.IsSuccess()) return false;
             property.serializedObject.ApplyModifiedProperties();
-            Undo.SetCurrentGroupName("Edit fixed-point vector");
+            Undo.SetCurrentGroupName("Edit fixed-point components");
             for (int i = 0; i < targets.Length; i++)
             {
                 for (int j = 0; j < dimensions; j++) values[i].FindPropertyRelative("_" + Axes[j] + "Raw").longValue = candidates[i, j];

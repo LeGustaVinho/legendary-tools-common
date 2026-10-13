@@ -21,7 +21,8 @@ namespace LegendaryTools.Deterministic
         public static int Count(ref TBuffer buffer)
         {
             int total = 0;
-            for (int i = 0; i < buffer.Capacity; i++) { ulong bits = buffer.Read(i); while (bits != 0) { bits &= bits - 1; total++; } }
+            int capacity = buffer.Capacity;
+            for (int i = 0; i < capacity; i++) total += DeterministicBits.Count(buffer.Read(i));
             return total;
         }
         public static int NextSetBit(ref TBuffer buffer, int length, int start)
@@ -32,7 +33,7 @@ namespace LegendaryTools.Deterministic
             {
                 if (bits != 0)
                 {
-                    int bit = 0; while ((bits & 1) == 0) { bits >>= 1; bit++; }
+                    int bit = DeterministicBits.TrailingZeroCount(bits);
                     int found = word * 64 + bit; return found < length ? found : -1;
                 }
                 word++; if (word >= buffer.Capacity) return -1; bits = buffer.Read(word);

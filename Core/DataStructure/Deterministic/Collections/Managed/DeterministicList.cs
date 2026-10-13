@@ -48,8 +48,8 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryGet(int index, out T value) => SequenceKernel<T, ManagedStorage<T>>.TryGet(ref Storage, State, index, out value);
         public DeterministicStatus TrySet(int index, in T value) => SequenceKernel<T, ManagedStorage<T>>.TrySet(ref Storage, State, index, value);
         public DeterministicStatus TryAdd(in T item) => TryInsert(Count, item);
-        public DeterministicStatus TryInsert(int index, in T item) => SequenceKernel<T, ManagedStorage<T>>.TryInsert(ref Storage, ref State, index, item);
-        public DeterministicStatus TryRemoveAt(int index) => SequenceKernel<T, ManagedStorage<T>>.TryRemoveAt(ref Storage, ref State, index);
+        public DeterministicStatus TryInsert(int index, in T item) => SequenceKernel<T, ManagedStorage<T>>.TryInsert(ref Storage, ref State, index, item, default(ManagedMovement<T>));
+        public DeterministicStatus TryRemoveAt(int index) => SequenceKernel<T, ManagedStorage<T>>.TryRemoveAt(ref Storage, ref State, index, false, default(ManagedMovement<T>));
         public DeterministicStatus TryRemoveAtSwapBack(int index) => SequenceKernel<T, ManagedStorage<T>>.TryRemoveAt(ref Storage, ref State, index, true);
         public DeterministicStatus TryClear() => SequenceKernel<T, ManagedStorage<T>>.TryClear(ref Storage, ref State);
         public void Add(T item) => TryAdd(item).ThrowIfFailure();

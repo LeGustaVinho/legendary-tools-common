@@ -65,10 +65,9 @@ namespace LegendaryTools.FixedPoint
             Sum(a.X, b.X.Negated, rounding), Sum(a.Y, b.Y.Negated, rounding), Sum(a.Z, b.Z.Negated, rounding));
 
         // Exact rational rounding, including decimal midpoint ties and all overflow policies.
-        private static ulong RoundRatio(FixedQ numerator, FixedBigUInt denominator, FixedRuntimeState state, ref FixedStatus status)
+        internal static ulong RoundRatio(FixedQ numerator, FixedBigUInt denominator, FixedRuntimeState state, ref FixedStatus status)
         {
-            FixedBigUInt q = FixedBigUInt.Divide(numerator.Magnitude, denominator);
-            FixedBigUInt rem = FixedBigUInt.Mod(numerator.Magnitude, denominator);
+            FixedBigUInt q = FixedBigUInt.DivRem(numerator.Magnitude, denominator, out FixedBigUInt rem);
             if (!rem.IsZero)
             {
                 status |= FixedStatus.Inexact;
@@ -85,7 +84,7 @@ namespace LegendaryTools.FixedPoint
 
         // Round sqrt(numerator/denominator) by comparing squared midpoint boundaries.
         // No rounded magnitude is used as the divisor of normalization.
-        private static ulong RoundRootRatio(FixedBigUInt numerator, FixedBigUInt denominator, bool negative,
+        internal static ulong RoundRootRatio(FixedBigUInt numerator, FixedBigUInt denominator, bool negative,
             FixedRuntimeState state, ref FixedStatus status)
         {
             FixedBigUInt root = FixedBigUInt.Sqrt(FixedBigUInt.Divide(numerator, denominator));

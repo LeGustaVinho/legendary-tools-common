@@ -47,7 +47,7 @@ namespace LegendaryTools.Deterministic
                 status = Reserve(ref buffer, required, next, phase != 0); if (!status.IsSuccess()) return status;
             }
             var item = new LinkedListValue<T> { Value = value, Previous = previous, Next = next };
-            var added = SlotMapKernel<LinkedListValue<T>, TBuffer>.TryAdd(ref buffer, ref slots, item, out handle); if (!added.IsSuccess()) return added;
+            SlotMapKernel<LinkedListValue<T>, TBuffer>.AddReserved(ref buffer, ref slots, item, out handle);
             Link(ref buffer, previous, handle, true); Link(ref buffer, next, handle, false);
             if (!previous.IsValid) links.First = handle; if (!next.IsValid) links.Last = handle;
             buffer.CommitWrite(); return DeterministicStatus.None;
@@ -64,7 +64,7 @@ namespace LegendaryTools.Deterministic
                 if (slot.Generation != uint.MaxValue && slots.FreeTail != 0)
                 { status = phase == 0 ? buffer.CanPrepareWrite(buffer.Capacity, slots.FreeTail - 1, 1) : buffer.PrepareWrite(buffer.Capacity, slots.FreeTail - 1, 1); if (!status.IsSuccess()) return status; }
             }
-            status = SlotMapKernel<LinkedListValue<T>, TBuffer>.TryRemove(ref buffer, ref slots, handle); if (!status.IsSuccess()) return status;
+            SlotMapKernel<LinkedListValue<T>, TBuffer>.RemoveReserved(ref buffer, ref slots, (int)handle.Index, slot);
             Link(ref buffer, node.Previous, node.Next, true); Link(ref buffer, node.Next, node.Previous, false);
             if (!node.Previous.IsValid) links.First = node.Next; if (!node.Next.IsValid) links.Last = node.Previous;
             buffer.CommitWrite(); return DeterministicStatus.None;

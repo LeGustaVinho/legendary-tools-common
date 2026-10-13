@@ -19,12 +19,16 @@ namespace LegendaryTools.Deterministic
             value = default;
             if (!IsCreated) return DeterministicStatus.Disposed;
             if ((uint)index >= (uint)Count) return DeterministicStatus.OutOfRange;
-            int encoded = State.OrderHead;
-            for (int i = 0; i <= index; i++)
+            bool backwards = index > (Count - 1) / 2;
+            int encoded = backwards ? State.OrderTail : State.OrderHead;
+            int distance = backwards ? Count - 1 - index : index;
+            int capacity = Entries.Capacity;
+            for (int i = 0; i <= distance; i++)
             {
-                var status = Entries.TryGet(encoded - 1, out var entry); if (!status.IsSuccess()) return status;
-                if (i == index) { value = new KeyValuePair<TKey, TValue>(entry.Key, entry.Value); return DeterministicStatus.None; }
-                encoded = entry.OrderNext;
+                if ((uint)(encoded - 1) >= (uint)capacity) return DeterministicStatus.OutOfRange;
+                ref readonly var entry = ref Entries.Owner.ReadSnapshotReference(Entries.Slot, encoded - 1);
+                if (i == distance) { value = new KeyValuePair<TKey, TValue>(entry.Key, entry.Value); return DeterministicStatus.None; }
+                encoded = backwards ? entry.OrderPrevious : entry.OrderNext;
             }
             return DeterministicStatus.InvalidEncoding;
         }

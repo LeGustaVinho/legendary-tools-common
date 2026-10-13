@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace LegendaryTools.Deterministic
 {
     /// <summary>XXH64, algorithm version 1. Input is canonical bytes, never a struct memory image.</summary>
@@ -6,12 +8,18 @@ namespace LegendaryTools.Deterministic
         public const ushort Version = 1;
         private const ulong P1 = 11400714785074694791UL, P2 = 14029467366897019727UL,
             P3 = 1609587929392839161UL, P4 = 9650029242287828579UL, P5 = 2870177450012600261UL;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ulong Rotate(ulong x, int n) => (x << n) | (x >> (64 - n));
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ulong Read64(byte* p)
-        { ulong v = 0; for (int i = 0; i < 8; i++) v |= (ulong)p[i] << (8 * i); return v; }
+            => (ulong)p[0] | (ulong)p[1] << 8 | (ulong)p[2] << 16 | (ulong)p[3] << 24 |
+                (ulong)p[4] << 32 | (ulong)p[5] << 40 | (ulong)p[6] << 48 | (ulong)p[7] << 56;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static uint Read32(byte* p)
-        { uint v = 0; for (int i = 0; i < 4; i++) v |= (uint)p[i] << (8 * i); return v; }
+            => (uint)p[0] | (uint)p[1] << 8 | (uint)p[2] << 16 | (uint)p[3] << 24;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ulong Round(ulong accumulator, ulong input) => unchecked(Rotate(accumulator + input * P2, 31) * P1);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ulong Merge(ulong accumulator, ulong lane) => unchecked((accumulator ^ Round(0, lane)) * P1 + P4);
         public static ulong Mix(ulong value)
         { unchecked { value ^= value >> 33; value *= P2; value ^= value >> 29; value *= P3; return value ^ (value >> 32); } }

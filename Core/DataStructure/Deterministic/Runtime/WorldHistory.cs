@@ -3,7 +3,7 @@ using System;
 namespace LegendaryTools.Deterministic
 {
     /// <summary>Bounded checkpoint history. Captures are consecutive tick boundaries; returned bytes are borrowed.</summary>
-    public sealed unsafe class DeterministicWorldHistory : IDisposable
+    public sealed unsafe class DeterministicWorldHistory : IDeterministicWorldHistory
     {
         private enum Format : byte { Empty, Full, Delta, Pages }
         private struct Frame
@@ -23,7 +23,11 @@ namespace LegendaryTools.Deterministic
         private long first = -1, newest = -1, anchorTick = -1;
         private int anchorLength;
         private bool disposed;
+        private DeterministicStateRegistry localRegistry;
+        private ulong[] localLeases;
         public DeterministicBackend Backend { get; }
+        public uint HashAlgorithmId => 1;
+        public ulong HashConfigurationFingerprint => DeterministicHash.Mix(0x4750484153480001UL);
         public SnapshotPolicy Policy => policy;
         public int Capacity => retention;
         public int MaxCheckpointBytes => maxBytes;
@@ -32,6 +36,9 @@ namespace LegendaryTools.Deterministic
         public int LivePages => policy == SnapshotPolicy.CopyOnWrite ? pageCount - freeCount : 0;
         /// <summary>Logical bytes reserved by the bounded arena, excluding allocator/object overhead.</summary>
         public int ReservedBytes => disposed ? 0 : memory.Length;
+        long IDeterministicWorldHistory.ReservedBytes => ReservedBytes;
+        /// <summary>Optional host lease-table payload, separate from the canonical arena and index COW pools.</summary>
+        public long LocalHistoryReservedBytes => disposed || localLeases == null ? 0 : (long)localLeases.Length * sizeof(ulong);
 
         public DeterministicWorldHistory(DeterministicRuntimeContext context, int maxCheckpointBytes,
             int capacity, SnapshotPolicy policy = SnapshotPolicy.KeyframesAndDeltas,
@@ -46,14 +53,15 @@ namespace LegendaryTools.Deterministic
             pagesPerFrame = checked((int)(((long)maxBytes + pageBytes - 1) / pageBytes));
             pageCount = policy == SnapshotPolicy.CopyOnWrite ? checked(pagesPerFrame * (slots + 1)) : 0;
             long metadata = Align16((long)sizeof(Frame) * slots);
-            long bytes = metadata + Align16(maxBytes) * 2;
+            long bytes = metadata + Align16(maxBytes) * (policy == SnapshotPolicy.KeyframesAndDeltas ? 2 : 1);
             if (policy == SnapshotPolicy.CopyOnWrite)
                 bytes += (long)pageCount * pageBytes + (long)sizeof(int) * (pageCount * 2L + pagesPerFrame * (slots + 1L));
             else bytes += (long)slots * maxBytes;
             if (bytes > int.MaxValue - 15) DeterministicStatus.CapacityExceeded.ThrowIfFailure();
             memory = context.Memory.Allocate((int)bytes);
-            frames = (Frame*)memory.Pointer; work = memory.Pointer + metadata; anchor = work + Align16(maxBytes);
-            data = anchor + Align16(maxBytes);
+            frames = (Frame*)memory.Pointer; work = memory.Pointer + metadata;
+            anchor = policy == SnapshotPolicy.KeyframesAndDeltas ? work + Align16(maxBytes) : null;
+            data = work + Align16(maxBytes) * (policy == SnapshotPolicy.KeyframesAndDeltas ? 2 : 1);
             for (int i = 0; i < slots; i++) frames[i].Tick = -1;
             if (policy == SnapshotPolicy.CopyOnWrite)
             {
@@ -82,8 +90,16 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryCapture(DeterministicStateRegistry registry, long tick)
         {
             if (registry == null || registry.Backend != Backend) return DeterministicStatus.ProfileMismatch;
+            if (disposed) return DeterministicStatus.Disposed;
             var status = registry.TryEncode(tick, out byte* packet, out int length); if (!status.IsSuccess()) return status;
-            return TryCapture(tick, packet, length);
+            if (localRegistry == null && registry.HasLocalHistory)
+            {
+                if ((long)slots * registry.Count > int.MaxValue) return DeterministicStatus.CapacityExceeded;
+                localLeases = new ulong[slots * registry.Count]; localRegistry = registry;
+            }
+            status = TryCapture(tick, packet, length); if (!status.IsSuccess()) return status;
+            if (ReferenceEquals(localRegistry, registry)) registry.CaptureLocal(this, tick, localLeases, Slot(tick) * registry.Count);
+            return DeterministicStatus.None;
         }
         public DeterministicStatus TryCapture(long tick, byte* packet, int length)
         {
@@ -103,14 +119,24 @@ namespace LegendaryTools.Deterministic
                 if (keyframe || delta >= length)
                 {
                     RuntimeBytes.Copy(packet, target, length); frame.Format = Format.Full; frame.Stored = length;
-                    RuntimeBytes.Copy(packet, anchor, length); anchorLength = length; anchorTick = tick;
+                    if (policy == SnapshotPolicy.KeyframesAndDeltas)
+                    { RuntimeBytes.Copy(packet, anchor, length); anchorLength = length; anchorTick = tick; }
                 }
                 else
                 {
                     WriteDelta(packet, length, target); frame.Format = Format.Delta; frame.Stored = delta; frame.BaseTick = anchorTick;
                 }
             }
-            frames[slot] = frame; if (first < 0) first = tick; newest = tick; return DeterministicStatus.None;
+            ReleaseLocal(slot);
+            frames[slot] = frame; if (first < 0) first = tick; newest = tick;
+            long expired = tick - retention;
+            if (expired >= 0 && frames[Slot(expired)].Tick == expired) ReleaseLocal(Slot(expired));
+            return DeterministicStatus.None;
+        }
+        private void ReleaseLocal(int slot)
+        {
+            if (localRegistry != null && frames[slot].Tick >= 0)
+                localRegistry.ReleaseLocal(this, frames[slot].Tick, localLeases, slot * localRegistry.Count);
         }
         private int DeltaBytes(byte* packet, int length)
         {
@@ -159,14 +185,20 @@ namespace LegendaryTools.Deterministic
         private DeterministicStatus CapturePages(int slot, byte* packet, int length, ref Frame frame)
         {
             int count = (int)(((long)length + pageBytes - 1) / pageBytes), previous = newest < 0 ? -1 : Slot(newest), needed = 0;
-            for (int i = 0; i < count; i++) if (!CanShare(previous, i, packet, length, out _)) needed++;
+            for (int i = 0; i < count; i++)
+            {
+                bool shared = CanShare(previous, i, packet, length, out int page);
+                stagedPages[i] = shared ? page : -1; if (!shared) needed++;
+            }
             if (needed > freeCount) return DeterministicStatus.SnapshotCapacityExceeded;
             for (int i = 0; i < count; i++)
             {
-                if (!CanShare(previous, i, packet, length, out int page))
+                int page = stagedPages[i];
+                if (page < 0)
                 {
                     page = freePages[--freeCount]; byte* target = data + (long)page * pageBytes;
-                    RuntimeBytes.Clear(target, pageBytes); RuntimeBytes.Copy(packet + i * pageBytes, target, Math.Min(pageBytes, length - i * pageBytes));
+                    int used = Math.Min(pageBytes, length - i * pageBytes);
+                    RuntimeBytes.Copy(packet + i * pageBytes, target, used); RuntimeBytes.Clear(target + used, pageBytes - used);
                 }
                 pageRefs[page]++; stagedPages[i] = page;
             }
@@ -216,10 +248,9 @@ namespace LegendaryTools.Deterministic
             if (registry == null || registry.Backend != Backend) return DeterministicStatus.ProfileMismatch;
             var status = TryRestore(tick, out byte* packet, out int length); if (!status.IsSuccess()) return status;
             var reader = new DeterministicReader(packet, length);
-            var validation = reader;
-            status = registry.TryValidateCanonical(ref validation, out long validatedTick); if (!status.IsSuccess()) return status;
-            if (validatedTick != tick || validation.Position != length) return DeterministicStatus.ProtocolConflict;
-            status = registry.TryReadCanonical(ref reader, out long decodedTick);
+            status = ReferenceEquals(localRegistry, registry)
+                ? registry.TryReadCanonicalBoundary(ref reader, out long decodedTick, tick, length, this, localLeases, Slot(tick) * registry.Count)
+                : registry.TryReadCanonicalBoundary(ref reader, out decodedTick, tick, length);
             return status.IsSuccess() && (decodedTick != tick || reader.Position != length) ? DeterministicStatus.ProtocolConflict : status;
         }
         public DeterministicStatus TryTruncate(long tick)
@@ -233,18 +264,21 @@ namespace LegendaryTools.Deterministic
                 anchorTick = basis;
             }
             for (int i = 0; i < slots; i++) if (frames[i].Tick > tick)
-            { ReleasePages(i); frames[i] = default; frames[i].Tick = -1; }
+            { ReleaseLocal(i); ReleasePages(i); frames[i] = default; frames[i].Tick = -1; }
             first = OldestTick; newest = tick; return DeterministicStatus.None;
         }
         public void Dispose()
         {
-            if (disposed) return; disposed = true; memory.Dispose(); frames = null; data = work = anchor = null;
+            if (disposed) return;
+            for (int i = 0; i < slots; i++) ReleaseLocal(i);
+            disposed = true; memory.Dispose(); frames = null; data = work = anchor = null;
             pageRefs = freePages = framePages = stagedPages = null;
+            localRegistry = null; localLeases = null;
         }
         public DeterministicStatus TryReset()
         {
             if (disposed) return DeterministicStatus.Disposed;
-            for (int i = 0; i < slots; i++) { ReleasePages(i); frames[i] = default; frames[i].Tick = -1; }
+            for (int i = 0; i < slots; i++) { ReleaseLocal(i); ReleasePages(i); frames[i] = default; frames[i].Tick = -1; }
             first = newest = anchorTick = -1; anchorLength = 0; return DeterministicStatus.None;
         }
     }

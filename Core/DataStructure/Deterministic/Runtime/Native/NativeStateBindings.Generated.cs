@@ -2,23 +2,25 @@
 namespace LegendaryTools.Deterministic
 {
 
-    public unsafe struct NativeArrayStateAdapter<T, TCodec> : ICanonicalStateAdapter where T : unmanaged where TCodec : unmanaged, IDeterministicCodec<T>
+    public unsafe struct NativeArrayStateAdapter<T, TCodec> : ICanonicalStateAdapter, IRevisionedCanonicalStateAdapter where T : unmanaged where TCodec : unmanaged, IDeterministicCodec<T>
     {
         private NativeDeterministicArray<T> collection;
         private readonly TCodec codec;
         public NativeArrayStateAdapter(NativeDeterministicArray<T> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+        public ulong Revision => collection.HistoryRevision;
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
     }
 
-    public unsafe struct NativeCellStateAdapter<T, TCodec> : ICanonicalStateAdapter where T : unmanaged where TCodec : unmanaged, IDeterministicCodec<T>
+    public unsafe struct NativeCellStateAdapter<T, TCodec> : ICanonicalStateAdapter, IRevisionedCanonicalStateAdapter where T : unmanaged where TCodec : unmanaged, IDeterministicCodec<T>
     {
         private NativeDeterministicCell<T> collection;
         private readonly TCodec codec;
         public NativeCellStateAdapter(NativeDeterministicCell<T> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+        public ulong Revision => collection.HistoryRevision;
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
@@ -30,6 +32,7 @@ namespace LegendaryTools.Deterministic
         private readonly TCodec codec;
         public NativeListStateAdapter(NativeDeterministicList<T> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
@@ -41,6 +44,7 @@ namespace LegendaryTools.Deterministic
         private readonly TCodec codec;
         public NativeQueueStateAdapter(NativeDeterministicQueue<T> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
@@ -52,6 +56,7 @@ namespace LegendaryTools.Deterministic
         private readonly TCodec codec;
         public NativeStackStateAdapter(NativeDeterministicStack<T> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
@@ -63,6 +68,7 @@ namespace LegendaryTools.Deterministic
         private readonly TCodec codec;
         public NativeDequeStateAdapter(NativeDeterministicDeque<T> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
@@ -74,17 +80,19 @@ namespace LegendaryTools.Deterministic
         private readonly TCodec codec;
         public NativeRingBufferStateAdapter(NativeDeterministicRingBuffer<T> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
     }
 
-    public unsafe struct NativeSlotMapStateAdapter<T, TCodec> : ICanonicalStateAdapter where T : unmanaged where TCodec : unmanaged, IDeterministicCodec<T>
+    public unsafe struct NativeSlotMapStateAdapter<T, TCodec> : ICanonicalStateAdapter, IRevisionedCanonicalStateAdapter where T : unmanaged where TCodec : unmanaged, IDeterministicCodec<T>
     {
         private NativeDeterministicSlotMap<T> collection;
         private readonly TCodec codec;
         public NativeSlotMapStateAdapter(NativeDeterministicSlotMap<T> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+        public ulong Revision => collection.HistoryRevision;
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
@@ -96,6 +104,7 @@ namespace LegendaryTools.Deterministic
         private readonly TCodec codec;
         public NativeLinkedListStateAdapter(NativeDeterministicLinkedList<T> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
@@ -107,6 +116,7 @@ namespace LegendaryTools.Deterministic
         private readonly TCodec codec;
         public NativeSparseSetStateAdapter(NativeDeterministicSparseSet<T> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
@@ -118,6 +128,7 @@ namespace LegendaryTools.Deterministic
         private readonly TCodec codec;
         public NativeHashSetStateAdapter(NativeDeterministicHashSet<T, TPolicy> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
@@ -129,17 +140,19 @@ namespace LegendaryTools.Deterministic
         private readonly TCodec codec;
         public NativeSortedSetStateAdapter(NativeDeterministicSortedSet<T, TPolicy> collection, TCodec codec) { this.collection = collection; this.codec = codec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec);
     }
 
-    public unsafe struct NativeDictionaryStateAdapter<TKey, TValue, TPolicy, TKeyCodec, TValueCodec> : ICanonicalStateAdapter where TKey : unmanaged where TValue : unmanaged where TPolicy : unmanaged, IDeterministicEquality<TKey> where TKeyCodec : unmanaged, IDeterministicCodec<TKey> where TValueCodec : unmanaged, IDeterministicCodec<TValue>
+    public unsafe struct NativeDictionaryStateAdapter<TKey, TValue, TPolicy, TKeyCodec, TValueCodec> : ICanonicalStateAdapter, IRevisionedCanonicalStateAdapter where TKey : unmanaged where TValue : unmanaged where TPolicy : unmanaged, IDeterministicEquality<TKey> where TKeyCodec : unmanaged, IDeterministicCodec<TKey> where TValueCodec : unmanaged, IDeterministicCodec<TValue>
     {
         private NativeDeterministicDictionary<TKey, TValue, TPolicy> collection;
         private readonly TKeyCodec keyCodec; private readonly TValueCodec valueCodec;
         public NativeDictionaryStateAdapter(NativeDeterministicDictionary<TKey, TValue, TPolicy> collection, TKeyCodec keyCodec, TValueCodec valueCodec) { this.collection = collection; this.keyCodec = keyCodec; this.valueCodec = valueCodec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+        public ulong Revision => collection.HistoryRevision;
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, keyCodec, valueCodec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, keyCodec, valueCodec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, keyCodec, valueCodec);
@@ -151,6 +164,7 @@ namespace LegendaryTools.Deterministic
         private readonly TKeyCodec keyCodec; private readonly TValueCodec valueCodec;
         public NativeMultiMapStateAdapter(NativeDeterministicMultiMap<TKey, TValue, TPolicy> collection, TKeyCodec keyCodec, TValueCodec valueCodec) { this.collection = collection; this.keyCodec = keyCodec; this.valueCodec = valueCodec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, keyCodec, valueCodec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, keyCodec, valueCodec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, keyCodec, valueCodec);
@@ -162,6 +176,7 @@ namespace LegendaryTools.Deterministic
         private readonly TKeyCodec keyCodec; private readonly TValueCodec valueCodec;
         public NativeSortedListStateAdapter(NativeDeterministicSortedList<TKey, TValue, TPolicy> collection, TKeyCodec keyCodec, TValueCodec valueCodec) { this.collection = collection; this.keyCodec = keyCodec; this.valueCodec = valueCodec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, keyCodec, valueCodec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, keyCodec, valueCodec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, keyCodec, valueCodec);
@@ -173,6 +188,7 @@ namespace LegendaryTools.Deterministic
         private readonly TKeyCodec keyCodec; private readonly TValueCodec valueCodec;
         public NativeSortedDictionaryStateAdapter(NativeDeterministicSortedDictionary<TKey, TValue, TPolicy> collection, TKeyCodec keyCodec, TValueCodec valueCodec) { this.collection = collection; this.keyCodec = keyCodec; this.valueCodec = valueCodec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, keyCodec, valueCodec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, keyCodec, valueCodec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, keyCodec, valueCodec);
@@ -184,6 +200,7 @@ namespace LegendaryTools.Deterministic
         private readonly TCodec codec; private readonly TPriorityCodec priorityCodec;
         public NativePriorityQueueStateAdapter(NativeDeterministicPriorityQueue<T, TPriority, TComparer> collection, TCodec codec, TPriorityCodec priorityCodec) { this.collection = collection; this.codec = codec; this.priorityCodec = priorityCodec; }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, codec, priorityCodec);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, codec, priorityCodec);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, codec, priorityCodec);
@@ -195,9 +212,34 @@ namespace LegendaryTools.Deterministic
 
         public NativeBitSetStateAdapter(NativeDeterministicBitSet collection) { this.collection = collection;  }
         public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
         public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer);
         public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch);
         public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch);
+    }
+
+    public unsafe struct NativeGraphStateAdapter<TNode, TEdge, TNodeCodec, TEdgeCodec> : ICanonicalStateAdapter where TNode : unmanaged where TEdge : unmanaged where TNodeCodec : unmanaged, IDeterministicCodec<TNode> where TEdgeCodec : unmanaged, IDeterministicCodec<TEdge>
+    {
+        private NativeDeterministicGraph<TNode, TEdge> collection;
+        private readonly TNodeCodec nodeCodec; private readonly TEdgeCodec edgeCodec;
+        public NativeGraphStateAdapter(NativeDeterministicGraph<TNode, TEdge> collection, TNodeCodec nodeCodec, TEdgeCodec edgeCodec) { this.collection = collection; this.nodeCodec = nodeCodec; this.edgeCodec = edgeCodec; }
+        public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
+        public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, nodeCodec, edgeCodec);
+        public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, nodeCodec, edgeCodec);
+        public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, nodeCodec, edgeCodec);
+    }
+
+    public unsafe struct NativePersistentGraphStateAdapter<TNode, TEdge, TNodeCodec, TEdgeCodec> : ICanonicalStateAdapter where TNode : unmanaged where TEdge : unmanaged where TNodeCodec : unmanaged, IDeterministicCodec<TNode> where TEdgeCodec : unmanaged, IDeterministicCodec<TEdge>
+    {
+        private NativePersistentDeterministicGraph<TNode, TEdge> collection;
+        private readonly TNodeCodec nodeCodec; private readonly TEdgeCodec edgeCodec;
+        public NativePersistentGraphStateAdapter(NativePersistentDeterministicGraph<TNode, TEdge> collection, TNodeCodec nodeCodec, TEdgeCodec edgeCodec) { this.collection = collection; this.nodeCodec = nodeCodec; this.edgeCodec = edgeCodec; }
+        public DeterministicBackend Backend => DeterministicBackend.BurstCompiler;
+
+        public DeterministicStatus TryWrite(ref DeterministicWriter writer) => collection.TryWriteCanonical(ref writer, nodeCodec, edgeCodec);
+        public DeterministicStatus TryValidate(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryValidateCanonical(ref reader, ref scratch, nodeCodec, edgeCodec);
+        public DeterministicStatus TryRead(ref DeterministicReader reader, ref CanonicalScratch scratch) => collection.TryReadCanonical(ref reader, ref scratch, nodeCodec, edgeCodec);
     }
 
     public static class NativeStateBindings
@@ -205,13 +247,13 @@ namespace LegendaryTools.Deterministic
 
         public static DeterministicStateBinding<NativeArrayStateAdapter<T, TCodec>> Array<T, TCodec>(uint stateId, NativeDeterministicArray<T> collection, TCodec codec,
             ulong semanticFingerprint, int maxCanonicalBytes, int scratchBytes) where T : unmanaged where TCodec : unmanaged, IDeterministicCodec<T>
-            => new DeterministicStateBinding<NativeArrayStateAdapter<T, TCodec>>(stateId,
+            => new RevisionedDeterministicStateBinding<NativeArrayStateAdapter<T, TCodec>>(stateId,
                 StateBindingSignatures.Combine(DeterministicCollectionKind.Array, semanticFingerprint, codec.SchemaId, codec.Version),
                 maxCanonicalBytes, scratchBytes, new NativeArrayStateAdapter<T, TCodec>(collection, codec));
 
         public static DeterministicStateBinding<NativeCellStateAdapter<T, TCodec>> Cell<T, TCodec>(uint stateId, NativeDeterministicCell<T> collection, TCodec codec,
             ulong semanticFingerprint, int maxCanonicalBytes, int scratchBytes) where T : unmanaged where TCodec : unmanaged, IDeterministicCodec<T>
-            => new DeterministicStateBinding<NativeCellStateAdapter<T, TCodec>>(stateId,
+            => new RevisionedDeterministicStateBinding<NativeCellStateAdapter<T, TCodec>>(stateId,
                 StateBindingSignatures.Combine(DeterministicCollectionKind.Cell, semanticFingerprint, codec.SchemaId, codec.Version),
                 maxCanonicalBytes, scratchBytes, new NativeCellStateAdapter<T, TCodec>(collection, codec));
 
@@ -247,7 +289,7 @@ namespace LegendaryTools.Deterministic
 
         public static DeterministicStateBinding<NativeSlotMapStateAdapter<T, TCodec>> SlotMap<T, TCodec>(uint stateId, NativeDeterministicSlotMap<T> collection, TCodec codec,
             ulong semanticFingerprint, int maxCanonicalBytes, int scratchBytes) where T : unmanaged where TCodec : unmanaged, IDeterministicCodec<T>
-            => new DeterministicStateBinding<NativeSlotMapStateAdapter<T, TCodec>>(stateId,
+            => new RevisionedDeterministicStateBinding<NativeSlotMapStateAdapter<T, TCodec>>(stateId,
                 StateBindingSignatures.Combine(DeterministicCollectionKind.SlotMap, semanticFingerprint, codec.SchemaId, codec.Version),
                 maxCanonicalBytes, scratchBytes, new NativeSlotMapStateAdapter<T, TCodec>(collection, codec));
 
@@ -277,7 +319,7 @@ namespace LegendaryTools.Deterministic
 
         public static DeterministicStateBinding<NativeDictionaryStateAdapter<TKey, TValue, TPolicy, TKeyCodec, TValueCodec>> Dictionary<TKey, TValue, TPolicy, TKeyCodec, TValueCodec>(uint stateId, NativeDeterministicDictionary<TKey, TValue, TPolicy> collection, TKeyCodec keyCodec, TValueCodec valueCodec,
             ulong semanticFingerprint, int maxCanonicalBytes, int scratchBytes) where TKey : unmanaged where TValue : unmanaged where TPolicy : unmanaged, IDeterministicEquality<TKey> where TKeyCodec : unmanaged, IDeterministicCodec<TKey> where TValueCodec : unmanaged, IDeterministicCodec<TValue>
-            => new DeterministicStateBinding<NativeDictionaryStateAdapter<TKey, TValue, TPolicy, TKeyCodec, TValueCodec>>(stateId,
+            => new RevisionedDeterministicStateBinding<NativeDictionaryStateAdapter<TKey, TValue, TPolicy, TKeyCodec, TValueCodec>>(stateId,
                 StateBindingSignatures.Combine(DeterministicCollectionKind.Dictionary, semanticFingerprint, keyCodec.SchemaId, keyCodec.Version, valueCodec.SchemaId, valueCodec.Version),
                 maxCanonicalBytes, scratchBytes, new NativeDictionaryStateAdapter<TKey, TValue, TPolicy, TKeyCodec, TValueCodec>(collection, keyCodec, valueCodec));
 
@@ -310,5 +352,17 @@ namespace LegendaryTools.Deterministic
             => new DeterministicStateBinding<NativeBitSetStateAdapter>(stateId,
                 StateBindingSignatures.Combine(DeterministicCollectionKind.BitSet, semanticFingerprint, 8, 1),
                 maxCanonicalBytes, scratchBytes, new NativeBitSetStateAdapter(collection));
+
+        public static DeterministicStateBinding<NativeGraphStateAdapter<TNode, TEdge, TNodeCodec, TEdgeCodec>> Graph<TNode, TEdge, TNodeCodec, TEdgeCodec>(uint stateId, NativeDeterministicGraph<TNode, TEdge> collection, TNodeCodec nodeCodec, TEdgeCodec edgeCodec,
+            ulong semanticFingerprint, int maxCanonicalBytes, int scratchBytes) where TNode : unmanaged where TEdge : unmanaged where TNodeCodec : unmanaged, IDeterministicCodec<TNode> where TEdgeCodec : unmanaged, IDeterministicCodec<TEdge>
+            => new DeterministicStateBinding<NativeGraphStateAdapter<TNode, TEdge, TNodeCodec, TEdgeCodec>>(stateId,
+                StateBindingSignatures.Combine(DeterministicCollectionKind.Graph, semanticFingerprint == 0 ? 0 : DeterministicHash.Mix(semanticFingerprint ^ collection.Options.SemanticFingerprint), nodeCodec.SchemaId, nodeCodec.Version, edgeCodec.SchemaId, edgeCodec.Version),
+                maxCanonicalBytes, scratchBytes, new NativeGraphStateAdapter<TNode, TEdge, TNodeCodec, TEdgeCodec>(collection, nodeCodec, edgeCodec));
+
+        public static DeterministicStateBinding<NativePersistentGraphStateAdapter<TNode, TEdge, TNodeCodec, TEdgeCodec>> PersistentGraph<TNode, TEdge, TNodeCodec, TEdgeCodec>(uint stateId, NativePersistentDeterministicGraph<TNode, TEdge> collection, TNodeCodec nodeCodec, TEdgeCodec edgeCodec,
+            ulong semanticFingerprint, int maxCanonicalBytes, int scratchBytes) where TNode : unmanaged where TEdge : unmanaged where TNodeCodec : unmanaged, IDeterministicCodec<TNode> where TEdgeCodec : unmanaged, IDeterministicCodec<TEdge>
+            => new DeterministicStateBinding<NativePersistentGraphStateAdapter<TNode, TEdge, TNodeCodec, TEdgeCodec>>(stateId,
+                StateBindingSignatures.Combine(DeterministicCollectionKind.Graph, semanticFingerprint == 0 ? 0 : DeterministicHash.Mix(semanticFingerprint ^ collection.Options.SemanticFingerprint), nodeCodec.SchemaId, nodeCodec.Version, edgeCodec.SchemaId, edgeCodec.Version),
+                maxCanonicalBytes, scratchBytes, new NativePersistentGraphStateAdapter<TNode, TEdge, TNodeCodec, TEdgeCodec>(collection, nodeCodec, edgeCodec));
     }
 }

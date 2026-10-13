@@ -102,12 +102,19 @@ namespace LegendaryTools.Deterministic
         /// <summary>Rebuild only derived bucket links after the validated primary buffer has been published.</summary>
         public void RebuildBuckets<TEntries, TBuckets>(ref TEntries entries, ref TBuckets buckets, in OrderedMapState state)
             where TEntries : struct, IDeterministicBuffer<OrderedHashEntry<TKey, TValue>> where TBuckets : struct, IDeterministicBuffer<int>
+            => RebuildBuckets(ref entries, ref buckets, state, false);
+        // Canonical staging already computed and checked these hashes; no second policy call is needed.
+        internal void RebuildValidatedBuckets<TEntries, TBuckets>(ref TEntries entries, ref TBuckets buckets, in OrderedMapState state)
+            where TEntries : struct, IDeterministicBuffer<OrderedHashEntry<TKey, TValue>> where TBuckets : struct, IDeterministicBuffer<int>
+            => RebuildBuckets(ref entries, ref buckets, state, true);
+        private void RebuildBuckets<TEntries, TBuckets>(ref TEntries entries, ref TBuckets buckets, in OrderedMapState state, bool validatedHashes)
+            where TEntries : struct, IDeterministicBuffer<OrderedHashEntry<TKey, TValue>> where TBuckets : struct, IDeterministicBuffer<int>
         {
             for (int i = 0; i < buckets.Capacity; i++) buckets.Write(i, 0);
             for (int i = 0; i < state.Used; i++)
             {
                 var node = entries.Read(i); if (node.Active == 0) continue;
-                node.Hash = policy.Hash(node.Key); int bucket = (int)(node.Hash & (uint)(buckets.Capacity - 1));
+                if (!validatedHashes) node.Hash = policy.Hash(node.Key); int bucket = (int)(node.Hash & (uint)(buckets.Capacity - 1));
                 node.BucketNext = buckets.Read(bucket); entries.Write(i, node); buckets.Write(bucket, i + 1);
             }
             buckets.CommitWrite();

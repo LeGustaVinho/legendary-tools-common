@@ -10,6 +10,7 @@ namespace LegendaryTools.FixedPoint
     public enum FixedMathProfile : byte { Accurate, Fast }
     public enum FixedArithmeticMode : byte { Auto, Portable, Intrinsic }
     public enum FixedExecutionMode : byte { Auto, Managed, Burst }
+    public enum FixedQuaternionNormalizationMode : byte { None, NormalizeResult }
 
     [Flags]
     public enum FixedStatus : uint
@@ -60,6 +61,7 @@ namespace LegendaryTools.FixedPoint
         public readonly FixedUnsignedNegative UnsignedNegative;
         public readonly FixedMathProfile MathProfile;
         public readonly FixedArithmeticMode ArithmeticMode;
+        public readonly FixedQuaternionNormalizationMode QuaternionNormalization;
 
         public static FixedSettings Default => new FixedSettings(3, 3);
 
@@ -69,7 +71,8 @@ namespace LegendaryTools.FixedPoint
             FixedZeroDivision zeroDivision = FixedZeroDivision.Infinity,
             FixedUnsignedNegative unsignedNegative = FixedUnsignedNegative.NaN,
             FixedMathProfile mathProfile = FixedMathProfile.Accurate,
-            FixedArithmeticMode arithmeticMode = FixedArithmeticMode.Auto)
+            FixedArithmeticMode arithmeticMode = FixedArithmeticMode.Auto,
+            FixedQuaternionNormalizationMode quaternionNormalization = FixedQuaternionNormalizationMode.None)
         {
             DecimalPlaces32 = decimalPlaces32;
             DecimalPlaces64 = decimalPlaces64;
@@ -79,13 +82,19 @@ namespace LegendaryTools.FixedPoint
             UnsignedNegative = unsignedNegative;
             MathProfile = mathProfile;
             ArithmeticMode = arithmeticMode;
+            QuaternionNormalization = quaternionNormalization;
         }
 
         public bool IsValid => DecimalPlaces32 >= 0 && DecimalPlaces32 <= 9 &&
             DecimalPlaces64 >= 0 && DecimalPlaces64 <= 18 &&
             Rounding <= FixedRounding.TowardNegativeInfinity && Overflow <= FixedOverflow.WrapFinite &&
             ZeroDivision <= FixedZeroDivision.NaN && UnsignedNegative <= FixedUnsignedNegative.WrapFinite &&
-            MathProfile <= FixedMathProfile.Fast && ArithmeticMode <= FixedArithmeticMode.Intrinsic;
+            MathProfile <= FixedMathProfile.Fast && ArithmeticMode <= FixedArithmeticMode.Intrinsic &&
+            QuaternionNormalization <= FixedQuaternionNormalizationMode.NormalizeResult;
+
+        /// <summary>Rotation compatibility; deliberately separate from the existing scalar wire contract.</summary>
+        public ulong QuaternionFingerprint => Mix(Mix(NumericFingerprint, FixedQuaternion.AlgorithmVersion), (uint)QuaternionNormalization);
+        public bool QuaternionNumericEquals(FixedSettings other) => NumericEquals(other) && QuaternionNormalization == other.QuaternionNormalization;
 
         public ulong NumericFingerprint
         {
@@ -113,9 +122,9 @@ namespace LegendaryTools.FixedPoint
         public bool NumericEquals(FixedSettings other) => DecimalPlaces32 == other.DecimalPlaces32 &&
             DecimalPlaces64 == other.DecimalPlaces64 && Rounding == other.Rounding && Overflow == other.Overflow &&
             ZeroDivision == other.ZeroDivision && UnsignedNegative == other.UnsignedNegative && MathProfile == other.MathProfile;
-        public bool Equals(FixedSettings other) => NumericEquals(other) && ArithmeticMode == other.ArithmeticMode;
+        public bool Equals(FixedSettings other) => QuaternionNumericEquals(other) && ArithmeticMode == other.ArithmeticMode;
         public override bool Equals(object obj) => obj is FixedSettings other && Equals(other);
-        public override int GetHashCode() => unchecked((int)(NumericFingerprint ^ (NumericFingerprint >> 32))) ^ (int)ArithmeticMode;
+        public override int GetHashCode() => unchecked((int)(NumericFingerprint ^ (NumericFingerprint >> 32))) ^ (int)ArithmeticMode ^ ((int)QuaternionNormalization << 8);
         public static bool operator ==(FixedSettings a, FixedSettings b) => a.Equals(b);
         public static bool operator !=(FixedSettings a, FixedSettings b) => !a.Equals(b);
     }

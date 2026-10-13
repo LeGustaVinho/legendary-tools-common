@@ -34,6 +34,15 @@ namespace LegendaryTools.Deterministic
             var writer = new DeterministicCommandWriter<T>(m_Commands, m_Count, capacity, producerId);
             return writer.TryEnqueue(phase, systemId, entity, payload);
         }
+        /// <summary>Explicit logical cause sequence, independent of traversal or physical worker order.</summary>
+        public DeterministicStatus TryEnqueue(ushort phase, uint systemId, StableHandle entity, ulong sequence, in T payload)
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            AtomicSafetyHandle.CheckWriteAndThrow(m_Safety);
+#endif
+            var writer = new DeterministicCommandWriter<T>(m_Commands, m_Count, capacity, producerId);
+            return writer.TryEnqueue(phase, systemId, entity, sequence, payload);
+        }
     }
 
     /// <summary>Independent safety handles allow jobs on different producer partitions to run concurrently.</summary>
@@ -52,7 +61,11 @@ namespace LegendaryTools.Deterministic
             buffer = new DeterministicCommandBuffer<T>(context, producerIds, capacityPerProducer); producers = producerIds.ToArray();
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             safety = new AtomicSafetyHandle[producers.Length];
-            for (int i = 0; i < safety.Length; i++) safety[i] = AtomicSafetyHandle.Create();
+            for (int i = 0; i < safety.Length; i++)
+            {
+                safety[i] = AtomicSafetyHandle.Create();
+                AtomicSafetyHandle.SetAllowSecondaryVersionWriting(safety[i], true);
+            }
 #endif
         }
         public DeterministicStatus TryGetWriter(uint producerId, out NativeDeterministicCommandWriter<T> writer)
@@ -64,9 +77,12 @@ namespace LegendaryTools.Deterministic
                 AtomicSafetyHandle.CheckReadAndThrow(safety[i]);
 #endif
                 var status = buffer.TryGetWriter(producerId, out var raw); if (!status.IsSuccess()) return status;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                var writerSafety = safety[i]; AtomicSafetyHandle.UseSecondaryVersion(ref writerSafety);
+#endif
                 writer = new NativeDeterministicCommandWriter<T>(raw
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    , safety[i]
+                    , writerSafety
 #endif
                     ); return DeterministicStatus.None;
             }
@@ -81,7 +97,13 @@ namespace LegendaryTools.Deterministic
         public DeterministicStatus TryMerge(out ReadOnlySpan<DeterministicCommand<T>> commands)
         { commands = default; if (disposed) return DeterministicStatus.Disposed; CheckWrite(); return buffer.TryMerge(out commands); }
         public DeterministicStatus TryReset()
-        { if (disposed) return DeterministicStatus.Disposed; CheckWrite(); return buffer.TryReset(); }
+        {
+            if (disposed) return DeterministicStatus.Disposed; CheckWrite();
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            for (int i = 0; i < safety.Length; i++) AtomicSafetyHandle.CheckWriteAndBumpSecondaryVersion(safety[i]);
+#endif
+            return buffer.TryReset();
+        }
         public void Dispose()
         {
             if (disposed) return; CheckWrite();

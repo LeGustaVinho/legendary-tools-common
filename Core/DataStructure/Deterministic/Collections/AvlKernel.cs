@@ -81,8 +81,11 @@ namespace LegendaryTools.Deterministic
         }
         private static void Update(ref TBuffer buffer, int encoded)
         {
-            var node = buffer.Read(encoded - 1); int left = Height(ref buffer, node.Left), right = Height(ref buffer, node.Right);
-            node.Height = 1 + (left > right ? left : right); node.Size = 1 + Size(ref buffer, node.Left) + Size(ref buffer, node.Right); buffer.Write(encoded - 1, node);
+            var node = buffer.Read(encoded - 1);
+            var leftNode = node.Left == 0 ? default : buffer.Read(node.Left - 1);
+            var rightNode = node.Right == 0 ? default : buffer.Read(node.Right - 1);
+            int left = leftNode.Height, right = rightNode.Height;
+            node.Height = 1 + (left > right ? left : right); node.Size = 1 + leftNode.Size + rightNode.Size; buffer.Write(encoded - 1, node);
         }
         private static void Relink(ref TBuffer buffer, ref AvlState state, int parent, int oldChild, int newChild)
         {

@@ -37,12 +37,14 @@ namespace LegendaryTools.Deterministic
             pair = default;
             if (!IsCreated) return DeterministicStatus.Disposed;
             if ((uint)index >= (uint)Count) return DeterministicStatus.OutOfRange;
-            int encoded = State.OrderHead;
-            for (int i = 0; i <= index; i++)
+            bool backwards = index > (Count - 1) / 2;
+            int encoded = backwards ? State.OrderTail : State.OrderHead;
+            int distance = backwards ? Count - 1 - index : index;
+            for (int i = 0; i <= distance; i++)
             {
-                var entry = Entries.ReadSnapshot(EntrySlot, encoded - 1);
-                if (i == index) { pair = new KeyValuePair<TKey, TValue>(entry.Key, entry.Value); return DeterministicStatus.None; }
-                encoded = entry.OrderNext;
+                ref readonly var entry = ref Entries.ReadSnapshotReference(EntrySlot, encoded - 1);
+                if (i == distance) { pair = new KeyValuePair<TKey, TValue>(entry.Key, entry.Value); return DeterministicStatus.None; }
+                encoded = backwards ? entry.OrderPrevious : entry.OrderNext;
             }
             return DeterministicStatus.InvalidEncoding;
         }

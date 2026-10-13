@@ -12,7 +12,8 @@ namespace LegendaryTools.Deterministic
         None, InvalidConfiguration, OutOfRange, Empty, DuplicateKey, NotFound,
         CapacityExceeded, SnapshotCapacityExceeded, BufferTooSmall, InvalidEncoding,
         UnsupportedType, Invalidated, Disposed, InvalidOwner, GenerationExhausted,
-        BackendUnavailable, ProfileMismatch, HistoryExhausted, QuorumLost, Pending, ProtocolConflict
+        BackendUnavailable, ProfileMismatch, HistoryExhausted, QuorumLost, Pending, ProtocolConflict,
+        CycleDetected
     }
 
     public static class DeterministicStatusExtensions
@@ -91,6 +92,12 @@ namespace LegendaryTools.Deterministic
         int Measure(in T value);
         DeterministicStatus TryWrite(ref DeterministicWriter writer, in T value);
         DeterministicStatus TryRead(ref DeterministicReader reader, out T value);
+    }
+
+    /// <summary>Optional maximum for every encoded value, independent of its contents.</summary>
+    public interface IBoundedDeterministicCodec
+    {
+        int MaxEncodedBytes { get; }
     }
 
     /// <summary>Statically specialized access used by shared kernels. Write requires a successful PrepareWrite.</summary>

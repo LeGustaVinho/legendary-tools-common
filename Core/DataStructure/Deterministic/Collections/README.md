@@ -2,6 +2,8 @@
 
 Namespace: `LegendaryTools.Deterministic`. Os algoritmos de coleção são compartilhados entre buffers GC e buffers nativos. Os backends têm tipos públicos separados e não fazem migração automática de dados.
 
+Grafos direcionados/não direcionados, restrição acíclica, snapshots, CSR congelado, versões persistentes e deltas públicos usam esses mesmos contratos. Veja [GRAPHS.md](GRAPHS.md) para configuração, algoritmos, vida útil e integração com o runtime.
+
 As coleções, checkpoints canônicos e o runtime de rollback/replay/lockstep estão implementados. Sessões de rede oferecem authoritative host, P2P, entrada tardia, reconexão e migração por Raft. Veja `../Runtime/README.md` e `Tools/Deterministic/VALIDATION.md` para os contratos de integração e a validação realizada.
 
 ## Escolha de memória e backend
@@ -58,6 +60,8 @@ checkpoint.Dispose();
 ```
 
 Snapshots usam slots prealocados e leases. Copiar um snapshot não cria outro lease; descartar uma cópia antiga não pode liberar um lease posterior no mesmo slot. `FullPerTick` e `KeyframesAndDeltas` usam armazenamento contíguo e cópias completas nos snapshots de coleção. O provedor de retenção de keyframes/deltas do mundo é uma camada separada. `CopyOnWrite` compartilha páginas entre raízes e copia páginas escritas, com pool limitado. Reservar mais slots aumenta o custo de memória.
+
+Em `Fixed`, os buffers dos snapshots contíguos são reservados na construção. Em `Grow`, cada slot aloca o backing quando é capturado e aumenta esse backing somente quando necessário; descartá-lo permite reutilizar a memória. A primeira captura ou uma captura com capacidade maior pode alocar. Aqueça os slots necessários antes do hotpath ou use `Fixed` quando não puder alocar durante a simulação.
 
 No backend Native, cópias de coleções são aliases, e o proprietário precisa sobreviver aos snapshots, views e jobs. Dispose ocorre uma única vez, após completar os jobs. Checks do Unity ajudam a detectar acessos inválidos; código de produção deve cumprir esse contrato de vida útil. Views e enumeradores emprestados expiram quando a coleção muda ou é restaurada. Nenhuma view pública fornece referência gravável ao armazenamento.
 

@@ -1,14 +1,20 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Unity.Collections.LowLevel.Unsafe;
 
 namespace LegendaryTools.Deterministic
 {
     internal static class NativeChecks
     {
-        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        // Callers pass mutations as arguments; removing the call would remove them too.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static void Status(DeterministicStatus status)
-        { if (!status.IsSuccess()) throw new InvalidOperationException("Deterministic collection failure. Use Try methods to handle the status."); }
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if (!status.IsSuccess()) throw new InvalidOperationException("Deterministic collection failure. Use Try methods to handle the status.");
+#endif
+        }
     }
 
     /// <summary>Borrowed snapshot. The originating container must outlive every snapshot and scheduled reader.</summary>
@@ -79,6 +85,7 @@ namespace LegendaryTools.Deterministic
 #endif
             value = default;
             if (!Storage.IsCreated) return DeterministicStatus.Disposed;
+            if (Storage.BatchActive) return DeterministicStatus.Invalidated;
             if (Storage.Revision != Revision) return DeterministicStatus.Invalidated;
             if ((uint)index >= (uint)Count) return DeterministicStatus.OutOfRange;
             value = Storage.Read(Ring ? RingKernel<T, NativeStorage<T>>.Physical(State, Storage.Capacity, index) : index);
@@ -106,6 +113,7 @@ namespace LegendaryTools.Deterministic
 #endif
             moved = false;
             if (!Storage.IsCreated) return DeterministicStatus.Disposed;
+            if (Storage.BatchActive) return DeterministicStatus.Invalidated;
             if (Storage.Revision != Revision) return DeterministicStatus.Invalidated;
             if (Index < State.Count) Index++;
             if (Index >= State.Count) return DeterministicStatus.None;

@@ -32,6 +32,18 @@ namespace LegendaryTools.Deterministic
         public DeterministicSlotMap(BufferOptions options) { Storage = new ManagedStorage<SlotMapNode<T>>(options); }
         public int Count => State.Count;
         public int Capacity => Storage.Capacity;
+        public int UsedSlotCount => IsCreated ? State.Used : 0;
+        /// <summary>Read an allocation slot in logical index order. Free slots return NotFound.</summary>
+        public DeterministicStatus TryGetSlot(int index, out SlotMapItem<T> item)
+        {
+            item = default;
+            if (!IsCreated) return DeterministicStatus.Disposed;
+            if ((uint)index >= (uint)State.Used) return DeterministicStatus.OutOfRange;
+            var node = Storage.Read(index);
+            if (node.Active == 0) return DeterministicStatus.NotFound;
+            item = new SlotMapItem<T>(new StableHandle((uint)index, node.Generation), node.Value);
+            return DeterministicStatus.None;
+        }
         public bool IsCreated => Storage.IsCreated;
         public ulong Revision => Storage.Revision;
         public T this[StableHandle handle]

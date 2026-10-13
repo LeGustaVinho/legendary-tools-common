@@ -7,13 +7,16 @@ namespace LegendaryTools.Deterministic
         public readonly int Capacity;
         public int Position;
         private readonly bool measuring;
+        // A registry receipt is scoped to the current state, after its successful measurement.
+        internal int PremeasuredEnd;
+        internal bool HasPremeasuredCapacity => PremeasuredEnd != 0 && !measuring;
         public bool IsMeasuring => measuring;
         public DeterministicWriter(byte* buffer, int capacity, int position = 0)
-        { Buffer = buffer; Capacity = capacity; Position = position; measuring = false; }
+        { Buffer = buffer; Capacity = capacity; Position = position; measuring = false; PremeasuredEnd = 0; }
         private DeterministicWriter(bool measuring)
-        { Buffer = null; Capacity = int.MaxValue; Position = 0; this.measuring = measuring; }
+        { Buffer = null; Capacity = int.MaxValue; Position = 0; this.measuring = measuring; PremeasuredEnd = 0; }
         public static DeterministicWriter CreateMeasure() => new DeterministicWriter(true);
-        public bool Has(int bytes) => bytes >= 0 && Position >= 0 && Capacity >= 0 && Position <= Capacity - bytes &&
+        public bool Has(int bytes) => bytes >= 0 && Position >= 0 && Capacity >= 0 && Position <= (PremeasuredEnd == 0 ? Capacity : System.Math.Min(Capacity, PremeasuredEnd)) - bytes &&
             (measuring || Buffer != null || bytes == 0);
         public DeterministicStatus TryUInt(ulong value, int bytes)
         {
@@ -39,7 +42,9 @@ namespace LegendaryTools.Deterministic
             if (!Has(length)) return DeterministicStatus.BufferTooSmall;
             if (measuring) { Position += length; return DeterministicStatus.None; }
             byte* target = Buffer + Position;
-            if (target > source && target < source + length)
+            if (length >= 32 && (target + length <= source || source + length <= target))
+                new System.ReadOnlySpan<byte>(source, length).CopyTo(new System.Span<byte>(target, length));
+            else if (target > source && target < source + length)
                 for (int i = length - 1; i >= 0; i--) target[i] = source[i];
             else for (int i = 0; i < length; i++) target[i] = source[i];
             Position += length; return DeterministicStatus.None;
