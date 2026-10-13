@@ -56,6 +56,8 @@ namespace LegendaryTools.Deterministic.Tests
             var state = new SlotMapState { Count = 1, Used = 1 };
             Assert.AreEqual(DeterministicStatus.None, SlotMapKernel<int, TestBuffer>.TryRemove(ref buffer, ref state, new StableHandle(0, uint.MaxValue)));
             Assert.AreEqual(1, buffer.Nodes[0].Retired); Assert.AreEqual(0, state.FreeHead);
+            SlotMapKernel<int, TestBuffer>.TryWasIssued(ref buffer, state, new StableHandle(0, uint.MaxValue), out bool issued).ThrowIfFailure();
+            Assert.IsTrue(issued);
             SlotMapKernel<int, TestBuffer>.TryAdd(ref buffer, ref state, 9, out var next).ThrowIfFailure();
             Assert.AreEqual(new StableHandle(1, 1), next);
         }

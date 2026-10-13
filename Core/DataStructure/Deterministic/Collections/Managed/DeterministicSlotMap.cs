@@ -33,6 +33,8 @@ namespace LegendaryTools.Deterministic
         public int Count => State.Count;
         public int Capacity => Storage.Capacity;
         public int UsedSlotCount => IsCreated ? State.Used : 0;
+        public DeterministicStatus TryWasIssued(StableHandle handle, out bool wasIssued)
+            => SlotMapKernel<T, ManagedStorage<SlotMapNode<T>>>.TryWasIssued(ref Storage, State, handle, out wasIssued);
         /// <summary>Read an allocation slot in logical index order. Free slots return NotFound.</summary>
         public DeterministicStatus TryGetSlot(int index, out SlotMapItem<T> item)
         {

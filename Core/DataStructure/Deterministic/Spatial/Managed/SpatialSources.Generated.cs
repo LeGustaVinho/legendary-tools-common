@@ -8,10 +8,12 @@ namespace LegendaryTools.Deterministic
     {
         internal ManagedSpatialReadOnly<TKey, TData, TBounds, TBoundsAccess, TPolicy> Reader;
         internal TSource Source;
+
         public int Count => Check().IsSuccess() ? Reader.Count : 0;
         public ulong Revision => Reader.Revision;
         public DeterministicStatus Check()
         {
+
             var status = Reader.Check(); if (!status.IsSuccess()) return status;
             return Reader.Storage.State.SourceSynchronized && Source.Identity == Reader.Storage.State.SourceIdentity && Source.Revision == Reader.Storage.State.SourceRevision && Source.Count == Reader.Storage.State.Records.Count
                 ? DeterministicStatus.None : DeterministicStatus.Invalidated;
@@ -51,7 +53,9 @@ namespace LegendaryTools.Deterministic
         public ManagedSpatialDerivedReadOnly<TKey, TData, TBounds, TBoundsAccess, TPolicy, TSource> AsReadOnly<TSource>(TSource source) where TSource : struct, IDeterministicSpatialSource<TKey, TData, TBounds>
         {
             var reader = AsReadOnly(); reader.SourceValidated = true;
-            return new ManagedSpatialDerivedReadOnly<TKey, TData, TBounds, TBoundsAccess, TPolicy, TSource> { Reader = reader, Source = source };
+            var result = new ManagedSpatialDerivedReadOnly<TKey, TData, TBounds, TBoundsAccess, TPolicy, TSource> { Reader = reader, Source = source };
+
+            return result;
         }
     }
 }

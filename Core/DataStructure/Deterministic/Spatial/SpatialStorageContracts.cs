@@ -3,11 +3,11 @@ namespace LegendaryTools.Deterministic
     internal struct SpatialIndexState
     {
         internal OrderedMapState Records, Cells;
-        internal int Root, NodeUsed, FreeNode, LinkUsed, FreeLink, OverflowCount;
+        internal int Root, NodeUsed, FreeNode, LinkUsed, FreeLink, OverflowCount, OverflowHead;
         internal bool Dirty;
         internal ulong Revision, SourceRevision, SourceIdentity;
         internal bool SourceSynchronized;
-        internal static SpatialIndexState Empty => new SpatialIndexState { Root = -1, FreeNode = -1, FreeLink = -1 };
+        internal static SpatialIndexState Empty => new SpatialIndexState { Root = -1, FreeNode = -1, FreeLink = -1, OverflowHead = -1 };
     }
     internal struct SpatialPlacement
     {
@@ -38,8 +38,9 @@ namespace LegendaryTools.Deterministic
     }
     internal struct SpatialGridLink
     {
-        internal SpatialCellKey Cell;
-        internal int RecordSlot, NextCell, PreviousCell, NextObject, NextFree;
+        // A nonempty cell owns a stable ordered-map slot, including through rehash.
+        // Overflow links use CellSlot = -1 and the same intrusive list fields.
+        internal int CellSlot, RecordSlot, NextCell, PreviousCell, NextObject, NextFree;
     }
     internal struct SpatialBuildTask { internal int Begin, Count, Parent, Side; }
 

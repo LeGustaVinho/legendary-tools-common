@@ -12,10 +12,18 @@ namespace LegendaryTools.Deterministic
     {
         internal NativeSpatialReadOnly<TKey, TData, TBounds, TBoundsAccess, TPolicy> Reader;
         internal TSource Source;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        internal AtomicSafetyHandle m_Safety;
+#endif
+
         public int Count => Check().IsSuccess() ? Reader.Count : 0;
         public ulong Revision => Reader.Revision;
         public DeterministicStatus Check()
         {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if (Reader.Storage.Owner != null) AtomicSafetyHandle.CheckReadAndThrow(m_Safety);
+#endif
+
             var status = Reader.Check(); if (!status.IsSuccess()) return status;
             return Reader.Storage.State.SourceSynchronized && Source.Identity == Reader.Storage.State.SourceIdentity && Source.Revision == Reader.Storage.State.SourceRevision && Source.Count == Reader.Storage.State.Records.Count
                 ? DeterministicStatus.None : DeterministicStatus.Invalidated;
@@ -51,7 +59,12 @@ namespace LegendaryTools.Deterministic
         public NativeSpatialDerivedReadOnly<TKey, TData, TBounds, TBoundsAccess, TPolicy, TSource> AsReadOnly<TSource>(TSource source) where TSource : unmanaged, IDeterministicSpatialSource<TKey, TData, TBounds>
         {
             var reader = AsReadOnly(); reader.SourceValidated = true;
-            return new NativeSpatialDerivedReadOnly<TKey, TData, TBounds, TBoundsAccess, TPolicy, TSource> { Reader = reader, Source = source };
+            var result = new NativeSpatialDerivedReadOnly<TKey, TData, TBounds, TBoundsAccess, TPolicy, TSource> { Reader = reader, Source = source };
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            result.m_Safety = reader.m_Safety;
+#endif
+
+            return result;
         }
     }
 }

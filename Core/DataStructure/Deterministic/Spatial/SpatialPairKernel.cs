@@ -30,6 +30,12 @@ namespace LegendaryTools.Deterministic
         private SpatialCandidate<TKey>* neighbors;
         private int count, outer, next, neighborCount, dimensions;
         private ulong revision;
+        private struct AboveKey : ISpatialPredicate<TKey, TData, TBounds>
+        {
+            internal TKey Minimum;
+            internal TPolicy Policy;
+            public bool Accept(in SpatialRecord<TKey, TData, TBounds> record) => Policy.Compare(record.Key, Minimum) > 0;
+        }
         internal static DeterministicStatus Create(ref TStorage storage, SpatialPairScratch workspace, int dimensions, SpatialFilter filter,
             TPredicate predicate, TPolicy policy, out SpatialPairCursor<TKey, TData, TBounds, TPolicy, TStorage, TPredicate> cursor)
         {
@@ -67,14 +73,15 @@ namespace LegendaryTools.Deterministic
                     while (next < neighborCount)
                     {
                         var right = storage.ReadEntry(neighbors[next++].Slot);
-                        if (policy.Compare(left.Key, right.Key) >= 0 || !predicate.Accept(left.Value, right.Value)) continue;
+                        if (!predicate.Accept(left.Value, right.Value)) continue;
                         pair = new SpatialPair<TKey>(left.Key, right.Key); hasValue = true; return DeterministicStatus.None;
                     }
                 }
-                if (++outer >= count) return DeterministicStatus.None;
+                // The final key cannot have a greater neighbor. No query or sort is needed for that row.
+                if (++outer >= count - 1) { outer = count; return DeterministicStatus.None; }
                 var query = SpatialQuery.FromEnvelope(storage.ReadPlacement(order[outer]).Bounds, dimensions);
                 var status = SpatialQueryKernel<TKey, TData, TBounds, TPolicy, TStorage>.Collect(ref storage, query, dimensions,
-                    scratch, filter, default(SpatialAcceptAll<TKey, TData, TBounds>), policy, out neighbors, out neighborCount);
+                    scratch, filter, new AboveKey { Minimum = storage.ReadEntry(order[outer]).Key, Policy = policy }, policy, out neighbors, out neighborCount);
                 if (!status.IsSuccess()) return status;
                 next = 0;
             }

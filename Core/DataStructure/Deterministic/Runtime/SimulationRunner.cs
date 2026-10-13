@@ -31,6 +31,7 @@ namespace LegendaryTools.Deterministic
         public Exception LastInfrastructureException { get; private set; }
         public DeterministicBackend Backend => State.Backend;
         public bool IsFaulted => faulted || State.IsFaulted;
+        public bool IsDisposed => disposed;
         public DeterministicRunnerMode Mode => mode;
         public DeterministicConfirmationMode Confirmation => confirmation;
         public ulong Fingerprint => DeterministicHash.Mix(DeterministicHash.Mix(
@@ -42,7 +43,7 @@ namespace LegendaryTools.Deterministic
             DeterministicRunnerMode mode = DeterministicRunnerMode.Rollback,
             DeterministicConfirmationMode confirmation = DeterministicConfirmationMode.InputCompletion,
             IDeterministicEventSink<TEvent> eventSink = null, bool deliverSpeculativeEvents = true, long initialTick = 0,
-            bool seedInputDelay = true, IDeterministicWorldHistory history = null)
+            bool seedInputDelay = true, IDeterministicWorldHistory history = null, bool captureInitialHistory = true)
         {
             if (context == null || !options.IsValid || state == null || !state.IsFrozen || simulation == null ||
                 state.Backend != context.Backend || players.Length == 0 || players.Length > options.MaxPlayers ||
@@ -70,7 +71,7 @@ namespace LegendaryTools.Deterministic
                 for (int i = 0; i < players.Length; i++) Inputs.TryRegisterPlayer(players[i], initialTick).ThrowIfFailure();
                 if (seedInputDelay) for (int delay = 0; delay < options.InputDelay; delay++)
                     for (int player = 0; player < players.Length; player++) Inputs.TrySubmit(players[player], initialTick + delay, neutral, out _).ThrowIfFailure();
-                History.TryCapture(state, initialTick).ThrowIfFailure();
+                if (captureInitialHistory) History.TryCapture(state, initialTick).ThrowIfFailure();
             }
             catch { Inputs?.Dispose(); History?.Dispose(); Events?.Dispose(); throw; }
         }

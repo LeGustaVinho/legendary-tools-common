@@ -25,6 +25,7 @@ namespace LegendaryTools.Deterministic
         private readonly IDeterministicSimulation<TInput, TEvent> simulation;
         private readonly IDeterministicEventSink<TEvent> eventSink;
         private readonly IDeterministicSessionObserver observer;
+        private readonly Func<long, IDeterministicWorldHistory> historyFactory;
         private readonly TEquality equality;
         private readonly TCodec codec;
         private readonly TInput neutral;
@@ -62,7 +63,8 @@ namespace LegendaryTools.Deterministic
             TEquality equality = default, TCodec codec = default, DeterministicRunnerMode mode = DeterministicRunnerMode.Rollback,
             bool startAsLearner = false, IDeterministicEventSink<TEvent> eventSink = null,
             IDeterministicSessionObserver observer = null, long initialTick = 0,
-            ReadOnlySpan<DeterministicPlayerInput<TInput>> initialCarry = default)
+            ReadOnlySpan<DeterministicPlayerInput<TInput>> initialCarry = default,
+            Func<long, IDeterministicWorldHistory> historyFactory = null)
         {
             if (context == null || !runtimeOptions.IsValid || !raftOptions.IsValid || transport == null || state == null || !state.IsFrozen ||
                 state.Backend != context.Backend || simulation == null || !equality.IsValid || codec.SchemaId == 0 || codec.Version == 0 ||
@@ -71,6 +73,7 @@ namespace LegendaryTools.Deterministic
                 DeterministicStatus.InvalidConfiguration.ThrowIfFailure();
             this.context = context; this.runtimeOptions = runtimeOptions; this.raftOptions = raftOptions; this.state = state;
             this.simulation = simulation; this.eventSink = eventSink; this.observer = observer; this.equality = equality; this.codec = codec;
+            this.historyFactory = historyFactory;
             this.neutral = neutral; this.maxInputBytes = maxInputBytes; maxEvents = maxEventsPerTick; runnerMode = mode; this.topology = topology;
             maxDatagram = transport.MaxDatagramBytes; bufferedRows = checked(runtimeOptions.HistoryTicks * 2);
             long ownerBytes = Align((long)sizeof(Owner) * runtimeOptions.MaxPlayers), inputBytes = Align((long)sizeof(BufferedInput) * bufferedRows);
@@ -112,18 +115,28 @@ namespace LegendaryTools.Deterministic
         {
             PlayerId* players = stackalloc PlayerId[64]; int activeCount = 0;
             for (int i = 0; i < count; i++) if (source[i].Active != 0) players[activeCount++] = source[i].Peer.Player;
-            var runner = new DeterministicSimulationRunner<TInput, TEquality, TEvent>(context, runtimeOptions, state, simulation,
-                new ReadOnlySpan<PlayerId>(players, activeCount), neutral, maxEvents, equality, runnerMode,
-                DeterministicConfirmationMode.ExternalCommit, eventSink, initialTick: boundary, seedInputDelay: false);
-            for (int i = 0; i < count; i++)
+            IDeterministicWorldHistory history = historyFactory?.Invoke(boundary);
+            if (historyFactory != null && history == null) throw new ArgumentException("The history factory must return a fresh empty provider.");
+            if (Runner != null && ReferenceEquals(history, Runner.History))
+                throw new ArgumentException("A replacement runner cannot reuse its live predecessor's history.");
+            DeterministicSimulationRunner<TInput, TEquality, TEvent> runner = null;
+            try
             {
-                if (source[i].Active == 0) { runner.Inputs.TryRegisterPlayer(source[i].Peer.Player, boundary).ThrowIfFailure(); runner.Inputs.TryDeactivatePlayer(source[i].Peer.Player, boundary).ThrowIfFailure(); }
-                runner.Inputs.TrySeedLastInput(source[i].Peer.Player, boundary - 1, source[i].Carry).ThrowIfFailure();
-                if (seedDelay && source[i].Active != 0) for (int delay = 0; delay < runtimeOptions.InputDelay; delay++)
-                    runner.TrySubmitInput(source[i].Peer.Player, boundary + delay,
-                        boundary == 0 || runtimeOptions.Prediction == PredictionPolicy.Neutral ? neutral : source[i].Carry).ThrowIfFailure();
+                runner = new DeterministicSimulationRunner<TInput, TEquality, TEvent>(context, runtimeOptions, state, simulation,
+                    new ReadOnlySpan<PlayerId>(players, activeCount), neutral, maxEvents, equality, runnerMode,
+                    DeterministicConfirmationMode.ExternalCommit, eventSink, initialTick: boundary, seedInputDelay: false,
+                    history: history, captureInitialHistory: seedDelay);
+                for (int i = 0; i < count; i++)
+                {
+                    if (source[i].Active == 0) { runner.Inputs.TryRegisterPlayer(source[i].Peer.Player, boundary).ThrowIfFailure(); runner.Inputs.TryDeactivatePlayer(source[i].Peer.Player, boundary).ThrowIfFailure(); }
+                    runner.Inputs.TrySeedLastInput(source[i].Peer.Player, boundary - 1, source[i].Carry).ThrowIfFailure();
+                    if (seedDelay && source[i].Active != 0) for (int delay = 0; delay < runtimeOptions.InputDelay; delay++)
+                        runner.TrySubmitInput(source[i].Peer.Player, boundary + delay,
+                            boundary == 0 || runtimeOptions.Prediction == PredictionPolicy.Neutral ? neutral : source[i].Carry).ThrowIfFailure();
+                }
+                return runner;
             }
-            return runner;
+            catch { if (runner != null) runner.Dispose(); else history?.Dispose(); throw; }
         }
         private int OwnerIndex(PlayerId player)
         { for (int i = 0; i < ownerCount; i++) if (owners[i].Peer.Player == player) return i; return -1; }

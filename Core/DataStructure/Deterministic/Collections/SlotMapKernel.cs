@@ -21,6 +21,17 @@ namespace LegendaryTools.Deterministic
     /// <summary>FIFO reuse. Exhausted generations retire their slots instead of wrapping.</summary>
     public static class SlotMapKernel<T, TBuffer> where T : unmanaged where TBuffer : struct, IDeterministicBuffer<SlotMapNode<T>>
     {
+        /// <summary>Pure allocation-history lookup in the current restored timeline. A free slot's next generation has not been issued.</summary>
+        public static DeterministicStatus TryWasIssued(ref TBuffer buffer, in SlotMapState state, StableHandle handle, out bool wasIssued)
+        {
+            wasIssued = false;
+            if (!buffer.IsCreated) return DeterministicStatus.Disposed;
+            if (!handle.IsValid || handle.Index >= (uint)state.Used) return DeterministicStatus.None;
+            var node = buffer.Read((int)handle.Index);
+            wasIssued = handle.Generation < node.Generation ||
+                handle.Generation == node.Generation && (node.Active != 0 || node.Retired != 0);
+            return DeterministicStatus.None;
+        }
         public static DeterministicStatus TryGet(ref TBuffer buffer, in SlotMapState state, StableHandle handle, out T value)
         {
             value = default;

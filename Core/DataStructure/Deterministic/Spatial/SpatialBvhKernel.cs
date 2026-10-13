@@ -141,18 +141,41 @@ namespace LegendaryTools.Deterministic
             for (int end = count - 1; end > 0; end--)
             { int a = store.ReadOrder(begin); store.WriteOrder(begin, store.ReadOrder(begin + end)); store.WriteOrder(begin + end, a); SiftOrder(ref store, begin, 0, end, axis, policy); }
         }
+        private static void SelectMedian(ref TStorage store, int begin, int count, int axis, TPolicy policy)
+        {
+            int left = begin, right = begin + count - 1, target = begin + count / 2;
+            int budget = 0; for (int n = count; n > 1; n >>= 1) budget += 2;
+            while (left < right)
+            {
+                // A bounded deterministic fallback prevents adversarial partitions from becoming quadratic.
+                if (right - left < 8 || budget-- == 0)
+                { SortOrder(ref store, left, right - left + 1, axis, policy); return; }
+                int a = store.ReadOrder(left), b = store.ReadOrder(left + (right - left) / 2), c = store.ReadOrder(right);
+                if (CompareOrder(ref store, a, b, axis, policy) > 0) { int t = a; a = b; b = t; }
+                if (CompareOrder(ref store, b, c, axis, policy) > 0) { int t = b; b = c; c = t; }
+                if (CompareOrder(ref store, a, b, axis, policy) > 0) { int t = a; a = b; b = t; }
+                int i = left, j = right;
+                while (i <= j)
+                {
+                    while (i <= right && CompareOrder(ref store, store.ReadOrder(i), b, axis, policy) < 0) ++i;
+                    while (j >= left && CompareOrder(ref store, store.ReadOrder(j), b, axis, policy) > 0) --j;
+                    if (i > j) break;
+                    if (i != j) { int value = store.ReadOrder(i); store.WriteOrder(i, store.ReadOrder(j)); store.WriteOrder(j, value); }
+                    ++i; --j;
+                }
+                if (target <= j) right = j;
+                else if (target >= i) left = i;
+                else return;
+            }
+        }
         internal static void Rebuild(ref TStorage store, int dimensions, long margin, TPolicy policy, bool staticTree)
         {
             store.State.Root = -1; store.State.NodeUsed = 0; store.State.FreeNode = -1;
             int count = 0;
             for (int i = 0; i < store.State.Records.Used; i++) if (store.ReadEntry(i).Active != 0) store.WriteOrder(count++, i);
             if (count == 0) { store.State.Dirty = false; return; }
-            if (!staticTree)
-            {
-                SortOrder(ref store, 0, count, -1, policy);
-                for (int i = 0; i < count; i++) Insert(ref store, store.ReadOrder(i), dimensions, margin, policy);
-                store.State.Dirty = false; return;
-            }
+            // Bulk construction avoids repeated insertion, ancestor refits and wide cost comparisons.
+            // The same balanced topology supports subsequent dynamic insert/remove/rotation operations.
             int tasks = 1; store.WriteTask(0, new SpatialBuildTask { Begin = 0, Count = count, Parent = -1 });
             while (tasks != 0)
             {
@@ -165,13 +188,14 @@ namespace LegendaryTools.Deterministic
                 if (task.Count == 1)
                 {
                     int slot = store.ReadOrder(task.Begin); node.RecordSlot = slot; node.MinimumKey = store.ReadEntry(slot).Key;
+                    if (!staticTree) node.Bounds = SpatialGeometry.Expand(bounds, margin, dimensions);
                     var placement = store.ReadPlacement(slot); placement.Leaf = nodeId; store.WritePlacement(slot, placement);
                 }
                 else
                 {
                     int axis = 0; ulong width = SpatialGeometry.Width(bounds.MinX, bounds.MaxX);
                     for (int i = 1; i < dimensions; i++) { ulong next = SpatialGeometry.Width(bounds.Min(i), bounds.Max(i)); if (next > width) { axis = i; width = next; } }
-                    SortOrder(ref store, task.Begin, task.Count, axis, policy); int half = task.Count / 2;
+                    SelectMedian(ref store, task.Begin, task.Count, axis, policy); int half = task.Count / 2;
                     store.WriteTask(tasks++, new SpatialBuildTask { Begin = task.Begin + half, Count = task.Count - half, Parent = nodeId, Side = 1 });
                     store.WriteTask(tasks++, new SpatialBuildTask { Begin = task.Begin, Count = half, Parent = nodeId, Side = 0 });
                 }

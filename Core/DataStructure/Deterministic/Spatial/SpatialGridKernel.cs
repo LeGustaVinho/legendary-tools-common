@@ -25,7 +25,14 @@ namespace LegendaryTools.Deterministic
             var placement = store.ReadPlacement(recordSlot); placement.GridHead = -1;
             long size = SpatialGeometry.Normalize(unchecked((ulong)store.Options.CellSize.RawValue), LegendaryTools.FixedPoint.FixedRuntime.State);
             placement.Overflow = !Range(placement.Bounds, size, dimensions, store.Options.MaxCellsPerObject, out var min, out var max);
-            if (placement.Overflow) store.State.OverflowCount++;
+            if (placement.Overflow)
+            {
+                int link = Allocate(ref store), head = store.State.OverflowHead;
+                store.WriteLink(link, new SpatialGridLink { CellSlot = -1, RecordSlot = recordSlot,
+                    NextCell = head, PreviousCell = -1, NextObject = -1, NextFree = -1 });
+                if (head >= 0) { var old = store.ReadLink(head); old.PreviousCell = link; store.WriteLink(head, old); }
+                placement.GridHead = link; store.State.OverflowHead = link; store.State.OverflowCount++;
+            }
             if (!placement.Overflow)
             {
                 for (long x = min.X; ; x++)
@@ -37,7 +44,9 @@ namespace LegendaryTools.Deterministic
                             var key = new SpatialCellKey(x, y, z); int cell = store.FindCell(key);
                             int head = cell < 0 ? -1 : store.ReadCell(cell).Value;
                             int link = Allocate(ref store);
-                            store.WriteLink(link, new SpatialGridLink { Cell = key, RecordSlot = recordSlot, NextCell = head,
+                            // Match the ordered-map allocator before PutCell publishes the new cell.
+                            int cellSlot = cell >= 0 ? cell : store.State.Cells.FreeHead != 0 ? store.State.Cells.FreeHead - 1 : store.State.Cells.Used;
+                            store.WriteLink(link, new SpatialGridLink { CellSlot = cellSlot, RecordSlot = recordSlot, NextCell = head,
                                 PreviousCell = -1, NextObject = placement.GridHead, NextFree = -1 });
                             if (head >= 0) { var old = store.ReadLink(head); old.PreviousCell = link; store.WriteLink(head, old); }
                             store.PutCell(key, link); placement.GridHead = link;
@@ -59,8 +68,9 @@ namespace LegendaryTools.Deterministic
                 var node = store.ReadLink(link); int next = node.NextObject;
                 if (node.PreviousCell >= 0)
                 { var previous = store.ReadLink(node.PreviousCell); previous.NextCell = node.NextCell; store.WriteLink(node.PreviousCell, previous); }
-                else if (node.NextCell < 0) store.RemoveCell(node.Cell);
-                else store.PutCell(node.Cell, node.NextCell);
+                else if (placement.Overflow) store.State.OverflowHead = node.NextCell;
+                else if (node.NextCell < 0) store.RemoveCell(store.ReadCell(node.CellSlot).Key);
+                else store.PutCell(store.ReadCell(node.CellSlot).Key, node.NextCell);
                 if (node.NextCell >= 0)
                 { var following = store.ReadLink(node.NextCell); following.PreviousCell = node.PreviousCell; store.WriteLink(node.NextCell, following); }
                 node.NextFree = store.State.FreeLink; store.WriteLink(link, node); store.State.FreeLink = link; link = next;
@@ -69,7 +79,7 @@ namespace LegendaryTools.Deterministic
         }
         internal static void Rebuild(ref TStorage store, int dimensions)
         {
-            store.ClearCells(); store.State.LinkUsed = 0; store.State.FreeLink = -1; store.State.OverflowCount = 0;
+            store.ClearCells(); store.State.LinkUsed = 0; store.State.FreeLink = -1; store.State.OverflowCount = 0; store.State.OverflowHead = -1;
             for (int i = 0; i < store.State.Records.Used; i++) if (store.ReadEntry(i).Active != 0) Add(ref store, i, dimensions);
             store.State.Dirty = false;
         }

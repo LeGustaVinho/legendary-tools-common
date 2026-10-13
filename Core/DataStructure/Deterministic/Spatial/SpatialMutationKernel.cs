@@ -18,7 +18,7 @@ namespace LegendaryTools.Deterministic
                 var status = store.ClearRecords(); if (!status.IsSuccess()) return status;
                 store.State.Root = -1; store.State.NodeUsed = 0; store.State.FreeNode = -1;
                 if (store.Options.Strategy == SpatialIndexStrategy.SparseGrid) store.ClearCells();
-                store.State.LinkUsed = 0; store.State.FreeLink = -1; store.State.OverflowCount = 0; store.State.Dirty = false;
+                store.State.LinkUsed = 0; store.State.FreeLink = -1; store.State.OverflowCount = 0; store.State.OverflowHead = -1; store.State.Dirty = false;
                 store.State.Revision++; return DeterministicStatus.None;
             }
             int oldSlot = store.Find(command.Key);

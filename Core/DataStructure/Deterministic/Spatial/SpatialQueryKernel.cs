@@ -35,9 +35,26 @@ namespace LegendaryTools.Deterministic
             int c = distance.CompareTo(candidates[0].Distance);
             return c < 0 || c == 0 && policy.Compare(node.MinimumKey, candidates[0].Key) <= 0;
         }
+        private static void Scan<TPredicate>(ref TStorage store, in SpatialPreparedQuery query, SpatialFilter filter,
+            TPredicate predicate, SpatialCandidate<TKey>* candidates, ref int count, TPolicy policy, ref PriorityQueueState selection)
+            where TPredicate : unmanaged, ISpatialPredicate<TKey, TData, TBounds>
+        {
+            if (store.State.Records.Count < store.State.Records.Used / 2)
+            {
+                int encoded = store.State.Records.OrderHead;
+                while (encoded != 0)
+                {
+                    int slot = encoded - 1; encoded = store.ReadEntry(slot).OrderNext;
+                    Visit(ref store, slot, query, filter, predicate, candidates, ref count, policy, ref selection);
+                }
+            }
+            else
+                for (int i = 0; i < store.State.Records.Used; i++)
+                    Visit(ref store, i, query, filter, predicate, candidates, ref count, policy, ref selection);
+        }
         internal static DeterministicStatus Collect<TPredicate>(ref TStorage store, in SpatialQuery query, int dimensions,
             SpatialQueryScratch scratch, SpatialFilter filter, TPredicate predicate, TPolicy policy,
-            out SpatialCandidate<TKey>* candidates, out int count)
+            out SpatialCandidate<TKey>* candidates, out int count, bool sort = true)
             where TPredicate : unmanaged, ISpatialPredicate<TKey, TData, TBounds>
         {
             candidates = null; count = 0;
@@ -52,14 +69,14 @@ namespace LegendaryTools.Deterministic
             var strategy = store.Options.Strategy;
             if (store.State.Dirty)
             {
-                for (int i = 0; i < store.State.Records.Used; i++) Visit(ref store, i, prepared, filter, predicate, candidates, ref count, policy, ref selection);
+                Scan(ref store, prepared, filter, predicate, candidates, ref count, policy, ref selection);
             }
             else if (strategy == SpatialIndexStrategy.SparseGrid && prepared.HasEnvelope)
             {
                 long size = SpatialGeometry.Normalize(unchecked((ulong)store.Options.CellSize.RawValue), LegendaryTools.FixedPoint.FixedRuntime.State);
                 if (!SpatialGridKernel<TKey, TData, TBounds, TStorage>.Range(prepared.Envelope, size, dimensions, store.Options.MaxCellsPerQuery, out var min, out var max))
                 {
-                    for (int i = 0; i < store.State.Records.Used; i++) Visit(ref store, i, prepared, filter, predicate, candidates, ref count, policy, ref selection);
+                    Scan(ref store, prepared, filter, predicate, candidates, ref count, policy, ref selection);
                 }
                 else
                 {
@@ -92,9 +109,13 @@ namespace LegendaryTools.Deterministic
                         }
                         if (x == max.X) break;
                     }
-                    if (store.State.OverflowCount != 0)
-                        for (int i = 0; i < store.State.Records.Used; i++) if (store.ReadEntry(i).Active != 0 && store.ReadPlacement(i).Overflow)
-                            Visit(ref store, i, prepared, filter, predicate, candidates, ref count, policy, ref selection);
+                    int overflow = store.State.OverflowHead;
+                    while (overflow >= 0)
+                    {
+                        var link = store.ReadLink(overflow);
+                        Visit(ref store, link.RecordSlot, prepared, filter, predicate, candidates, ref count, policy, ref selection);
+                        overflow = link.NextCell;
+                    }
                 }
             }
             else if (store.State.Root >= 0)
@@ -118,7 +139,8 @@ namespace LegendaryTools.Deterministic
                     }
                 }
             }
-            SpatialSort<TKey, TPolicy>.Sort(candidates, count, query.Kind, policy); return DeterministicStatus.None;
+            if (sort) SpatialSort<TKey, TPolicy>.Sort(candidates, count, query.Kind, policy);
+            return DeterministicStatus.None;
         }
         internal static DeterministicStatus Query<TPredicate>(ref TStorage store, in SpatialQuery query, int dimensions,
             SpatialQueryScratch scratch, SpatialHit<TKey>* output, int capacity, out int written,
@@ -127,8 +149,9 @@ namespace LegendaryTools.Deterministic
         {
             written = 0;
             if (capacity < 0 || output == null && capacity != 0) return DeterministicStatus.OutOfRange;
-            var s = Collect(ref store, query, dimensions, scratch, filter, predicate, policy, out var candidates, out int count);
+            var s = Collect(ref store, query, dimensions, scratch, filter, predicate, policy, out var candidates, out int count, false);
             if (!s.IsSuccess()) return s; if (count > capacity) return DeterministicStatus.BufferTooSmall;
+            SpatialSort<TKey, TPolicy>.Sort(candidates, count, query.Kind, policy);
             for (int i = 0; i < count; i++)
             {
                 var hit = new SpatialHit<TKey> { Key = candidates[i].Key };
