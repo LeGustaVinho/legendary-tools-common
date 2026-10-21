@@ -1,8 +1,0 @@
-{
-  "name": "LegendaryTools.FixedPoint.Validation",
-  "references": ["LegendaryTools.FixedPoint", "LegendaryTools.FixedPoint.Unity", "Unity.Burst", "Unity.Collections"],
-  "allowUnsafeCode": true,
-  "autoReferenced": true,
-  "defineConstraints": ["LEGENDARY_FIXEDPOINT_VALIDATION"],
-  "noEngineReferences": false
-}

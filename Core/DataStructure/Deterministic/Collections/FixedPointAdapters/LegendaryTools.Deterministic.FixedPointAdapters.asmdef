@@ -1,8 +1,0 @@
-{
-  "name": "LegendaryTools.Deterministic.FixedPointAdapters",
-  "rootNamespace": "LegendaryTools.Deterministic",
-  "references": ["LegendaryTools.Deterministic.Collections", "LegendaryTools.FixedPoint"],
-  "allowUnsafeCode": true,
-  "autoReferenced": true,
-  "noEngineReferences": true
-}

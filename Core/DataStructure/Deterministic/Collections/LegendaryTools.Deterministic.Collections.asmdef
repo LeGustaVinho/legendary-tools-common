@@ -1,8 +1,0 @@
-{
-  "name": "LegendaryTools.Deterministic.Collections",
-  "rootNamespace": "LegendaryTools.Deterministic",
-  "references": [],
-  "allowUnsafeCode": true,
-  "autoReferenced": true,
-  "noEngineReferences": true
-}
